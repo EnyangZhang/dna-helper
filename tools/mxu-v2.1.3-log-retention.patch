@@ -1,3 +1,11 @@
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+new file mode 100644
+index 0000000..5ed0b5a
+--- /dev/null
++++ b/pnpm-workspace.yaml
+@@ -0,0 +1,2 @@
++allowBuilds:
++  esbuild: true
 diff --git a/src-tauri/src/commands/file_ops.rs b/src-tauri/src/commands/file_ops.rs
 index df32e84..28d59ed 100644
 --- a/src-tauri/src/commands/file_ops.rs
@@ -10,9 +18,9 @@ index df32e84..28d59ed 100644
 +
 +#[cfg(windows)]
 +use std::os::windows::fs::MetadataExt;
-
+ 
  use super::utils::{get_app_data_dir, get_exe_directory, normalize_path};
-
+ 
  const MAX_EXPORT_ARCHIVE_BYTES: u64 = 24_500_000;
  const ZIP_ENTRY_OVERHEAD_BYTES: u64 = 128;
  const ZIP_END_OF_CENTRAL_DIRECTORY_BYTES: u64 = 22;
@@ -128,13 +136,13 @@ index df32e84..28d59ed 100644
 +    visit(root, root, &mut entries)?;
 +    Ok(entries)
 +}
-
+ 
  #[derive(Clone)]
  struct ExportEntry {
 @@ -295,50 +411,229 @@ pub fn get_data_dir() -> Result<String, String> {
      Ok(data_dir.to_string_lossy().to_string())
  }
-
+ 
 -/// 删除 debug 目录中的 .log 文件，可选择排除一个当前正在使用的日志文件
 +/// 删除 debug 目录中的 .log 文件，可选择排除一个当前正在使用的日志文件。
 +/// 删除前会解析并验证程序目录、debug 目录及全部子项，拒绝符号链接、重解析点和越界路径。
@@ -148,7 +156,7 @@ index df32e84..28d59ed 100644
 -    }
 +    };
 +    let entries = collect_checked_debug_entries(&debug_dir)?;
-
+ 
      let mut deleted = 0_u64;
 -    let entries = std::fs::read_dir(&debug_dir)
 -        .map_err(|e| format!("读取日志目录失败 [{}]: {}", debug_dir.display(), e))?;
@@ -163,7 +171,7 @@ index df32e84..28d59ed 100644
 +        if entry.is_dir || entry.path.parent() != Some(debug_dir.as_path()) {
              continue;
          }
-
+ 
 -        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
 +        let Some(name) = entry.path.file_name().and_then(|name| name.to_str()) else {
              continue;
@@ -176,7 +184,7 @@ index df32e84..28d59ed 100644
          if exclude_file_name.as_deref() == Some(name) {
              continue;
          }
-
+ 
 -        match std::fs::remove_file(&path) {
 -            Ok(()) => deleted = deleted.saturating_add(1),
 -            Err(e) => log::debug!("Failed to delete log file [{}]: {}", path.display(), e),
@@ -258,10 +266,10 @@ index df32e84..28d59ed 100644
 +            deleted = deleted.saturating_add(1);
          }
      }
-
+ 
      Ok(deleted)
  }
-
+ 
 +/// 在 debug 目录内创建一次性标记；应用下次启动、日志初始化前执行完整清理。
 +#[tauri::command]
 +pub fn schedule_full_debug_clear() -> Result<(), String> {
@@ -386,7 +394,7 @@ index 4a76d36..302ba04 100644
 --- a/src-tauri/src/lib.rs
 +++ b/src-tauri/src/lib.rs
 @@ -13,6 +13,11 @@ use ws_broadcast::WsBroadcast;
-
+ 
  #[cfg_attr(mobile, tauri::mobile_entry_point)]
  pub fn run() {
 +    // 手动“完全清空”在本次日志初始化前执行，避免 Windows 文件占用导致漏删。
@@ -396,7 +404,7 @@ index 4a76d36..302ba04 100644
 +
      // 日志目录：exe 目录/debug/logs（与前端日志同目录）
      let logs_dir = commands::utils::get_logs_dir();
-
+ 
 @@ -240,6 +245,8 @@ pub fn run() {
              commands::file_ops::get_exe_dir,
              commands::file_ops::get_data_dir,
@@ -436,41 +444,40 @@ index 9445863..c0bde2d 100644
              }
            }
            clearPersistedRuntimeLogs();
-diff --git a/src/components/settings/GeneralSection.tsx b/src/components/settings/GeneralSection.tsx
-index 4e2c221..fbd4c4a 100644
---- a/src/components/settings/GeneralSection.tsx
-+++ b/src/components/settings/GeneralSection.tsx
-@@ -12,13 +12,17 @@ import {
-   ChevronDown,
-   Check,
-   BrushCleaning,
+diff --git a/src/components/settings/DebugSection.tsx b/src/components/settings/DebugSection.tsx
+index 2e0ac20..43bfd85 100644
+--- a/src/components/settings/DebugSection.tsx
++++ b/src/components/settings/DebugSection.tsx
+@@ -10,7 +10,9 @@ import {
+   Globe,
+   ExternalLink,
+   Server,
 +  Trash2,
  } from 'lucide-react';
 +import { toast } from 'sonner';
-
+ 
  import { useAppStore } from '@/stores/appStore';
- import { defaultAddTaskPanelHeight, defaultWindowSize } from '@/types/config';
- import { isTauri } from '@/utils/paths';
+ import { maaService } from '@/services/maaService';
+@@ -18,6 +20,7 @@ import { loggers } from '@/utils/logger';
+ import { isTauri, getDebugDir, getConfigDir, openDirectory } from '@/utils/paths';
+ import { useExportLogs } from '@/utils/useExportLogs';
  import { SwitchButton } from '@/components/FormControls';
- import { DesktopOnlyWrapper } from '@/components/ui/DesktopOnlyWrapper';
 +import { ConfirmDialog } from '@/components/ConfirmDialog';
-+import { loggers } from '@/utils/logger';
- import { FrameRateSelector } from '../FrameRateSelector';
-
- export function GeneralSection() {
-@@ -51,6 +55,8 @@ export function GeneralSection() {
-   // 自定义下拉框状态
-   const [instanceDropdownOpen, setInstanceDropdownOpen] = useState(false);
-   const dropdownRef = useRef<HTMLDivElement>(null);
+ import { ExportLogsModal } from './ExportLogsModal';
+ 
+ export function DebugSection() {
+@@ -52,12 +55,31 @@ export function DebugSection() {
+   const [lanIp, setLanIp] = useState<string | null>(null);
+   const [showRestartPrompt, setShowRestartPrompt] = useState(false);
+   const [portInput, setPortInput] = useState(String(configuredPort));
 +  const [showClearLogsConfirm, setShowClearLogsConfirm] = useState(false);
 +  const [isSchedulingLogClear, setIsSchedulingLogClear] = useState(false);
-
+ 
    useEffect(() => {
-     if (!isTauri()) return;
-@@ -132,6 +138,23 @@ export function GeneralSection() {
-     }
-   }, [setRightPanelWidth, setRightPanelCollapsed, setAddTaskPanelHeight]);
-
+     setPortInput(String(configuredPort));
+   }, [configuredPort]);
+   const { exportModal, handleExportLogs, closeExportModal, openExportedFile } = useExportLogs();
+ 
 +  const handleClearAllLogs = useCallback(async () => {
 +    if (!isTauri() || isSchedulingLogClear) return;
 +    setIsSchedulingLogClear(true);
@@ -488,41 +495,30 @@ index 4e2c221..fbd4c4a 100644
 +    }
 +  }, [isSchedulingLogClear, t]);
 +
-   // 构建下拉选项列表
-   const dropdownOptions = [
-     { id: '', name: t('settings.autoStartInstanceNone') },
-@@ -325,6 +348,27 @@ export function GeneralSection() {
-         </div>
-       </div>
-
-+      {/* 手动完全清空日志：独立操作，不与自动保留期开关复用 */}
-+      <div className="bg-error/5 rounded-xl p-4 border border-error/30">
-+        <div className="flex items-center justify-between gap-4">
-+          <div className="flex items-center gap-3 min-w-0">
-+            <Trash2 className="w-5 h-5 text-error flex-shrink-0" />
-+            <div>
-+              <span className="font-medium text-error">{t('debug.clearAllLogs')}</span>
-+              <p className="text-xs text-text-muted mt-0.5">{t('debug.clearAllLogsHint')}</p>
-+            </div>
-+          </div>
+   const version = projectInterface?.version || '0.1.0';
+ 
+   // 版本信息（用于调试展示）
+@@ -328,6 +350,16 @@ export function DebugSection() {
+             <Archive className="w-4 h-4" />
+             {t('debug.exportLogs')}
+           </button>
 +          <button
 +            type="button"
 +            onClick={() => setShowClearLogsConfirm(true)}
 +            disabled={!isTauri() || isSchedulingLogClear}
-+            className="flex-shrink-0 px-4 py-2 text-sm font-medium bg-error text-white hover:bg-error/90 rounded-lg transition-colors disabled:opacity-50"
++            className="flex items-center gap-2 px-3 py-2 text-sm bg-error/10 text-error hover:bg-error/20 rounded-lg transition-colors disabled:opacity-50"
++            title={t('debug.clearAllLogsHint')}
 +          >
++            <Trash2 className="w-4 h-4" />
 +            {t('debug.clearAllLogs')}
 +          </button>
-+        </div>
-+      </div>
-+
-       {/* ⑦ 删除确认 */}
-       <div className="bg-bg-secondary rounded-xl p-4 border border-border">
-         <div className="flex items-center justify-between">
-@@ -367,6 +411,19 @@ export function GeneralSection() {
-           </div>
          </div>
-       )}
+ 
+         {/* 开发模式 */}
+@@ -434,6 +466,19 @@ export function DebugSection() {
+         onClose={closeExportModal}
+         onOpen={openExportedFile}
+       />
 +      <ConfirmDialog
 +        open={showClearLogsConfirm}
 +        title={t('debug.clearAllLogsConfirmTitle')}
@@ -539,6 +535,31 @@ index 4e2c221..fbd4c4a 100644
      </section>
    );
  }
+diff --git a/src/components/settings/GeneralSection.tsx b/src/components/settings/GeneralSection.tsx
+index 4e2c221..e29683c 100644
+--- a/src/components/settings/GeneralSection.tsx
++++ b/src/components/settings/GeneralSection.tsx
+@@ -168,7 +168,7 @@ export function GeneralSection() {
+           )}
+ 
+           {/* ② 启动后自动执行 */}
+-          <div className={isTauri() ? "pt-4 border-t border-border" : ""}>
++          <div className={isTauri() ? 'pt-4 border-t border-border' : ''}>
+             <div className="flex items-center gap-3 mb-3">
+               <Play className="w-5 h-5 text-accent" />
+               <div>
+@@ -321,7 +321,10 @@ export function GeneralSection() {
+               </p>
+             </div>
+           </div>
+-          <SwitchButton value={autoClearLogsOnLaunch} onChange={(v) => setAutoClearLogsOnLaunch(v)} />
++          <SwitchButton
++            value={autoClearLogsOnLaunch}
++            onChange={(v) => setAutoClearLogsOnLaunch(v)}
++          />
+         </div>
+       </div>
+ 
 diff --git a/src/i18n/locales/en-US.ts b/src/i18n/locales/en-US.ts
 index c6a4cb9..c06e7b7 100644
 --- a/src/i18n/locales/en-US.ts
@@ -550,7 +571,7 @@ index c6a4cb9..c06e7b7 100644
 -    autoClearLogsOnLaunchHint: 'Automatically clear runtime logs and delete old log files every time the project is launched',
 +    autoClearLogsOnLaunchHint: 'Delete logs and debug files in the debug directory that are older than 14 days on launch',
    },
-
+ 
    // Special tasks
 @@ -522,6 +522,13 @@ export default {
      resetWindowLayout: 'Reset Window Layout',
@@ -576,7 +597,7 @@ index 5b48883..1792409 100644
      resetWindowLayoutHint: 'ウィンドウサイズをデフォルトに戻し、中央に配置します',    autoClearLogsOnLaunch: '実行ログの自動クリア',
 -    autoClearLogsOnLaunchHint: 'プロジェクトの起動時に自動で実行ログをクリアし、古いログファイルを削除します',  },
 +    autoClearLogsOnLaunchHint: '起動時に debug フォルダー内の 14 日を超えたログとデバッグファイルを削除します',  },
-
+ 
    // 特殊タスク
    specialTask: {
 @@ -515,6 +515,13 @@ export default {
@@ -604,7 +625,7 @@ index 76d1c1a..139b505 100644
 -    autoClearLogsOnLaunchHint: '프로젝트를 시작할 때 런타임 로그를 자동으로 지우고 이전 로그 파일을 삭제합니다',
 +    autoClearLogsOnLaunchHint: '시작할 때 debug 폴더에서 14일이 지난 로그와 디버그 파일을 삭제합니다',
    },
-
+ 
    // 특수 작업
 @@ -514,6 +514,13 @@ export default {
      resetWindowSize: '창 크기 초기화',
@@ -631,7 +652,7 @@ index bbbc8e2..a5a4b6c 100644
 -    autoClearLogsOnLaunchHint: '每次启动项目时，自动清理运行日志并删除旧的日志文件',
 +    autoClearLogsOnLaunchHint: '每次启动项目时，自动删除 debug 目录内超过 14 天的日志和调试文件',
    },
-
+ 
    // 特殊任务
 @@ -511,6 +511,13 @@ export default {
      resetWindowLayout: '重置窗口布局',
@@ -657,7 +678,7 @@ index 7371edd..f471031 100644
      resetWindowLayoutHint: '將視窗大小恢復為預設值，並置中顯示',    autoClearLogsOnLaunch: '自動清理運行日誌',
 -    autoClearLogsOnLaunchHint: '每次啟動項目時，自動清理運行日誌並刪除舊的日誌檔案',  },
 +    autoClearLogsOnLaunchHint: '每次啟動項目時，自動刪除 debug 目錄內超過 14 天的日誌與除錯檔案',  },
-
+ 
    // 特殊任務
    specialTask: {
 @@ -505,6 +505,13 @@ export default {
@@ -674,11 +695,3 @@ index 7371edd..f471031 100644
      exportLogs: '匯出日誌',
      exportLogsHint: '打包日誌與 config，並依 24.5 MB 上限自動保留最近的除錯圖片',
      exportingLogs: '正在匯出日誌...',
-diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
-new file mode 100644
-index 0000000..a0fcc4b
---- /dev/null
-+++ b/pnpm-workspace.yaml
-@@ -0,0 +1,2 @@
-+allowBuilds:
-+  esbuild: true

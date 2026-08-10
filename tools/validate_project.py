@@ -26,6 +26,35 @@ DYNAMIC_PIPELINE_TARGETS = {
     "FocusGuardQKeyProxy",
     "NormalEndlessRestartByClick",
 }
+COMBAT_HUD_READY_NODES = (
+    "LiseCombatHudReadyFrame1",
+    "LiseCombatHudReadyFrame2",
+    "LiseCombatHudReady",
+)
+COMBAT_HUD_TEMPLATE = "CharacterControl/combat_health_bar.png"
+COMBAT_HUD_ROI = [90, 675, 180, 40]
+COMBAT_HUD_THRESHOLD = 0.85
+SKILL_OPTION_ROOTS = {
+    "CipherEnableSkills": "LiseEnableE",
+    "NormalHoldEnableSkills": "NormalHoldEnableE",
+    "NormalExpelEnableSkills": "LiseEnableE",
+}
+SKILL_OPTION_BRANCHES = (
+    (
+        "LiseEnableE",
+        "LiseEInterval",
+        "LiseEnableQ",
+        "LiseQBeforeE",
+        "LiseQAfterTriggerDelay",
+    ),
+    (
+        "NormalHoldEnableE",
+        "NormalHoldEInterval",
+        "NormalHoldEnableQ",
+        "NormalHoldQBeforeE",
+        "NormalHoldQAfterTriggerDelay",
+    ),
+)
 
 
 def load_json(path: Path) -> dict:
@@ -68,6 +97,29 @@ def collect_pipeline_edges(node: dict) -> set[str]:
         if isinstance(targets, list):
             edges.update(target for target in targets if isinstance(target, str))
     return edges
+
+
+def option_case(option: dict, name: str) -> dict:
+    """Return a named option case or fail with a useful validation error."""
+    for case in option.get("cases", []):
+        if case.get("name") == name:
+            return case
+    raise SystemExit(f"Option {option.get('label', '<unnamed>')} is missing case {name}")
+
+
+def require_override(
+    option_name: str,
+    case: dict,
+    node_name: str,
+    expected: dict,
+) -> None:
+    actual = case.get("pipeline_override", {}).get(node_name, {})
+    for field, value in expected.items():
+        if actual.get(field) != value:
+            raise SystemExit(
+                f"{option_name}/{case.get('name')}: {node_name}.{field} "
+                f"must be {value!r}, got {actual.get(field)!r}"
+            )
 
 
 def main() -> None:
@@ -204,6 +256,303 @@ def main() -> None:
         raise SystemExit(
             f"Missing Agent dynamic pipeline targets: {sorted(missing_dynamic_targets)}"
         )
+
+    for node_name in COMBAT_HUD_READY_NODES:
+        node = pipeline_nodes.get(node_name)
+        if node is None:
+            raise SystemExit(f"Missing combat HUD confirmation node: {node_name}")
+        recognition = node.get("recognition", {})
+        params = recognition.get("param", {})
+        if recognition.get("type") != "TemplateMatch":
+            raise SystemExit(f"{node_name}: combat HUD recognition must use TemplateMatch")
+        if params.get("template") != COMBAT_HUD_TEMPLATE:
+            raise SystemExit(
+                f"{node_name}: combat HUD template must be {COMBAT_HUD_TEMPLATE}"
+            )
+        if params.get("roi") != COMBAT_HUD_ROI:
+            raise SystemExit(f"{node_name}: combat HUD ROI must be {COMBAT_HUD_ROI}")
+        if params.get("threshold") != COMBAT_HUD_THRESHOLD:
+            raise SystemExit(
+                f"{node_name}: combat HUD threshold must be {COMBAT_HUD_THRESHOLD}"
+            )
+
+    if "CharacterControl/q_inactive.png" in template_paths:
+        raise SystemExit("Q icon must not be used as a combat HUD trigger")
+
+    expected_skill_nodes = {
+        "LiseSkillOrderEntry": ["LisePressE", "LisePressQ", "LiseSkillCastEnd"],
+        "LisePressE": ["LisePressQ", "LiseSkillCastEnd"],
+        "LisePressQBeforeE": [
+            "LiseQBeforeEIntervalDelay",
+            "LisePressEAfterQ",
+            "LiseSkillCastEnd",
+        ],
+        "LiseQBeforeEIntervalDelay": ["LisePressEAfterQ", "LiseSkillCastEnd"],
+        "LisePressEAfterQ": ["LiseSkillCastEnd"],
+    }
+    for node_name, expected_next in expected_skill_nodes.items():
+        node = pipeline_nodes.get(node_name)
+        if node is None:
+            raise SystemExit(f"Missing shared skill-order node: {node_name}")
+        if node.get("next") != expected_next:
+            raise SystemExit(
+                f"{node_name}.next must be {expected_next!r}, got {node.get('next')!r}"
+            )
+
+    for node_name, node in pipeline_nodes.items():
+        for event in node.get("focus", {}).values():
+            if "[黎瑟]" in event.get("content", ""):
+                raise SystemExit(f"{node_name}: skill log prefix must use [角色]")
+
+    for node_name in ("LisePressQ", "LisePressQBeforeE"):
+        params = (
+            pipeline_nodes[node_name]
+            .get("action", {})
+            .get("param", {})
+            .get("custom_action_param", {})
+        )
+        expected_q_params = {
+            "kind": "key",
+            "key": 81,
+            "repeat": 3,
+            "interval_ms": 100,
+        }
+        if params != expected_q_params:
+            raise SystemExit(
+                f"{node_name}: Q input must be sent 3 times at 100ms intervals"
+            )
+
+    for parent_name, e_option_name in SKILL_OPTION_ROOTS.items():
+        parent = all_options.get(parent_name)
+        if parent is None:
+            raise SystemExit(f"Missing skill option parent: {parent_name}")
+        yes_options = option_case(parent, "Yes").get("option", [])
+        if e_option_name not in yes_options:
+            raise SystemExit(
+                f"{parent_name}: must expose {e_option_name} when skills are enabled"
+            )
+        if "LiseQBeforeE" in yes_options or "NormalHoldQBeforeE" in yes_options:
+            raise SystemExit(
+                f"{parent_name}: Q-before-E must be nested under both E and Q switches"
+            )
+
+    for e_name, interval_name, q_name, order_name, delay_name in SKILL_OPTION_BRANCHES:
+        enable_e = all_options.get(e_name, {})
+        e_yes_options = option_case(enable_e, "Yes").get("option", [])
+        e_no_options = option_case(enable_e, "No").get("option", [])
+        for required in ("LiseECount", interval_name, q_name):
+            if required not in e_yes_options:
+                raise SystemExit(f"{e_name}/Yes must expose {required}")
+        if order_name in e_yes_options or order_name in e_no_options:
+            raise SystemExit(f"{e_name}: {order_name} must only be nested under Q/Yes")
+        if "LiseEnableQOnly" not in e_no_options:
+            raise SystemExit(f"{e_name}/No must expose LiseEnableQOnly")
+
+        enable_q = all_options.get(q_name, {})
+        q_yes_options = option_case(enable_q, "Yes").get("option", [])
+        q_no_options = option_case(enable_q, "No").get("option", [])
+        if order_name not in q_yes_options or order_name in q_no_options:
+            raise SystemExit(f"{q_name}: {order_name} must only appear under Q/Yes")
+
+        q_order = all_options.get(order_name)
+        if q_order is None or q_order.get("default_case") != "No":
+            raise SystemExit(f"{order_name} must exist and default to No")
+        q_before = option_case(q_order, "Yes")
+        if delay_name not in q_before.get("option", []):
+            raise SystemExit(f"{order_name}/Yes must expose {delay_name}")
+        if delay_name in option_case(q_order, "No").get("option", []):
+            raise SystemExit(f"{order_name}/No must hide {delay_name}")
+        require_override(
+            order_name,
+            q_before,
+            "LiseSkillOrderEntry",
+            {"next": ["LisePressQBeforeE", "LisePressEAfterQ", "LiseSkillCastEnd"]},
+        )
+        q_after = option_case(q_order, "No")
+        require_override(
+            order_name,
+            q_after,
+            "LiseSkillOrderEntry",
+            {"next": ["LisePressE", "LisePressQ", "LiseSkillCastEnd"]},
+        )
+        require_override(
+            order_name,
+            q_after,
+            "LisePressE",
+            {"next": ["LisePressQ", "LiseSkillCastEnd"]},
+        )
+
+        delay = all_options.get(delay_name, {})
+        delay_inputs = delay.get("inputs", [])
+        if not delay_inputs or delay_inputs[0].get("default") != "2000":
+            raise SystemExit(f"{delay_name}: Q-after delay must default to 2000ms")
+        delay_override = delay.get("pipeline_override", {}).get(
+            "LiseQBeforeEIntervalDelay", {}
+        )
+        if delay_override.get("pre_delay") != "{delay_ms}":
+            raise SystemExit(
+                f"{delay_name}: must control LiseQBeforeEIntervalDelay.pre_delay"
+            )
+
+    for q_name in ("LiseEnableQ", "NormalHoldEnableQ", "LiseEnableQOnly"):
+        enable_q = all_options.get(q_name, {})
+        for case_name, enabled in (("Yes", True), ("No", False)):
+            case = option_case(enable_q, case_name)
+            require_override(q_name, case, "LisePressQ", {"enabled": enabled})
+            require_override(
+                q_name, case, "LisePressQBeforeE", {"enabled": enabled}
+            )
+
+    for e_name in ("LiseEnableE", "NormalHoldEnableE"):
+        enable_e = all_options.get(e_name, {})
+        for case_name, enabled in (("Yes", True), ("No", False)):
+            case = option_case(enable_e, case_name)
+            require_override(e_name, case, "LisePressE", {"enabled": enabled})
+            require_override(
+                e_name, case, "LisePressEAfterQ", {"enabled": enabled}
+            )
+            require_override(
+                e_name,
+                case,
+                "LiseQBeforeEIntervalDelay",
+                {"enabled": enabled},
+            )
+
+    normal_mode = all_options.get("NormalMode", {})
+    hold_mode = option_case(normal_mode, "Endless")
+    require_override(
+        "NormalMode",
+        hold_mode,
+        "NormalEndlessMonitor",
+        {
+            "next": [
+                "NormalEndlessContinueChallenge",
+                "NormalEndlessConfirmChoice",
+                "NormalEndlessAgainDetected",
+                "NormalEndlessIdle",
+            ]
+        },
+    )
+    expel_mode = option_case(normal_mode, "Expel")
+    require_override(
+        "NormalMode",
+        expel_mode,
+        "NormalEndlessEntry",
+        {"next": ["NormalExpelMonitor"]},
+    )
+
+    hold_skills = all_options.get("NormalHoldEnableSkills", {})
+    hold_skills_yes = option_case(hold_skills, "Yes")
+    require_override(
+        "NormalHoldEnableSkills",
+        hold_skills_yes,
+        "NormalEndlessEntry",
+        {"next": ["NormalEndlessMonitor"]},
+    )
+    require_override(
+        "NormalHoldEnableSkills",
+        hold_skills_yes,
+        "NormalEndlessStartChallengeClick3",
+        {"next": ["NormalEndlessMonitor"]},
+    )
+    require_override(
+        "NormalHoldEnableSkills",
+        hold_skills_yes,
+        "NormalEndlessMonitor",
+        {
+            "next": [
+                "NormalEndlessContinueChallenge",
+                "NormalEndlessConfirmChoice",
+                "NormalEndlessAgainDetected",
+                "LiseCombatHudReadyFrame1",
+                "NormalEndlessIdle",
+            ]
+        },
+    )
+    for hud_node in ("LiseCombatHudReadyFrame1", "LiseCombatHudReadyFrame2"):
+        require_override(
+            "NormalHoldEnableSkills",
+            hold_skills_yes,
+            hud_node,
+            {"on_error": ["NormalEndlessMonitor"]},
+        )
+
+    expel_skills = all_options.get("NormalExpelEnableSkills", {})
+    expel_skills_yes = option_case(expel_skills, "Yes")
+    for entry_node in ("NormalEndlessEntry", "NormalEndlessStartChallengeClick3"):
+        require_override(
+            "NormalExpelEnableSkills",
+            expel_skills_yes,
+            entry_node,
+            {"next": ["NormalExpelMonitor"]},
+        )
+    require_override(
+        "NormalExpelEnableSkills",
+        expel_skills_yes,
+        "NormalExpelMonitor",
+        {
+            "next": [
+                "NormalEndlessAgainDetected",
+                "LiseCombatHudReadyFrame1",
+                "NormalExpelMonitor",
+            ]
+        },
+    )
+    for hud_node in ("LiseCombatHudReadyFrame1", "LiseCombatHudReadyFrame2"):
+        require_override(
+            "NormalExpelEnableSkills",
+            expel_skills_yes,
+            hud_node,
+            {"on_error": ["NormalExpelMonitor"]},
+        )
+    expel_skills_no = option_case(expel_skills, "No")
+    require_override(
+        "NormalExpelEnableSkills",
+        expel_skills_no,
+        "NormalExpelMonitor",
+        {"next": ["NormalEndlessAgainDetected", "NormalExpelMonitor"]},
+    )
+
+    for interval_option_name in ("LiseEInterval", "NormalHoldEInterval"):
+        interval = all_options.get(interval_option_name, {})
+        override = interval.get("pipeline_override", {})
+        e_override = override.get("LisePressE", {})
+        e_after_q_override = override.get("LisePressEAfterQ", {})
+        expected_placeholder = "{interval_ms}"
+        if (
+            e_override.get("repeat_delay") != expected_placeholder
+            or e_override.get("post_delay") != expected_placeholder
+            or e_after_q_override.get("repeat_delay") != expected_placeholder
+        ):
+            raise SystemExit(
+                f"{interval_option_name}: both E repeat delays and E post delay "
+                "must use {interval_ms}"
+            )
+        if "LiseQBeforeEIntervalDelay" in override:
+            raise SystemExit(
+                f"{interval_option_name}: Q-after delay must use its dedicated option"
+            )
+
+    e_count_override = all_options.get("LiseECount", {}).get("pipeline_override", {})
+    for node_name in ("LisePressE", "LisePressEAfterQ"):
+        node_override = e_count_override.get(node_name, {})
+        if node_override.get("repeat") != "{count}":
+            raise SystemExit(f"LiseECount: {node_name}.repeat must use {{count}}")
+        params = (
+            node_override.get("action", {})
+            .get("param", {})
+            .get("custom_action_param", {})
+        )
+        expected_e_params = {
+            "kind": "key",
+            "key": 69,
+            "repeat": 1,
+            "sequence_total": "{count}",
+        }
+        if params != expected_e_params:
+            raise SystemExit(
+                f"LiseECount: {node_name} must pass the configured total to E logging"
+            )
 
     graph = {
         name: collect_pipeline_edges(node) for name, node in pipeline_nodes.items()

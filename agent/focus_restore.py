@@ -53,6 +53,20 @@ _state_lock = threading.Lock()
 _fallback_hwnd = 0
 _game_hwnd = 0
 _watcher_started = False
+_e_sequence_lock = threading.Lock()
+_e_sequence_progress: dict[tuple[int, str], int] = {}
+
+
+def _next_e_sequence_index(task_id: int, node_name: str, total: int) -> int:
+    """Track one pipeline-repeated E sequence and return its 1-based index."""
+    key = (task_id, node_name)
+    with _e_sequence_lock:
+        current = _e_sequence_progress.get(key, 0) + 1
+        if current >= total:
+            _e_sequence_progress.pop(key, None)
+        else:
+            _e_sequence_progress[key] = current
+    return current
 
 
 def _foreground_window() -> int:
@@ -203,12 +217,38 @@ class FocusGuardAction(CustomAction):
         else:
             return CustomAction.RunResult(success=False)
 
+        e_sequence_index = 0
+        e_sequence_total = 0
+        if kind == "key" and key == 69:
+            e_sequence_total = max(1, int(params.get("sequence_total", 1)))
+            task_id = int(getattr(argv.task_detail, "task_id", 0))
+            e_sequence_index = _next_e_sequence_index(
+                task_id, argv.node_name, e_sequence_total
+            )
+
         game_hwnd = _controller_hwnd(context)
         restore_hwnd = _remember_window(_foreground_window(), game_hwnd)
         succeeded = True
 
         try:
             for index in range(repeat):
+                if kind == "key" and key == 69:
+                    log_ready = context.override_pipeline(
+                        {
+                            "FocusGuardEKeyProxy": {
+                                "focus": {
+                                    "Node.Action.Succeeded": {
+                                        "content": (
+                                            f"[角色] E 连续点击：第 {e_sequence_index} / "
+                                            f"{e_sequence_total} 次已发送"
+                                        ),
+                                        "display": ["log"],
+                                    }
+                                }
+                            }
+                        }
+                    )
+                    succeeded = succeeded and log_ready
                 detail = context.run_action(proxy_node)
                 succeeded = succeeded and detail is not None and detail.success
                 if index + 1 < repeat and interval_ms:

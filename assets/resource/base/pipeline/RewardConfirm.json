@@ -295,8 +295,7 @@
         "post_delay": 0,
         "next": [
             "RewardConfirmByClick",
-            "LisePressE",
-            "LisePressQ",
+            "LiseSkillOrderEntry",
             "LiseSkillCastEnd"
         ]
     },

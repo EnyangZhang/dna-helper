@@ -49,8 +49,7 @@
             "NormalEndlessContinueChallenge",
             "NormalEndlessConfirmChoice",
             "NormalEndlessAgainDetected",
-            "LisePressE",
-            "LisePressQ",
+            "LiseSkillOrderEntry",
             "LiseSkillCastEnd"
         ]
     },
@@ -521,8 +520,7 @@
         "post_delay": 0,
         "next": [
             "NormalEndlessAgainDetected",
-            "LisePressE",
-            "LisePressQ",
+            "LiseSkillOrderEntry",
             "LiseSkillCastEnd"
         ]
     },

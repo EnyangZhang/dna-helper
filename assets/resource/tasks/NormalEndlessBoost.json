@@ -44,8 +44,7 @@
                                 "NormalEndlessContinueChallenge",
                                 "NormalEndlessConfirmChoice",
                                 "NormalEndlessAgainDetected",
-                                "LisePressE",
-                                "LisePressQ",
+                                "LiseSkillOrderEntry",
                                 "LiseSkillCastEnd"
                             ]
                         },
@@ -73,11 +72,6 @@
                         "LiseSkillCastEnd": {
                             "next": [
                                 "NormalEndlessMonitor"
-                            ]
-                        },
-                        "LiseWaitCombatReady": {
-                            "next": [
-                                "NormalEndlessCombatEntry"
                             ]
                         }
                     }
@@ -215,44 +209,42 @@
                     "label": "开启",
                     "option": [
                         "NormalHoldCombatStartDelay",
-                        "LiseEnableE",
-                        "LiseECount",
-                        "NormalHoldEInterval",
-                        "LiseEnableQ"
+                        "NormalHoldEnableE"
                     ],
                     "pipeline_override": {
                         "NormalEndlessEntry": {
                             "next": [
-                                "LiseCombatHudReadyFrame1",
-                                "LiseWaitCombatReady"
+                                "NormalEndlessMonitor"
                             ]
                         },
                         "NormalEndlessStartChallengeClick3": {
                             "next": [
+                                "NormalEndlessMonitor"
+                            ]
+                        },
+                        "NormalEndlessMonitor": {
+                            "next": [
+                                "NormalEndlessContinueChallenge",
+                                "NormalEndlessConfirmChoice",
+                                "NormalEndlessAgainDetected",
                                 "LiseCombatHudReadyFrame1",
-                                "LiseWaitCombatReady"
+                                "NormalEndlessIdle"
                             ]
                         },
                         "LiseCombatHudReadyFrame1": {
                             "on_error": [
-                                "LiseWaitCombatReady"
+                                "NormalEndlessMonitor"
                             ]
                         },
                         "LiseCombatHudReadyFrame2": {
                             "on_error": [
-                                "LiseWaitCombatReady"
+                                "NormalEndlessMonitor"
                             ]
                         },
                         "LiseCombatHudReady": {
                             "next": [
                                 "LiseCombatLoadDelay",
                                 "NormalEndlessCombatEntry"
-                            ]
-                        },
-                        "LiseWaitCombatReady": {
-                            "next": [
-                                "LiseCombatHudReadyFrame1",
-                                "LiseWaitCombatReady"
                             ]
                         }
                     }
@@ -275,44 +267,40 @@
                     "option": [
                         "LiseCombatStartDelay",
                         "NormalLiseHighPlatformOnly",
-                        "LiseEnableE",
-                        "LiseECount",
-                        "LiseEInterval",
-                        "LiseEnableQ"
+                        "LiseEnableE"
                     ],
                     "pipeline_override": {
                         "NormalEndlessEntry": {
                             "next": [
-                                "LiseCombatHudReadyFrame1",
-                                "LiseWaitCombatReady"
+                                "NormalExpelMonitor"
                             ]
                         },
                         "NormalEndlessStartChallengeClick3": {
                             "next": [
+                                "NormalExpelMonitor"
+                            ]
+                        },
+                        "NormalExpelMonitor": {
+                            "next": [
+                                "NormalEndlessAgainDetected",
                                 "LiseCombatHudReadyFrame1",
-                                "LiseWaitCombatReady"
+                                "NormalExpelMonitor"
                             ]
                         },
                         "LiseCombatHudReadyFrame1": {
                             "on_error": [
-                                "LiseWaitCombatReady"
+                                "NormalExpelMonitor"
                             ]
                         },
                         "LiseCombatHudReadyFrame2": {
                             "on_error": [
-                                "LiseWaitCombatReady"
+                                "NormalExpelMonitor"
                             ]
                         },
                         "LiseCombatHudReady": {
                             "next": [
                                 "LiseCombatLoadDelay",
                                 "NormalExpelCombatEntry"
-                            ]
-                        },
-                        "LiseWaitCombatReady": {
-                            "next": [
-                                "LiseCombatHudReadyFrame1",
-                                "LiseWaitCombatReady"
                             ]
                         }
                     }
@@ -412,7 +400,7 @@
         "NormalHoldCombatStartDelay": {
             "type": "input",
             "label": "技能触发延迟（ms）",
-            "description": "进入每轮副本后等待此时间，再按配置依次执行 E、Q；最低 2000ms。技能结束后返回扼守结算监听。",
+            "description": "进入每轮副本后等待此时间，再按配置的先后顺序执行 E、Q；最低 2000ms。技能结束后返回扼守结算监听。",
             "inputs": [
                 {
                     "name": "delay_ms",
@@ -428,10 +416,56 @@
                 }
             }
         },
+        "NormalHoldEnableE": {
+            "type": "switch",
+            "label": "启动 E 键",
+            "description": "是否执行 E 键连续点击。关闭后仍可单独开启 Q，但不会显示 Q/E 顺序设置。",
+            "default_case": "Yes",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "option": [
+                        "LiseECount",
+                        "NormalHoldEInterval",
+                        "NormalHoldEnableQ"
+                    ],
+                    "pipeline_override": {
+                        "LisePressE": {
+                            "enabled": true
+                        },
+                        "LisePressEAfterQ": {
+                            "enabled": true
+                        },
+                        "LiseQBeforeEIntervalDelay": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "option": [
+                        "LiseEnableQOnly"
+                    ],
+                    "pipeline_override": {
+                        "LisePressE": {
+                            "enabled": false
+                        },
+                        "LisePressEAfterQ": {
+                            "enabled": false
+                        },
+                        "LiseQBeforeEIntervalDelay": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ]
+        },
         "NormalHoldEInterval": {
             "type": "input",
             "label": "连续点击间隔（ms）",
-            "description": "设置普通扼守中每次点击 E 键后的等待时间；最后一次 E 键后同样等待该间隔，再执行 Q 键。",
+            "description": "普通扼守的 E 连点间隔。Q 在 E 后时，最后一次 E 后也等待该间隔再按 Q；Q 在 E 前时只控制 E 连点本身，Q 后等待时间由单独的“Q 后触发间隔”设置。",
             "inputs": [
                 {
                     "name": "interval_ms",
@@ -445,13 +479,113 @@
                 "LisePressE": {
                     "repeat_delay": "{interval_ms}",
                     "post_delay": "{interval_ms}"
+                },
+                "LisePressEAfterQ": {
+                    "repeat_delay": "{interval_ms}"
+                }
+            }
+        },
+        "NormalHoldEnableQ": {
+            "type": "switch",
+            "label": "启动 Q 键",
+            "description": "开启后按所选顺序连续发送 3 次 Q，间隔 100ms。仅当 E、Q 都开启时显示 Q/E 顺序设置。",
+            "default_case": "Yes",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "option": [
+                        "NormalHoldQBeforeE"
+                    ],
+                    "pipeline_override": {
+                        "LisePressQ": {
+                            "enabled": true
+                        },
+                        "LisePressQBeforeE": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "pipeline_override": {
+                        "LisePressQ": {
+                            "enabled": false
+                        },
+                        "LisePressQBeforeE": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ]
+        },
+        "NormalHoldQBeforeE": {
+            "type": "switch",
+            "label": "Q 在 E 前释放",
+            "description": "仅在 E、Q 都开启时显示。开启后先连续发送 3 次 Q，等待“Q 后触发间隔”后再执行 E 连点；最后一次 E 后立即结束技能组合。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "option": [
+                        "NormalHoldQAfterTriggerDelay"
+                    ],
+                    "pipeline_override": {
+                        "LiseSkillOrderEntry": {
+                            "next": [
+                                "LisePressQBeforeE",
+                                "LisePressEAfterQ",
+                                "LiseSkillCastEnd"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "pipeline_override": {
+                        "LiseSkillOrderEntry": {
+                            "next": [
+                                "LisePressE",
+                                "LisePressQ",
+                                "LiseSkillCastEnd"
+                            ]
+                        },
+                        "LisePressE": {
+                            "next": [
+                                "LisePressQ",
+                                "LiseSkillCastEnd"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        "NormalHoldQAfterTriggerDelay": {
+            "type": "input",
+            "label": "Q 后触发间隔（ms）",
+            "description": "第三次 Q 发送完成后，等待多少毫秒再开始连续点击 E。仅在“Q 在 E 前释放”开启时显示。",
+            "inputs": [
+                {
+                    "name": "delay_ms",
+                    "label": "等待时间（ms）",
+                    "default": "2000",
+                    "pipeline_type": "int",
+                    "verify": "^\\d+$"
+                }
+            ],
+            "pipeline_override": {
+                "LiseQBeforeEIntervalDelay": {
+                    "pre_delay": "{delay_ms}"
                 }
             }
         },
         "NormalLiseHighPlatformOnly": {
             "type": "switch",
             "label": "仅高台释放 E",
-            "description": "开启后先锁定左上角小地图的高台或非高台结果，再等待技能触发延迟；高台释放 E、Q，非高台仅在 Q 未启用时释放 Q。关闭后等待设定时间，再按配置依次释放 E、Q。",
+            "description": "开启后先锁定左上角小地图的高台或非高台结果，再等待技能触发延迟；高台释放 E、Q，非高台跳过 E 并按 Q 开关决定是否释放 Q。关闭后等待设定时间，再按配置依次释放 E、Q。战斗开始由左下角角色血条 HUD 确认，不检查 Q 图标状态。",
             "default_case": "No",
             "cases": [
                 {
@@ -479,8 +613,7 @@
                         "NormalExpelCombatEntry": {
                             "next": [
                                 "NormalEndlessAgainDetected",
-                                "LisePressE",
-                                "LisePressQ",
+                                "LiseSkillOrderEntry",
                                 "LiseSkillCastEnd"
                             ]
                         }

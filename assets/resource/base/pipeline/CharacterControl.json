@@ -9,7 +9,7 @@
         },
         "focus": {
             "Node.Action.Starting": {
-                "content": "[黎瑟] 战斗界面已就绪，开始等待配置的技能触发延迟",
+                "content": "[角色] 战斗界面已就绪，开始等待配置的技能触发延迟",
                 "display": [
                     "log"
                 ]
@@ -31,7 +31,7 @@
         },
         "focus": {
             "Node.Action.Starting": {
-                "content": "[黎瑟] 立即检查本轮初始小地图并锁定高台分支",
+                "content": "[角色] 立即检查本轮初始小地图并锁定高台分支",
                 "display": [
                     "log"
                 ]
@@ -57,7 +57,7 @@
         },
         "focus": {
             "Node.Action.Starting": {
-                "content": "[黎瑟] 高台识别结果：非高台",
+                "content": "[角色] 高台识别结果：非高台",
                 "display": [
                     "log"
                 ]
@@ -90,7 +90,7 @@
         },
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[黎瑟] 高台识别结果：高台",
+                "content": "[角色] 高台识别结果：高台",
                 "display": [
                     "log"
                 ]
@@ -112,13 +112,13 @@
         },
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[黎瑟] 已记录高台结果，开始等待配置延迟",
+                "content": "[角色] 已记录高台结果，开始等待配置延迟",
                 "display": [
                     "log"
                 ]
             },
             "Node.Action.Starting": {
-                "content": "[黎瑟] 高台分支延迟结束，准备释放技能",
+                "content": "[角色] 高台分支延迟结束，准备释放技能",
                 "display": [
                     "log"
                 ]
@@ -128,8 +128,7 @@
         "pre_delay": 2000,
         "post_delay": 0,
         "next": [
-            "LisePressE",
-            "LisePressQ",
+            "LiseSkillOrderEntry",
             "LiseSkillCastEnd"
         ]
     },
@@ -142,13 +141,13 @@
         },
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[黎瑟] 已记录非高台结果，开始等待配置延迟",
+                "content": "[角色] 已记录非高台结果，开始等待配置延迟",
                 "display": [
                     "log"
                 ]
             },
             "Node.Action.Starting": {
-                "content": "[黎瑟] 非高台分支延迟结束，准备释放技能",
+                "content": "[角色] 非高台分支延迟结束，准备释放技能",
                 "display": [
                     "log"
                 ]
@@ -166,14 +165,14 @@
         "recognition": {
             "type": "TemplateMatch",
             "param": {
-                "template": "CharacterControl/q_inactive.png",
+                "template": "CharacterControl/combat_health_bar.png",
                 "roi": [
-                    1100,
-                    598,
-                    100,
-                    100
+                    90,
+                    675,
+                    180,
+                    40
                 ],
-                "threshold": 0.9
+                "threshold": 0.85
             }
         },
         "action": {
@@ -194,14 +193,14 @@
         "recognition": {
             "type": "TemplateMatch",
             "param": {
-                "template": "CharacterControl/q_inactive.png",
+                "template": "CharacterControl/combat_health_bar.png",
                 "roi": [
-                    1100,
-                    598,
-                    100,
-                    100
+                    90,
+                    675,
+                    180,
+                    40
                 ],
-                "threshold": 0.9
+                "threshold": 0.85
             }
         },
         "action": {
@@ -222,14 +221,14 @@
         "recognition": {
             "type": "TemplateMatch",
             "param": {
-                "template": "CharacterControl/q_inactive.png",
+                "template": "CharacterControl/combat_health_bar.png",
                 "roi": [
-                    1100,
-                    598,
-                    100,
-                    100
+                    90,
+                    675,
+                    180,
+                    40
                 ],
-                "threshold": 0.9
+                "threshold": 0.85
             }
         },
         "action": {
@@ -237,7 +236,7 @@
         },
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[黎瑟] Q 未启用状态已连续确认 3 帧，开始计算延迟并执行技能组合",
+                "content": "[角色] 左下角角色血条 HUD 已连续确认 3 帧，开始计算延迟并执行技能组合",
                 "display": [
                     "log"
                 ]
@@ -249,6 +248,22 @@
         "next": [
             "LiseCombatLoadDelay",
             "CipherExpelCombatEntry"
+        ]
+    },
+    "LiseSkillOrderEntry": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "LisePressE",
+            "LisePressQ",
+            "LiseSkillCastEnd"
         ]
     },
     "LisePressE": {
@@ -263,19 +278,20 @@
                 "custom_action_param": {
                     "kind": "key",
                     "key": 69,
-                    "repeat": 1
+                    "repeat": 1,
+                    "sequence_total": 2
                 }
             }
         },
         "focus": {
             "Node.Action.Starting": {
-                "content": "[黎瑟] 准备按下 E 键",
+                "content": "[角色] 准备按下 E 键",
                 "display": [
                     "log"
                 ]
             },
             "Node.Action.Succeeded": {
-                "content": "[黎瑟] E 键序列输入已发送",
+                "content": "[角色] E 键序列输入已发送",
                 "display": [
                     "log"
                 ]
@@ -291,6 +307,46 @@
             "LiseSkillCastEnd"
         ]
     },
+    "LisePressEAfterQ": {
+        "enabled": true,
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key",
+                    "key": 69,
+                    "repeat": 1,
+                    "sequence_total": 2
+                }
+            }
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[角色] 准备按下 E 键",
+                "display": [
+                    "log"
+                ]
+            },
+            "Node.Action.Succeeded": {
+                "content": "[角色] E 键序列输入已发送",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "repeat": 2,
+        "repeat_delay": 1000,
+        "next": [
+            "LiseSkillCastEnd"
+        ]
+    },
     "LisePressQ": {
         "enabled": false,
         "recognition": {
@@ -303,19 +359,20 @@
                 "custom_action_param": {
                     "kind": "key",
                     "key": 81,
-                    "repeat": 1
+                    "repeat": 3,
+                    "interval_ms": 100
                 }
             }
         },
         "focus": {
             "Node.Action.Starting": {
-                "content": "[黎瑟] 尝试按下 Q 键",
+                "content": "[角色] 准备连续发送 3 次 Q 键（间隔 100ms）",
                 "display": [
                     "log"
                 ]
             },
             "Node.Action.Succeeded": {
-                "content": "[黎瑟] Q 键输入已发送",
+                "content": "[角色] Q 键已连续发送 3 次（间隔 100ms）",
                 "display": [
                     "log"
                 ]
@@ -328,6 +385,62 @@
             "LiseSkillCastEnd"
         ]
     },
+    "LisePressQBeforeE": {
+        "enabled": false,
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key",
+                    "key": 81,
+                    "repeat": 3,
+                    "interval_ms": 100
+                }
+            }
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[角色] 准备先连续发送 3 次 Q 键（间隔 100ms）",
+                "display": [
+                    "log"
+                ]
+            },
+            "Node.Action.Succeeded": {
+                "content": "[角色] 前置 Q 键已连续发送 3 次，准备等待 E 间隔",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "LiseQBeforeEIntervalDelay",
+            "LisePressEAfterQ",
+            "LiseSkillCastEnd"
+        ]
+    },
+    "LiseQBeforeEIntervalDelay": {
+        "enabled": true,
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 1000,
+        "post_delay": 0,
+        "next": [
+            "LisePressEAfterQ",
+            "LiseSkillCastEnd"
+        ]
+    },
     "LiseSkillCastEnd": {
         "recognition": {
             "type": "DirectHit"
@@ -337,7 +450,7 @@
         },
         "focus": {
             "Node.Action.Starting": {
-                "content": "[黎瑟] 本次技能组合结束，等待本轮结算",
+                "content": "[角色] 本次技能组合结束，等待本轮结算",
                 "display": [
                     "log"
                 ]
@@ -350,21 +463,6 @@
             "CipherExpelMonitor"
         ]
     },
-    "LiseWaitCombatReady": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "DoNothing"
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 50,
-        "max_hit": 10000000,
-        "next": [
-            "CipherExpelCombatEntry"
-        ]
-    },
     "FocusGuardEKeyProxy": {
         "recognition": {
             "type": "DirectHit"
@@ -373,6 +471,14 @@
             "type": "ClickKey",
             "param": {
                 "key": 69
+            }
+        },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[角色] E 连续点击已发送",
+                "display": [
+                    "log"
+                ]
             }
         },
         "rate_limit": 0,

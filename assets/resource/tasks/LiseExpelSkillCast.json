@@ -3,7 +3,7 @@
         "LiseCombatStartDelay": {
             "type": "input",
             "label": "技能触发延迟（ms）",
-            "description": "最低 2000ms。连续确认 Q 未启用后立即判断并锁定本轮高台或非高台结果，然后等待满此时间才执行对应技能；等待期间小地图发生变化不会改变本轮分支。延迟结束后直接按已开启的 E、Q 配置执行，不再重复识别 Q 图标。",
+            "description": "最低 2000ms。连续确认左下角角色血条 HUD 后立即判断并锁定本轮高台或非高台结果，然后等待满此时间才执行对应技能；等待期间小地图发生变化不会改变本轮分支。延迟结束后直接按已开启的 E、Q 配置执行，不检查 Q 图标状态。",
             "inputs": [
                 {
                     "name": "delay_ms",
@@ -33,7 +33,7 @@
         "LiseHighPlatformOnly": {
             "type": "switch",
             "label": "仅高台释放 E",
-            "description": "开启后，连续确认 Q 未启用便立即检查左上角圆形小地图并锁定本轮分支，然后等待满“技能触发延迟”；已锁定高台则按配置释放 E、Q，非高台则不释放 E、但仍按配置释放 Q。关闭后先等待满设定时间，再按配置依次释放 E、Q。技能执行结束后返回结算监控。",
+            "description": "开启后，连续确认左下角角色血条 HUD 便立即检查左上角圆形小地图并锁定本轮分支，然后等待满“技能触发延迟”；已锁定高台则按配置释放 E、Q，非高台则不释放 E、但仍按配置释放 Q。关闭后先等待满设定时间，再按配置依次释放 E、Q。技能执行结束后返回结算监控。",
             "default_case": "No",
             "cases": [
                 {
@@ -61,8 +61,7 @@
                         "CipherExpelCombatEntry": {
                             "next": [
                                 "RewardConfirmByClick",
-                                "LisePressE",
-                                "LisePressQ",
+                                "LiseSkillOrderEntry",
                                 "LiseSkillCastEnd"
                             ]
                         }
@@ -79,8 +78,19 @@
                 {
                     "name": "Yes",
                     "label": "开启",
+                    "option": [
+                        "LiseECount",
+                        "LiseEInterval",
+                        "LiseEnableQ"
+                    ],
                     "pipeline_override": {
                         "LisePressE": {
+                            "enabled": true
+                        },
+                        "LisePressEAfterQ": {
+                            "enabled": true
+                        },
+                        "LiseQBeforeEIntervalDelay": {
                             "enabled": true
                         }
                     }
@@ -88,8 +98,17 @@
                 {
                     "name": "No",
                     "label": "关闭",
+                    "option": [
+                        "LiseEnableQOnly"
+                    ],
                     "pipeline_override": {
                         "LisePressE": {
+                            "enabled": false
+                        },
+                        "LisePressEAfterQ": {
+                            "enabled": false
+                        },
+                        "LiseQBeforeEIntervalDelay": {
                             "enabled": false
                         }
                     }
@@ -111,14 +130,41 @@
             ],
             "pipeline_override": {
                 "LisePressE": {
-                    "repeat": "{count}"
+                    "repeat": "{count}",
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "focus_guard_action",
+                            "custom_action_param": {
+                                "kind": "key",
+                                "key": 69,
+                                "repeat": 1,
+                                "sequence_total": "{count}"
+                            }
+                        }
+                    }
+                },
+                "LisePressEAfterQ": {
+                    "repeat": "{count}",
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "focus_guard_action",
+                            "custom_action_param": {
+                                "kind": "key",
+                                "key": 69,
+                                "repeat": 1,
+                                "sequence_total": "{count}"
+                            }
+                        }
+                    }
                 }
             }
         },
         "LiseEInterval": {
             "type": "input",
             "label": "连续点击间隔（ms）",
-            "description": "每次点击 E 键后等待的毫秒数；最后一次 E 键后同样等待该间隔，再执行 Q 键。",
+            "description": "E 连续点击之间的间隔。Q 在 E 后时，最后一次 E 后也等待该间隔再按 Q；Q 在 E 前时只控制 E 连点本身，Q 后等待时间由单独的“Q 后触发间隔”设置。",
             "inputs": [
                 {
                     "name": "interval_ms",
@@ -132,20 +178,29 @@
                 "LisePressE": {
                     "repeat_delay": "{interval_ms}",
                     "post_delay": "{interval_ms}"
+                },
+                "LisePressEAfterQ": {
+                    "repeat_delay": "{interval_ms}"
                 }
             }
         },
         "LiseEnableQ": {
             "type": "switch",
             "label": "启动 Q 键",
-            "description": "开启后，在战斗开始前连续确认右下角 Q 图标为未启用状态，等待技能触发延迟后点击 Q；若同时执行 E，则在 E 序列及最后一次等待间隔完成后直接点击 Q。",
+            "description": "开启后，连续确认左下角角色血条 HUD并等待技能触发延迟，再按所选顺序连续发送 3 次 Q，间隔 100ms。Q 图标状态不再作为技能触发条件。",
             "default_case": "Yes",
             "cases": [
                 {
                     "name": "Yes",
                     "label": "开启",
+                    "option": [
+                        "LiseQBeforeE"
+                    ],
                     "pipeline_override": {
                         "LisePressQ": {
+                            "enabled": true
+                        },
+                        "LisePressQBeforeE": {
                             "enabled": true
                         }
                     }
@@ -156,10 +211,107 @@
                     "pipeline_override": {
                         "LisePressQ": {
                             "enabled": false
+                        },
+                        "LisePressQBeforeE": {
+                            "enabled": false
                         }
                     }
                 }
             ]
+        },
+        "LiseEnableQOnly": {
+            "type": "switch",
+            "label": "启动 Q 键",
+            "description": "E 关闭时决定是否连续发送 3 次 Q，间隔 100ms。此时不显示没有意义的 Q/E 顺序设置。",
+            "default_case": "Yes",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "pipeline_override": {
+                        "LisePressQ": {
+                            "enabled": true
+                        },
+                        "LisePressQBeforeE": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "pipeline_override": {
+                        "LisePressQ": {
+                            "enabled": false
+                        },
+                        "LisePressQBeforeE": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ]
+        },
+        "LiseQBeforeE": {
+            "type": "switch",
+            "label": "Q 在 E 前释放",
+            "description": "仅在 E、Q 都开启时显示。开启后先连续发送 3 次 Q（间隔 100ms），等待“Q 后触发间隔”后再执行 E 连点；最后一次 E 后立即结束技能组合。关闭时保持 E 连点完成并等待一次 E 间隔后再发送 Q。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "option": [
+                        "LiseQAfterTriggerDelay"
+                    ],
+                    "pipeline_override": {
+                        "LiseSkillOrderEntry": {
+                            "next": [
+                                "LisePressQBeforeE",
+                                "LisePressEAfterQ",
+                                "LiseSkillCastEnd"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "pipeline_override": {
+                        "LiseSkillOrderEntry": {
+                            "next": [
+                                "LisePressE",
+                                "LisePressQ",
+                                "LiseSkillCastEnd"
+                            ]
+                        },
+                        "LisePressE": {
+                            "next": [
+                                "LisePressQ",
+                                "LiseSkillCastEnd"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        "LiseQAfterTriggerDelay": {
+            "type": "input",
+            "label": "Q 后触发间隔（ms）",
+            "description": "第三次 Q 发送完成后，等待多少毫秒再开始连续点击 E。仅在“Q 在 E 前释放”开启时显示。",
+            "inputs": [
+                {
+                    "name": "delay_ms",
+                    "label": "等待时间（ms）",
+                    "default": "2000",
+                    "pipeline_type": "int",
+                    "verify": "^\\d+$"
+                }
+            ],
+            "pipeline_override": {
+                "LiseQBeforeEIntervalDelay": {
+                    "pre_delay": "{delay_ms}"
+                }
+            }
         }
     }
 }

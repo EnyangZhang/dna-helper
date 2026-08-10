@@ -71,10 +71,7 @@
                     "option": [
                         "LiseCombatStartDelay",
                         "LiseHighPlatformOnly",
-                        "LiseEnableE",
-                        "LiseECount",
-                        "LiseEInterval",
-                        "LiseEnableQ"
+                        "LiseEnableE"
                     ]
                 },
                 {
