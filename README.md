@@ -7,33 +7,232 @@ DNA Helper 是基于 [MaaFramework](https://github.com/MaaXYZ/MaaFramework) 和 
 
 任务通过图像识别确认当前页面，再执行鼠标或键盘输入。所有模板、ROI 和固定坐标均按 `1280×720` 基准画面制作。
 
-## 运行条件
+## 从 GitHub 首次安装到运行
 
-- Windows 10/11。
-- 《二重螺旋》PC 客户端，窗口类名 `UnrealWindow`，窗口标题 `二重螺旋`。
-- 游戏窗口使用项目的 `1280×720` 基准尺寸。桌面版目前不会自动拒绝错误分辨率，启动前必须人工确认。
-- DNA Helper 需要管理员权限，因为控制器使用 `PrintWindow + Seize + Seize` 的前台输入方式。
-- 系统 PATH 中必须存在可用的 `python`，并安装与项目一致的 `maa` Python 包。当前构建产物不是完全独立的免 Python 发行包。
+下面是新 Windows 电脑从克隆仓库到双击 DNA Helper 图标的完整流程。仓库不会提交 `dist/`、`.cache/` 或编译后的 EXE，因此首次克隆后必须在本机完成一次构建。
 
-后台 `SendMessage` / `PostMessage` 输入在本游戏中曾出现鼠标粘连和窗口误拖动，因此当前只保留兼容性更高的前台控制。
+### 第 1 步：安装一次性构建环境
 
-## 开发环境
+需要安装：
 
-建议使用 Python 3.9 或更高版本：
+- [Git for Windows](https://git-scm.com/download/win)。
+- 64 位 Python 3.9–3.12；建议 Python 3.11。安装时必须让 `python` 可从 PATH 调用，参见 [Python Windows 官方说明](https://docs.python.org/3/using/windows.html)。
+- [Node.js 22 LTS](https://nodejs.org/en/download) 或更新的 LTS 版本。
+- pnpm 10.28.0。
+- [Rust stable MSVC](https://v2.tauri.app/start/prerequisites/#rust)。
+- [Microsoft C++ Build Tools](https://v2.tauri.app/start/prerequisites/#microsoft-c-build-tools)，安装器中勾选“使用 C++ 的桌面开发”。
+- Microsoft Edge WebView2。Windows 10 1803 及更高版本通常已经安装；如果程序窗口空白，再安装 [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。
+
+可以先在 PowerShell 中用 `winget` 安装 Git、Python、Node.js 和 Rust：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+winget install --id Git.Git -e
+winget install --id Python.Python.3.11 -e
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id Rustlang.Rustup -e
+```
+
+Microsoft C++ Build Tools 建议按上面的 Tauri 官方链接手动安装并确认勾选“使用 C++ 的桌面开发”。安装完所有工具后，关闭并重新打开 PowerShell，然后执行：
+
+```powershell
+rustup default stable-msvc
+npm install --global pnpm@10.28.0
+```
+
+确认环境：
+
+```powershell
+git --version
+python --version
+node --version
+pnpm --version
+rustc --version
+cargo --version
+```
+
+要求：
+
+- `python` 应显示 3.9–3.12。
+- `node` 应显示 22 或更新的 LTS 版本。
+- `pnpm` 应显示 10.28.0。
+- `rustc` 和 `cargo` 必须可运行。
+
+如果刚安装后命令仍找不到，重启 PowerShell；仍无效时重启 Windows。
+
+### 第 2 步：克隆仓库
+
+以下示例将项目放在 `D:\Projects\dna-helper`；也可以换成自己的目录：
+
+```powershell
+New-Item -ItemType Directory -Force D:\Projects | Out-Null
+Set-Location D:\Projects
+git clone https://github.com/EnyangZhang/dna-helper.git
+Set-Location .\dna-helper
+```
+
+如果已经配置 GitHub SSH 密钥，也可以使用：
+
+```powershell
+git clone git@github.com:EnyangZhang/dna-helper.git
+```
+
+后续所有命令都必须在刚克隆的 `dna-helper` 项目目录中执行。
+
+### 第 3 步：安装 DNA Helper 的 Python 运行依赖
+
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -c "import maa; print('MaaFramework Python Agent：正常')"
+```
+
+首次使用不建议只把依赖安装进 `.venv`。桌面版从资源配置中执行的是系统 PATH 里的 `python agent/main.py`；如果 `maa` 只存在于虚拟环境，双击 EXE 后 Agent 会启动失败，角色技能、焦点恢复和轮次日志将不可用。
+
+### 第 4 步：先校验项目
+
+```powershell
+python tools\validate_project.py
+python -m compileall -q agent tools
+```
+
+正常结果应包含类似：
+
+```text
+OK: 1 controller(s), 1 group(s), 2 task(s), 2 preset(s), 64 reachable pipeline node(s), 9 template(s)
+```
+
+### 第 5 步：首次编译定制 MXU
+
+DNA Helper 使用带安全日志清理功能的定制 MXU。执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\build_custom_mxu.ps1
+```
+
+该脚本会：
+
+1. 把固定的 MXU v2.1.3 源码克隆到 `.cache/mxu-v2.1.3/`。
+2. 校验固定基线提交并应用 `tools/mxu-v2.1.3-log-retention.patch`。
+3. 安装前端和 Rust 依赖。
+4. 生成定制 `mxu.exe`。
+
+第一次会下载和编译大量依赖，耗时较长属于正常现象。完成时应显示：
+
+```text
+Custom MXU built: ...\mxu.exe
+```
+
+常见失败：
+
+- `pnpm` 或 Vite 报 Node 版本过旧：安装 Node.js 22 LTS，重开 PowerShell。
+- 找不到 `link.exe`、Windows SDK 或 MSVC：重新打开 Visual Studio Installer，安装“使用 C++ 的桌面开发”；必要时在“Developer PowerShell for VS 2022”中重新执行构建命令。
+- 找不到 `cargo` / `rustc`：执行 `rustup default stable-msvc` 后重开终端。
+
+### 第 6 步：组装 DNA Helper 桌面目录
+
+确保 DNA Helper 没有在运行，然后执行：
+
+```powershell
+python build_ui.py
+```
+
+成功时会显示：
+
+```text
+构建完成：...\dist\DNAHelper\DNAHelper.exe
+```
+
+确认图标已生成：
+
+```powershell
+Test-Path .\dist\DNAHelper\DNAHelper.exe
+```
+
+结果应为 `True`。
+
+`build_ui.py` 只接受已经构建的定制 MXU，不会退回缺少日志清理功能的官方二进制。它会复制 MaaFramework、项目资源和 Python Agent，并在以后重建时保留 `dist/DNAHelper/config/` 和 `dist/DNAHelper/debug/`。
+
+构建并非事务式操作。程序未退出或 DLL 被占用时可能留下不完整输出；发生失败后先退出 DNA Helper，再重新执行 `python build_ui.py`，不要继续运行半成品。
+
+### 第 7 步：创建桌面图标
+
+打开项目中的：
+
+```text
+dist\DNAHelper\DNAHelper.exe
+```
+
+推荐创建桌面快捷方式：
+
+1. 右键 `DNAHelper.exe`。
+2. Windows 11 选择“显示更多选项”。
+3. 选择“发送到 → 桌面快捷方式”。
+4. 右键桌面上的 DNA Helper 快捷方式，打开“属性 → 快捷方式 → 高级”。
+5. 勾选“用管理员身份运行”。
+
+以后双击这个桌面图标即可启动，不需要再次打开 PowerShell。
+
+### 第 8 步：第一次连接游戏并开始任务
+
+1. 先启动《二重螺旋》。
+2. 将游戏设为项目使用的 `1280×720` 窗口基准。桌面版目前不会自动拒绝错误尺寸。
+3. 双击桌面 DNA Helper 图标，并同意管理员权限提示。
+4. 首次启动会自动创建两个独立标签页：
+   - “密函挂机”：只包含“密函无尽加速”。
+   - “普通挂机”：只包含“普通无尽加速”。
+5. 点击本次要运行的标签页。不要同时启动两个长期任务。
+6. 打开右侧“连接设置”，选择“二重螺旋（前台控制）”和“基础资源”。
+7. 选择标题为“二重螺旋”的游戏窗口并点击“连接”。MXU 能自动匹配时，也可能直接显示“已连接”。
+8. 在任务卡片中选择模式、轮次和技能选项。
+9. 让游戏停在对应副本或可识别页面，然后点击“开始任务”，也可以按 `F10`。
+10. 需要停止时点击“停止任务”或按 `F11`。
+
+两个标签页彼此独立，避免把两个长期任务排进同一队列后由第一个任务永久阻塞第二个。也可以新建空白标签页，再从“添加任务 → 日常挂机”手动添加任务。
+
+控制器使用真实前台鼠标键盘输入。每组点击或按键结束后 Agent 会尝试切回原窗口，但 Windows 可能拒绝恢复；运行时不要依赖焦点一定能够成功切回。
+
+### 以后每天如何启动
+
+首次构建完成后，日常使用只需：
+
+1. 启动《二重螺旋》，保持 `1280×720` 窗口基准。
+2. 双击桌面的 DNA Helper 快捷方式，以管理员身份启动。
+3. 选择之前保存的配置。
+4. 确认游戏窗口已连接。
+5. 点击“开始任务”或按 `F10`。
+
+不需要每天重新克隆、安装依赖或编译。
+
+### 从 GitHub 更新到最新版本
+
+完全退出 DNA Helper，在项目目录执行：
+
+```powershell
+git pull
 python -m pip install -r requirements.txt
 python tools\validate_project.py
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\build_custom_mxu.ps1
+python build_ui.py
 ```
 
-如果 PowerShell 禁止执行激活脚本，也可以不激活虚拟环境，直接使用：
+正常更新会保留现有配置和调试日志。若 Git 提示本地文件冲突，不要使用 `git reset --hard`；先确认本地修改是否需要保留。
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe tools\validate_project.py
-```
+### 首次安装故障排查
+
+| 现象 | 处理方法 |
+|---|---|
+| `python` 不是命令 | 重新安装 Python 并加入 PATH，然后重开 PowerShell。 |
+| `ModuleNotFoundError: maa` | 使用桌面版实际调用的同一个 `python` 执行 `python -m pip install -r requirements.txt`。 |
+| `pnpm` 不是命令 | 执行 `npm install --global pnpm@10.28.0`，然后重开 PowerShell。 |
+| Node/Vite 版本错误 | 安装 Node.js 22 LTS 或更新的 LTS 版本。 |
+| 找不到 MSVC、Windows SDK 或 `link.exe` | 安装 C++ Build Tools 的“使用 C++ 的桌面开发”，或在 VS 2022 Developer PowerShell 中构建。 |
+| PowerShell 禁止运行脚本 | 使用 README 中带 `-ExecutionPolicy Bypass -File` 的命令。 |
+| `build_ui.py` 提示缺少定制 MXU | 先成功执行第 5 步的 `build_custom_mxu.ps1`。 |
+| 构建时 DLL 被占用 | 完全退出 DNA Helper 后重新构建。 |
+| UI 空白 | 安装或修复 Microsoft Edge WebView2 Runtime。 |
+| 找不到游戏窗口 | 确认以管理员身份运行、游戏标题为“二重螺旋”、窗口类名为 `UnrealWindow`。 |
+| 一直识别不到或点击错位 | 确认游戏使用项目的 `1280×720` 基准。 |
+| UI 能开但技能、焦点恢复或轮次日志失效 | 检查日志中 Agent 是否连接，并运行 `python -c "import maa"`。 |
 
 列出当前窗口标题、类名、进程和尺寸：
 
@@ -41,42 +240,15 @@ python tools\validate_project.py
 python tools\inspect_windows.py
 ```
 
-项目不再提供旧的 `run.py` 命令行入口；当前 Pipeline 依赖 AgentServer 注册自定义动作，应从 MXU 桌面版启动。
+项目不提供旧的 `run.py` 命令行入口；当前 Pipeline 依赖 AgentServer，应从 `DNAHelper.exe` 启动。
 
-## 构建和启动桌面版
+## 日志清理
 
-先完全退出正在运行的 DNA Helper，再执行：
+程序启动时会自动删除 `dist/DNAHelper/debug` 内修改时间超过 14 天的普通文件，并删除清理后留下的空目录。
 
-```powershell
-.\tools\build_custom_mxu.ps1
-.\.venv\Scripts\python.exe build_ui.py
-```
+“设置 → 常规 → 自动清理运行日志”下方提供红色“完全清空日志”操作项。确认后程序会安排重启，并在新日志创建前清空该目录；重启后的当前日志会保留。
 
-构建脚本会：
-
-1. 从固定的 MXU v2.1.3 基线应用 `tools/mxu-v2.1.3-log-retention.patch` 并构建定制 UI。
-2. `build_ui.py` 只接受该定制构建或显式传入的定制 `mxu.exe`，不会静默退回缺少日志清理功能的官方二进制。
-3. 复制 MaaFramework 运行库、项目资源和 Python Agent 到 `dist/DNAHelper/`。
-4. 保留现有的 `config/` 和 `debug/`。
-
-构建并非事务式操作；程序未退出、DLL 被占用时可能留下不完整输出。因此构建前必须关闭 DNA Helper，构建失败后不要继续使用半成品目录，应排除占用后重新构建。
-
-以管理员身份运行：
-
-```text
-dist\DNAHelper\DNAHelper.exe
-```
-
-程序启动时会自动删除 `dist/DNAHelper/debug` 内修改时间超过 14 天的普通文件，并删除清理后留下的空目录。设置 → 常规中，“自动清理运行日志”开关下方有独立的红色“完全清空日志”操作项；确认后程序会安排重启，并在新日志创建前清空该目录。重启后新建的当前日志会保留。所有清理都会解析并核验目标，只允许操作可执行文件同级的真实 `debug` 目录，遇到符号链接、Windows 重解析点、非普通文件或越界路径时会整次拒绝。
-
-新建配置时可选择：
-
-- “密函挂机”：只添加并启用“密函无尽加速”。
-- “普通挂机”：只添加并启用“普通无尽加速”。
-
-两个预设彼此独立，避免把两个长期任务同时加入一个队列后由首个任务永久阻塞后续任务。也可以跳过预设，在“添加任务 → 日常挂机”中手动添加。
-
-运行期间可使用 MXU 的 `F10` 开始、`F11` 停止快捷键。
+所有清理都会解析并核验目标，只允许操作可执行文件同级的真实 `debug` 目录。遇到符号链接、Windows 重解析点、非普通文件或越界路径时会拒绝整次操作。
 
 ## 任务说明
 
