@@ -1,0 +1,56 @@
+{
+    "interface_version": 2,
+    "name": "DNA Helper",
+    "title": "DNA Helper v0.1.0 | 二重螺旋助手",
+    "description": "$app.description",
+    "version": "0.1.0",
+    "languages": {
+        "zh_cn": "resource/locales/interface/zh_cn.json"
+    },
+    "controller": [
+        {
+            "name": "Win32-Foreground",
+            "label": "$controller.foreground.label",
+            "description": "$controller.foreground.description",
+            "type": "Win32",
+            "permission_required": true,
+            "win32": {
+                "class_regex": "^UnrealWindow$",
+                "window_regex": "^\\s*二重螺旋\\s*$",
+                "screencap": "PrintWindow",
+                "mouse": "Seize",
+                "keyboard": "Seize"
+            }
+        }
+    ],
+    "resource": [
+        {
+            "name": "Base",
+            "label": "$resource_base_label",
+            "path": [
+                "resource/base"
+            ]
+        }
+    ],
+    "agent": {
+        "child_exec": "python",
+        "child_args": [
+            "agent/main.py"
+        ]
+    },
+    "group": [
+        {
+            "name": "DailyAFK",
+            "label": "$group_daily_afk_label",
+            "default_expand": true
+        }
+    ],
+    "task": [],
+    "import": [
+        "resource/tasks/CipherEndlessBoost.json",
+        "resource/tasks/NormalEndlessBoost.json",
+        "resource/tasks/LiseExpelSkillCast.json",
+        "resource/tasks/preset/AFK.json"
+    ],
+    "option": {}
+}

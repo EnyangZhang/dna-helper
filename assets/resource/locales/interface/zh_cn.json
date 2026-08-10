@@ -1,0 +1,32 @@
+{
+    "resource_base_label": "基础资源",
+    "preset_afk_label": "挂机",
+    "preset_afk_description": "适合长时间挂机运行的任务",
+    "group_daily_afk_label": "日常挂机",
+    "task_cipher_endless_boost_label": "密函无尽加速",
+    "task_cipher_endless_boost_description": "自动处理密函探险结算流程；驱离模式每局按配置执行一次黎瑟技能",
+    "app": {
+        "description": "通过图像识别控制 Windows 游戏的自动化助手"
+    },
+    "controller": {
+        "foreground": {
+            "label": "二重螺旋（前台控制）",
+            "description": "需要管理员权限；识别后使用真实鼠标键盘输入"
+        }
+    },
+    "resource": {
+        "base": {
+            "label": "基础资源"
+        }
+    },
+    "task": {
+        "bootstrap": {
+            "label": "基础连通性测试",
+            "description": "验证 Pipeline 能加载并正常停止，不执行任何游戏操作"
+        },
+        "cipher_endless_boost": {
+            "label": "密函无尽加速",
+            "description": "自动处理密函探险结算流程；驱离模式每局按配置执行一次黎瑟技能"
+        }
+    }
+}

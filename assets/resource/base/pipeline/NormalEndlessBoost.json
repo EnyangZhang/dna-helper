@@ -1,0 +1,628 @@
+{
+    "NormalEndlessEntry": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_start",
+                "custom_action_param": {}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalEndlessMonitor"
+        ]
+    },
+    "NormalEndlessMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalEndlessContinueChallenge",
+            "NormalEndlessConfirmChoice",
+            "NormalEndlessAgainDetected",
+            "LiseCombatHudReadyFrame1",
+            "NormalEndlessIdle"
+        ]
+    },
+    "NormalEndlessCombatEntry": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalEndlessContinueChallenge",
+            "NormalEndlessConfirmChoice",
+            "NormalEndlessAgainDetected",
+            "LisePressE",
+            "LisePressQ",
+            "LiseSkillCastEnd"
+        ]
+    },
+    "NormalEndlessContinueChallenge": {
+        "enabled": true,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "NormalEndlessBoost/hold_continue_challenge.png",
+                "roi": [
+                    760,
+                    450,
+                    260,
+                    120
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    900,
+                    500
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessContinueChallengeClick2"
+        ]
+    },
+    "NormalEndlessContinueChallengeClick2": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    900,
+                    500
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessContinueChallengeClick3"
+        ]
+    },
+    "NormalEndlessContinueChallengeClick3": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [
+                        900,
+                        500
+                    ],
+                    "repeat": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessMonitor"
+        ]
+    },
+    "NormalEndlessWaitStartChallenge": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "NormalEndlessStartChallengeByClick",
+            "NormalEndlessWaitStartChallenge"
+        ]
+    },
+    "NormalEndlessStartChallengeByClick": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "NormalEndlessBoost/start_challenge.png",
+                "roi": [
+                    650,
+                    430,
+                    350,
+                    100
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    770,
+                    490
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessStartChallengeClick2"
+        ]
+    },
+    "NormalEndlessStartChallengeClick2": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    770,
+                    490
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessStartChallengeClick3"
+        ]
+    },
+    "NormalEndlessStartChallengeClick3": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [
+                        770,
+                        490
+                    ],
+                    "repeat": 1
+                }
+            }
+        },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[普通无尽] 已点击开始挑战，进入下一轮副本",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessMonitor"
+        ]
+    },
+    "NormalEndlessConfirmChoice": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "NormalEndlessBoost/hold_confirm_choice.png",
+                "roi": [
+                    500,
+                    450,
+                    320,
+                    120
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    640,
+                    505
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessConfirmChoiceClick2"
+        ]
+    },
+    "NormalEndlessConfirmChoiceClick2": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    640,
+                    505
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessConfirmChoiceClick3"
+        ]
+    },
+    "NormalEndlessConfirmChoiceClick3": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [
+                        640,
+                        505
+                    ],
+                    "repeat": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessMonitor"
+        ]
+    },
+    "NormalEndlessIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "NormalEndlessMonitor"
+        ]
+    },
+    "NormalEndlessAgainDetected": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [
+                    800,
+                    560,
+                    300,
+                    130
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalEndlessRestartQuota"
+        ]
+    },
+    "NormalEndlessRoundDecision": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "normal_endless_decide_restart",
+                "custom_action_param": {
+                    "total": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalEndlessFinished"
+        ]
+    },
+    "NormalEndlessRestartQuota": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "normal_endless_log_round",
+                "custom_action_param": {
+                    "total": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "max_hit": 1,
+        "next": [
+            "NormalEndlessRoundLog"
+        ]
+    },
+    "NormalEndlessRoundLog": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[普通无尽] 当前第 1 / 1 轮（每轮 99 局）",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalEndlessRoundDecision"
+        ]
+    },
+    "NormalEndlessRestartByClick": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [
+                    800,
+                    560,
+                    300,
+                    130
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    920,
+                    640
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessRestartClick2"
+        ]
+    },
+    "NormalEndlessRestartClick2": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    920,
+                    640
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessRestartClick3"
+        ]
+    },
+    "NormalEndlessRestartClick3": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [
+                        920,
+                        640
+                    ],
+                    "repeat": 1
+                }
+            }
+        },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[普通无尽] 已点击再次进行，开始下一轮副本",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalEndlessWaitStartChallenge"
+        ]
+    },
+    "NormalEndlessFinished": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "StopTask"
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[普通无尽] 已完成设定的副本轮次，不再点击再次进行，任务结束",
+                "display": [
+                    "log",
+                    "toast"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    },
+    "NormalExpelCombatEntry": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalEndlessAgainDetected",
+            "LisePressE",
+            "LisePressQ",
+            "LiseSkillCastEnd"
+        ]
+    },
+    "NormalExpelMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "NormalEndlessAgainDetected",
+            "NormalExpelMonitor"
+        ]
+    },
+    "NormalExpelRoundQuota": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "normal_expel_log_round",
+                "custom_action_param": {
+                    "total": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "max_hit": 1,
+        "next": [
+            "NormalExpelRoundLog"
+        ]
+    },
+    "NormalExpelRoundLog": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[普通驱离] 当前第 1 / 1 轮",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalExpelRoundDecision"
+        ]
+    },
+    "NormalExpelRoundDecision": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "normal_expel_decide_restart",
+                "custom_action_param": {
+                    "total": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalExpelFinished"
+        ]
+    },
+    "NormalExpelFinished": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "StopTask"
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[普通驱离] 已完成设定的副本轮次，不再点击再次进行，任务结束",
+                "display": [
+                    "log",
+                    "toast"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    }
+}

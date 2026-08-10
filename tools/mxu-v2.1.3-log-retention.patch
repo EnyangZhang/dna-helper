@@ -1,0 +1,684 @@
+diff --git a/src-tauri/src/commands/file_ops.rs b/src-tauri/src/commands/file_ops.rs
+index df32e84..28d59ed 100644
+--- a/src-tauri/src/commands/file_ops.rs
++++ b/src-tauri/src/commands/file_ops.rs
+@@ -6,12 +6,128 @@ use log::debug;
+ use std::io::{self, Seek, SeekFrom, Write};
+ use std::path::{Path, PathBuf};
+ use std::sync::{Arc, Mutex};
++use std::time::{Duration, SystemTime};
++
++#[cfg(windows)]
++use std::os::windows::fs::MetadataExt;
+
+ use super::utils::{get_app_data_dir, get_exe_directory, normalize_path};
+
+ const MAX_EXPORT_ARCHIVE_BYTES: u64 = 24_500_000;
+ const ZIP_ENTRY_OVERHEAD_BYTES: u64 = 128;
+ const ZIP_END_OF_CENTRAL_DIRECTORY_BYTES: u64 = 22;
++const DEBUG_CLEAR_MARKER: &str = ".clear-all-on-next-start";
++const WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
++
++#[derive(Clone, Debug)]
++struct CheckedDebugEntry {
++    path: PathBuf,
++    is_dir: bool,
++    modified: Option<SystemTime>,
++}
++
++fn metadata_is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
++    if metadata.file_type().is_symlink() {
++        return true;
++    }
++
++    #[cfg(windows)]
++    {
++        return metadata.file_attributes() & WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT != 0;
++    }
++
++    #[cfg(not(windows))]
++    false
++}
++
++fn checked_debug_dir(create: bool) -> Result<Option<PathBuf>, String> {
++    let raw_exe_dir = get_exe_directory()?;
++    let exe_metadata = std::fs::symlink_metadata(&raw_exe_dir)
++        .map_err(|e| format!("读取程序目录失败 [{}]: {}", raw_exe_dir.display(), e))?;
++    if !exe_metadata.is_dir() || metadata_is_link_or_reparse(&exe_metadata) {
++        return Err(format!(
++            "拒绝使用符号链接或重解析点程序目录 [{}]",
++            raw_exe_dir.display()
++        ));
++    }
++
++    let exe_dir = std::fs::canonicalize(&raw_exe_dir)
++        .map_err(|e| format!("解析程序目录失败 [{}]: {}", raw_exe_dir.display(), e))?;
++    let debug_dir = exe_dir.join("debug");
++
++    if !debug_dir.exists() {
++        if !create {
++            return Ok(None);
++        }
++        std::fs::create_dir(&debug_dir)
++            .map_err(|e| format!("创建日志目录失败 [{}]: {}", debug_dir.display(), e))?;
++    }
++
++    let debug_metadata = std::fs::symlink_metadata(&debug_dir)
++        .map_err(|e| format!("读取日志目录失败 [{}]: {}", debug_dir.display(), e))?;
++    if !debug_metadata.is_dir() || metadata_is_link_or_reparse(&debug_metadata) {
++        return Err(format!(
++            "拒绝使用符号链接、重解析点或非目录日志路径 [{}]",
++            debug_dir.display()
++        ));
++    }
++
++    let resolved_debug = std::fs::canonicalize(&debug_dir)
++        .map_err(|e| format!("解析日志目录失败 [{}]: {}", debug_dir.display(), e))?;
++    if resolved_debug.parent() != Some(exe_dir.as_path())
++        || resolved_debug.file_name() != Some(std::ffi::OsStr::new("debug"))
++    {
++        return Err(format!("拒绝越界日志目录 [{}]", resolved_debug.display()));
++    }
++
++    Ok(Some(resolved_debug))
++}
++
++fn collect_checked_debug_entries(root: &Path) -> Result<Vec<CheckedDebugEntry>, String> {
++    fn visit(root: &Path, dir: &Path, entries: &mut Vec<CheckedDebugEntry>) -> Result<(), String> {
++        let children = std::fs::read_dir(dir)
++            .map_err(|e| format!("读取日志目录失败 [{}]: {}", dir.display(), e))?;
++
++        for child in children {
++            let child = child.map_err(|e| format!("读取日志目录项失败: {}", e))?;
++            let path = child.path();
++            let metadata = std::fs::symlink_metadata(&path)
++                .map_err(|e| format!("读取日志路径失败 [{}]: {}", path.display(), e))?;
++            if metadata_is_link_or_reparse(&metadata) {
++                return Err(format!("拒绝删除符号链接或重解析点 [{}]", path.display()));
++            }
++
++            let resolved = std::fs::canonicalize(&path)
++                .map_err(|e| format!("解析日志路径失败 [{}]: {}", path.display(), e))?;
++            if resolved == root || !resolved.starts_with(root) {
++                return Err(format!("拒绝删除越界路径 [{}]", resolved.display()));
++            }
++
++            if metadata.is_dir() {
++                visit(root, &resolved, entries)?;
++                entries.push(CheckedDebugEntry {
++                    path: resolved,
++                    is_dir: true,
++                    modified: metadata.modified().ok(),
++                });
++            } else if metadata.is_file() {
++                entries.push(CheckedDebugEntry {
++                    path: resolved,
++                    is_dir: false,
++                    modified: metadata.modified().ok(),
++                });
++            } else {
++                return Err(format!("拒绝删除非普通日志路径 [{}]", path.display()));
++            }
++        }
++
++        Ok(())
++    }
++
++    let mut entries = Vec::new();
++    visit(root, root, &mut entries)?;
++    Ok(entries)
++}
+
+ #[derive(Clone)]
+ struct ExportEntry {
+@@ -295,50 +411,229 @@ pub fn get_data_dir() -> Result<String, String> {
+     Ok(data_dir.to_string_lossy().to_string())
+ }
+
+-/// 删除 debug 目录中的 .log 文件，可选择排除一个当前正在使用的日志文件
++/// 删除 debug 目录中的 .log 文件，可选择排除一个当前正在使用的日志文件。
++/// 删除前会解析并验证程序目录、debug 目录及全部子项，拒绝符号链接、重解析点和越界路径。
+ #[tauri::command]
+ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String> {
+-    let debug_dir = get_app_data_dir()?.join("debug");
+-
+-    if !debug_dir.exists() {
++    let Some(debug_dir) = checked_debug_dir(false)? else {
+         return Ok(0);
+-    }
++    };
++    let entries = collect_checked_debug_entries(&debug_dir)?;
+
+     let mut deleted = 0_u64;
+-    let entries = std::fs::read_dir(&debug_dir)
+-        .map_err(|e| format!("读取日志目录失败 [{}]: {}", debug_dir.display(), e))?;
+-
+     for entry in entries {
+-        let entry = match entry {
+-            Ok(entry) => entry,
+-            Err(_) => continue,
+-        };
+-        let path = entry.path();
+-        if !path.is_file() {
++        if entry.is_dir || entry.path.parent() != Some(debug_dir.as_path()) {
+             continue;
+         }
+
+-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
++        let Some(name) = entry.path.file_name().and_then(|name| name.to_str()) else {
+             continue;
+         };
+-
+         if !name.ends_with(".log") {
+             continue;
+         }
+-
+         if exclude_file_name.as_deref() == Some(name) {
+             continue;
+         }
+
+-        match std::fs::remove_file(&path) {
+-            Ok(()) => deleted = deleted.saturating_add(1),
+-            Err(e) => log::debug!("Failed to delete log file [{}]: {}", path.display(), e),
++        std::fs::remove_file(&entry.path)
++            .map_err(|e| format!("删除日志文件失败 [{}]: {}", entry.path.display(), e))?;
++        deleted = deleted.saturating_add(1);
++    }
++
++    Ok(deleted)
++}
++
++/// 删除 debug 内修改时间超过 7～14 天的文件，并清理由此产生的空目录。
++#[tauri::command]
++pub fn cleanup_old_debug_entries(retention_days: u64) -> Result<u64, String> {
++    let Some(debug_dir) = checked_debug_dir(false)? else {
++        return Ok(0);
++    };
++    cleanup_old_debug_entries_in(&debug_dir, retention_days, SystemTime::now())
++}
++
++fn cleanup_old_debug_entries_in(
++    debug_dir: &Path,
++    retention_days: u64,
++    now: SystemTime,
++) -> Result<u64, String> {
++    if !(7..=14).contains(&retention_days) {
++        return Err("日志保留天数必须在 7 到 14 天之间".to_string());
++    }
++
++    let entries = collect_checked_debug_entries(debug_dir)?;
++    let retention = Duration::from_secs(retention_days.saturating_mul(24 * 60 * 60));
++    let cutoff = now
++        .checked_sub(retention)
++        .ok_or_else(|| "计算日志保留时间失败".to_string())?;
++    let mut deleted = 0_u64;
++
++    for entry in entries {
++        if entry.is_dir {
++            let mut children = std::fs::read_dir(&entry.path)
++                .map_err(|e| format!("检查日志目录失败 [{}]: {}", entry.path.display(), e))?;
++            if children.next().is_none() {
++                std::fs::remove_dir(&entry.path)
++                    .map_err(|e| format!("删除空日志目录失败 [{}]: {}", entry.path.display(), e))?;
++            }
++            continue;
++        }
++
++        let Some(modified) = entry.modified else {
++            return Err(format!("无法读取日志修改时间 [{}]", entry.path.display()));
++        };
++        if modified <= cutoff {
++            std::fs::remove_file(&entry.path)
++                .map_err(|e| format!("删除旧日志失败 [{}]: {}", entry.path.display(), e))?;
++            deleted = deleted.saturating_add(1);
++        }
++    }
++
++    Ok(deleted)
++}
++
++fn clear_debug_directory() -> Result<u64, String> {
++    let Some(debug_dir) = checked_debug_dir(false)? else {
++        return Ok(0);
++    };
++    clear_debug_entries_in(&debug_dir)
++}
++
++fn clear_debug_entries_in(debug_dir: &Path) -> Result<u64, String> {
++    let entries = collect_checked_debug_entries(debug_dir)?;
++    let mut deleted = 0_u64;
++
++    for entry in entries {
++        if entry.is_dir {
++            std::fs::remove_dir(&entry.path)
++                .map_err(|e| format!("删除日志目录失败 [{}]: {}", entry.path.display(), e))?;
++        } else {
++            std::fs::remove_file(&entry.path)
++                .map_err(|e| format!("删除日志文件失败 [{}]: {}", entry.path.display(), e))?;
++            deleted = deleted.saturating_add(1);
+         }
+     }
+
+     Ok(deleted)
+ }
+
++/// 在 debug 目录内创建一次性标记；应用下次启动、日志初始化前执行完整清理。
++#[tauri::command]
++pub fn schedule_full_debug_clear() -> Result<(), String> {
++    let debug_dir = checked_debug_dir(true)?.ok_or_else(|| "无法创建日志目录".to_string())?;
++    let marker = debug_dir.join(DEBUG_CLEAR_MARKER);
++
++    if marker.exists() {
++        let metadata = std::fs::symlink_metadata(&marker)
++            .map_err(|e| format!("读取清理标记失败 [{}]: {}", marker.display(), e))?;
++        if !metadata.is_file() || metadata_is_link_or_reparse(&metadata) {
++            return Err(format!("拒绝覆盖异常清理标记 [{}]", marker.display()));
++        }
++    }
++
++    std::fs::write(&marker, b"clear debug directory on next start\n")
++        .map_err(|e| format!("写入清理标记失败 [{}]: {}", marker.display(), e))
++}
++
++/// 必须在任何日志文件被打开前调用。
++pub fn clear_debug_directory_if_requested() -> Result<u64, String> {
++    let Some(debug_dir) = checked_debug_dir(false)? else {
++        return Ok(0);
++    };
++    let marker = debug_dir.join(DEBUG_CLEAR_MARKER);
++    if !marker.exists() {
++        return Ok(0);
++    }
++
++    let metadata = std::fs::symlink_metadata(&marker)
++        .map_err(|e| format!("读取清理标记失败 [{}]: {}", marker.display(), e))?;
++    if !metadata.is_file() || metadata_is_link_or_reparse(&metadata) {
++        return Err(format!("拒绝使用异常清理标记 [{}]", marker.display()));
++    }
++
++    clear_debug_directory()
++}
++
++#[cfg(test)]
++mod debug_cleanup_tests {
++    use super::*;
++
++    fn test_debug_dir(name: &str) -> PathBuf {
++        let unique = SystemTime::now()
++            .duration_since(SystemTime::UNIX_EPOCH)
++            .expect("system clock before epoch")
++            .as_nanos();
++        let path = std::env::temp_dir().join(format!(
++            "mxu-debug-cleanup-{}-{}-{}",
++            name,
++            std::process::id(),
++            unique
++        ));
++        std::fs::create_dir(&path).expect("create isolated test debug dir");
++        std::fs::canonicalize(path).expect("canonicalize isolated test debug dir")
++    }
++
++    #[test]
++    fn full_clear_removes_nested_files_and_directories() {
++        let root = test_debug_dir("full-clear");
++        let nested = root.join("logs").join("nested");
++        std::fs::create_dir_all(&nested).expect("create nested directory");
++        std::fs::write(root.join("root.log"), b"root").expect("write root log");
++        std::fs::write(nested.join("image.png"), b"image").expect("write nested file");
++
++        assert_eq!(
++            clear_debug_entries_in(&root).expect("clear test directory"),
++            2
++        );
++        assert_eq!(
++            std::fs::read_dir(&root)
++                .expect("read cleared directory")
++                .count(),
++            0
++        );
++
++        std::fs::remove_dir(&root).expect("remove isolated test directory");
++    }
++
++    #[test]
++    fn retention_range_is_strictly_seven_through_fourteen_days() {
++        let root = test_debug_dir("retention-range");
++        let now = SystemTime::now();
++
++        assert!(cleanup_old_debug_entries_in(&root, 6, now).is_err());
++        assert_eq!(cleanup_old_debug_entries_in(&root, 7, now).unwrap(), 0);
++        assert_eq!(cleanup_old_debug_entries_in(&root, 14, now).unwrap(), 0);
++        assert!(cleanup_old_debug_entries_in(&root, 15, now).is_err());
++
++        std::fs::remove_dir(&root).expect("remove isolated test directory");
++    }
++
++    #[cfg(windows)]
++    #[test]
++    fn collection_rejects_symlinks_when_creation_is_permitted() {
++        use std::os::windows::fs::symlink_file;
++
++        let root = test_debug_dir("symlink");
++        let outside = root.parent().expect("test root parent").join(format!(
++            "mxu-outside-{}-{}.log",
++            std::process::id(),
++            root.file_name().unwrap().to_string_lossy()
++        ));
++        std::fs::write(&outside, b"outside").expect("write outside sentinel");
++        let link = root.join("escape.log");
++
++        if symlink_file(&outside, &link).is_ok() {
++            let error = collect_checked_debug_entries(&root).expect_err("symlink must be rejected");
++            assert!(error.contains("符号链接") || error.contains("重解析点"));
++            std::fs::remove_file(&link).expect("remove test symlink");
++        }
++
++        std::fs::remove_file(&outside).expect("remove outside sentinel");
++        std::fs::remove_dir(&root).expect("remove isolated test directory");
++    }
++}
++
+ /// 获取当前工作目录
+ #[tauri::command]
+ pub fn get_cwd() -> Result<String, String> {
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 4a76d36..302ba04 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -13,6 +13,11 @@ use ws_broadcast::WsBroadcast;
+
+ #[cfg_attr(mobile, tauri::mobile_entry_point)]
+ pub fn run() {
++    // 手动“完全清空”在本次日志初始化前执行，避免 Windows 文件占用导致漏删。
++    if let Err(error) = commands::file_ops::clear_debug_directory_if_requested() {
++        eprintln!("拒绝或无法清空日志目录: {}", error);
++    }
++
+     // 日志目录：exe 目录/debug/logs（与前端日志同目录）
+     let logs_dir = commands::utils::get_logs_dir();
+
+@@ -240,6 +245,8 @@ pub fn run() {
+             commands::file_ops::get_exe_dir,
+             commands::file_ops::get_data_dir,
+             commands::file_ops::clear_log_files,
++            commands::file_ops::cleanup_old_debug_entries,
++            commands::file_ops::schedule_full_debug_clear,
+             commands::file_ops::get_cwd,
+             commands::file_ops::check_exe_path,
+             commands::file_ops::set_executable,
+diff --git a/src/App.tsx b/src/App.tsx
+index 9445863..c0bde2d 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -66,7 +66,6 @@ import {
+   mergeRuntimeLogs,
+   persistRuntimeLogs,
+ } from '@/utils/runtimeLogPersistence';
+-import { getCurrentLogFileName } from '@/utils/logger';
+ import {
+   isTauri,
+   isValidWindowSize,
+@@ -677,12 +676,12 @@ function App() {
+         if (store.autoClearLogsOnLaunch) {
+           if (isTauri()) {
+             try {
+-              const deleted = await invoke<number>('clear_log_files', {
+-                excludeFileName: getCurrentLogFileName(),
++              const deleted = await invoke<number>('cleanup_old_debug_entries', {
++                retentionDays: 14,
+               });
+-              log.info('Auto-cleared log files on launch:', deleted);
+-            } catch {
+-              // ignore cleanup errors
++              log.info('Auto-cleaned debug entries older than 14 days:', deleted);
++            } catch (error) {
++              log.warn('Auto-cleanup refused or failed:', error);
+             }
+           }
+           clearPersistedRuntimeLogs();
+diff --git a/src/components/settings/GeneralSection.tsx b/src/components/settings/GeneralSection.tsx
+index 4e2c221..fbd4c4a 100644
+--- a/src/components/settings/GeneralSection.tsx
++++ b/src/components/settings/GeneralSection.tsx
+@@ -12,13 +12,17 @@ import {
+   ChevronDown,
+   Check,
+   BrushCleaning,
++  Trash2,
+ } from 'lucide-react';
++import { toast } from 'sonner';
+
+ import { useAppStore } from '@/stores/appStore';
+ import { defaultAddTaskPanelHeight, defaultWindowSize } from '@/types/config';
+ import { isTauri } from '@/utils/paths';
+ import { SwitchButton } from '@/components/FormControls';
+ import { DesktopOnlyWrapper } from '@/components/ui/DesktopOnlyWrapper';
++import { ConfirmDialog } from '@/components/ConfirmDialog';
++import { loggers } from '@/utils/logger';
+ import { FrameRateSelector } from '../FrameRateSelector';
+
+ export function GeneralSection() {
+@@ -51,6 +55,8 @@ export function GeneralSection() {
+   // 自定义下拉框状态
+   const [instanceDropdownOpen, setInstanceDropdownOpen] = useState(false);
+   const dropdownRef = useRef<HTMLDivElement>(null);
++  const [showClearLogsConfirm, setShowClearLogsConfirm] = useState(false);
++  const [isSchedulingLogClear, setIsSchedulingLogClear] = useState(false);
+
+   useEffect(() => {
+     if (!isTauri()) return;
+@@ -132,6 +138,23 @@ export function GeneralSection() {
+     }
+   }, [setRightPanelWidth, setRightPanelCollapsed, setAddTaskPanelHeight]);
+
++  const handleClearAllLogs = useCallback(async () => {
++    if (!isTauri() || isSchedulingLogClear) return;
++    setIsSchedulingLogClear(true);
++    try {
++      const { invoke } = await import('@tauri-apps/api/core');
++      await invoke<void>('schedule_full_debug_clear');
++      toast.success(t('debug.clearAllLogsScheduled'));
++      const { restartApp } = await import('@/services/updateService');
++      await restartApp();
++    } catch (error) {
++      loggers.ui.error('安排完全清空日志失败:', error);
++      toast.error(t('debug.clearAllLogsFailed'));
++      setIsSchedulingLogClear(false);
++      setShowClearLogsConfirm(false);
++    }
++  }, [isSchedulingLogClear, t]);
++
+   // 构建下拉选项列表
+   const dropdownOptions = [
+     { id: '', name: t('settings.autoStartInstanceNone') },
+@@ -325,6 +348,27 @@ export function GeneralSection() {
+         </div>
+       </div>
+
++      {/* 手动完全清空日志：独立操作，不与自动保留期开关复用 */}
++      <div className="bg-error/5 rounded-xl p-4 border border-error/30">
++        <div className="flex items-center justify-between gap-4">
++          <div className="flex items-center gap-3 min-w-0">
++            <Trash2 className="w-5 h-5 text-error flex-shrink-0" />
++            <div>
++              <span className="font-medium text-error">{t('debug.clearAllLogs')}</span>
++              <p className="text-xs text-text-muted mt-0.5">{t('debug.clearAllLogsHint')}</p>
++            </div>
++          </div>
++          <button
++            type="button"
++            onClick={() => setShowClearLogsConfirm(true)}
++            disabled={!isTauri() || isSchedulingLogClear}
++            className="flex-shrink-0 px-4 py-2 text-sm font-medium bg-error text-white hover:bg-error/90 rounded-lg transition-colors disabled:opacity-50"
++          >
++            {t('debug.clearAllLogs')}
++          </button>
++        </div>
++      </div>
++
+       {/* ⑦ 删除确认 */}
+       <div className="bg-bg-secondary rounded-xl p-4 border border-border">
+         <div className="flex items-center justify-between">
+@@ -367,6 +411,19 @@ export function GeneralSection() {
+           </div>
+         </div>
+       )}
++      <ConfirmDialog
++        open={showClearLogsConfirm}
++        title={t('debug.clearAllLogsConfirmTitle')}
++        message={t('debug.clearAllLogsConfirmMessage')}
++        confirmText={t('debug.clearAllLogsConfirm')}
++        cancelText={t('common.cancel')}
++        destructive
++        confirmDisabled={isSchedulingLogClear}
++        onConfirm={handleClearAllLogs}
++        onCancel={() => {
++          if (!isSchedulingLogClear) setShowClearLogsConfirm(false);
++        }}
++      />
+     </section>
+   );
+ }
+diff --git a/src/i18n/locales/en-US.ts b/src/i18n/locales/en-US.ts
+index c6a4cb9..c06e7b7 100644
+--- a/src/i18n/locales/en-US.ts
++++ b/src/i18n/locales/en-US.ts
+@@ -115,7 +115,7 @@ export default {
+     resetWindowLayout: 'Reset Window Layout',
+     resetWindowLayoutHint: 'Restore window size to default and center the window',
+     autoClearLogsOnLaunch: 'Auto-clear Runtime Logs',
+-    autoClearLogsOnLaunchHint: 'Automatically clear runtime logs and delete old log files every time the project is launched',
++    autoClearLogsOnLaunchHint: 'Delete logs and debug files in the debug directory that are older than 14 days on launch',
+   },
+
+   // Special tasks
+@@ -522,6 +522,13 @@ export default {
+     resetWindowLayout: 'Reset Window Layout',
+     openConfigDir: 'Open Config Dir',
+     openLogDir: 'Open Log Dir',
++    clearAllLogs: 'Clear All Logs',
++    clearAllLogsHint: 'Restart and remove every log and debug file from the debug directory',
++    clearAllLogsConfirmTitle: 'Clear all logs?',
++    clearAllLogsConfirmMessage: 'The app will restart and clear the debug directory before creating new logs. This cannot be undone.',
++    clearAllLogsConfirm: 'Clear and Restart',
++    clearAllLogsScheduled: 'Restarting to clear all logs',
++    clearAllLogsFailed: 'Failed to schedule log cleanup',
+     exportLogs: 'Export Logs',
+     exportLogsHint:
+       'Pack logs and config into a zip archive, keeping newest debug images until it reaches about 24.5 MB',
+diff --git a/src/i18n/locales/ja-JP.ts b/src/i18n/locales/ja-JP.ts
+index 5b48883..1792409 100644
+--- a/src/i18n/locales/ja-JP.ts
++++ b/src/i18n/locales/ja-JP.ts
+@@ -112,7 +112,7 @@ export default {
+     maxLogsPerInstanceHint: '上限を超えると古いログから自動的に破棄します（推奨 500～2000）',
+     resetWindowLayout: 'ウィンドウレイアウトをリセット',
+     resetWindowLayoutHint: 'ウィンドウサイズをデフォルトに戻し、中央に配置します',    autoClearLogsOnLaunch: '実行ログの自動クリア',
+-    autoClearLogsOnLaunchHint: 'プロジェクトの起動時に自動で実行ログをクリアし、古いログファイルを削除します',  },
++    autoClearLogsOnLaunchHint: '起動時に debug フォルダー内の 14 日を超えたログとデバッグファイルを削除します',  },
+
+   // 特殊タスク
+   specialTask: {
+@@ -515,6 +515,13 @@ export default {
+     resetWindowSize: 'ウィンドウサイズをリセット',
+     openConfigDir: '設定フォルダを開く',
+     openLogDir: 'ログフォルダを開く',
++    clearAllLogs: 'ログを完全に消去',
++    clearAllLogsHint: '再起動して debug フォルダー内のすべてのログとデバッグファイルを削除します',
++    clearAllLogsConfirmTitle: 'すべてのログを消去しますか？',
++    clearAllLogsConfirmMessage: 'アプリを再起動し、新しいログを作成する前に debug フォルダーを消去します。この操作は元に戻せません。',
++    clearAllLogsConfirm: '消去して再起動',
++    clearAllLogsScheduled: '再起動してログを消去しています',
++    clearAllLogsFailed: 'ログ消去を予約できませんでした',
+     exportLogs: 'ログをエクスポート',
+     exportLogsHint: 'ログと config を zip にまとめ、約 24.5 MB まで最新のデバッグ画像を自動で保持',
+     exportingLogs: 'ログをエクスポート中...',
+diff --git a/src/i18n/locales/ko-KR.ts b/src/i18n/locales/ko-KR.ts
+index 76d1c1a..139b505 100644
+--- a/src/i18n/locales/ko-KR.ts
++++ b/src/i18n/locales/ko-KR.ts
+@@ -112,7 +112,7 @@ export default {
+     resetWindowLayout: '창 레이아웃 초기화',
+     resetWindowLayoutHint: '창 크기를 기본값으로 복원하고 화면 중앙에 배치합니다',
+     autoClearLogsOnLaunch: '로그 자동 지우기',
+-    autoClearLogsOnLaunchHint: '프로젝트를 시작할 때 런타임 로그를 자동으로 지우고 이전 로그 파일을 삭제합니다',
++    autoClearLogsOnLaunchHint: '시작할 때 debug 폴더에서 14일이 지난 로그와 디버그 파일을 삭제합니다',
+   },
+
+   // 특수 작업
+@@ -514,6 +514,13 @@ export default {
+     resetWindowSize: '창 크기 초기화',
+     openConfigDir: '설정 폴더 열기',
+     openLogDir: '로그 폴더 열기',
++    clearAllLogs: '모든 로그 완전 삭제',
++    clearAllLogsHint: '앱을 다시 시작하고 debug 폴더의 모든 로그 및 디버그 파일을 삭제합니다',
++    clearAllLogsConfirmTitle: '모든 로그를 삭제할까요?',
++    clearAllLogsConfirmMessage: '앱이 즉시 다시 시작되고 새 로그를 만들기 전에 debug 폴더를 비웁니다. 이 작업은 취소할 수 없습니다.',
++    clearAllLogsConfirm: '삭제 후 다시 시작',
++    clearAllLogsScheduled: '모든 로그를 삭제하기 위해 다시 시작합니다',
++    clearAllLogsFailed: '로그 삭제를 예약할 수 없습니다',
+     exportLogs: '로그 내보내기',
+     exportLogsHint:
+       '로그와 config를 zip으로 묶고, 약 24.5 MB까지 최신 디버그 이미지를 자동으로 유지',
+diff --git a/src/i18n/locales/zh-CN.ts b/src/i18n/locales/zh-CN.ts
+index bbbc8e2..a5a4b6c 100644
+--- a/src/i18n/locales/zh-CN.ts
++++ b/src/i18n/locales/zh-CN.ts
+@@ -112,7 +112,7 @@ export default {
+     resetWindowLayout: '重置窗口布局',
+     resetWindowLayoutHint: '将窗口大小恢复为默认值，并居中显示',
+     autoClearLogsOnLaunch: '自动清理运行日志',
+-    autoClearLogsOnLaunchHint: '每次启动项目时，自动清理运行日志并删除旧的日志文件',
++    autoClearLogsOnLaunchHint: '每次启动项目时，自动删除 debug 目录内超过 14 天的日志和调试文件',
+   },
+
+   // 特殊任务
+@@ -511,6 +511,13 @@ export default {
+     resetWindowLayout: '重置窗口布局',
+     openConfigDir: '打开配置目录',
+     openLogDir: '打开日志目录',
++    clearAllLogs: '完全清空日志',
++    clearAllLogsHint: '重启程序并清空 debug 目录中的全部日志和调试文件',
++    clearAllLogsConfirmTitle: '完全清空日志？',
++    clearAllLogsConfirmMessage: '程序将立即重启，并在新日志创建前清空 debug 目录。此操作无法撤销。',
++    clearAllLogsConfirm: '清空并重启',
++    clearAllLogsScheduled: '正在重启并完全清空日志',
++    clearAllLogsFailed: '无法安排日志清理',
+     exportLogs: '导出日志',
+     exportLogsHint: '打包日志和 config，并按压缩包 24.5 MB 上限自动保留最近调试图片',
+     exportingLogs: '正在导出日志...',
+diff --git a/src/i18n/locales/zh-TW.ts b/src/i18n/locales/zh-TW.ts
+index 7371edd..f471031 100644
+--- a/src/i18n/locales/zh-TW.ts
++++ b/src/i18n/locales/zh-TW.ts
+@@ -110,7 +110,7 @@ export default {
+     maxLogsPerInstanceHint: '超出上限會自動丟棄最舊的日誌（建議 500～2000）',
+     resetWindowLayout: '重設視窗佈局',
+     resetWindowLayoutHint: '將視窗大小恢復為預設值，並置中顯示',    autoClearLogsOnLaunch: '自動清理運行日誌',
+-    autoClearLogsOnLaunchHint: '每次啟動項目時，自動清理運行日誌並刪除舊的日誌檔案',  },
++    autoClearLogsOnLaunchHint: '每次啟動項目時，自動刪除 debug 目錄內超過 14 天的日誌與除錯檔案',  },
+
+   // 特殊任務
+   specialTask: {
+@@ -505,6 +505,13 @@ export default {
+     resetWindowSize: '重設視窗尺寸',
+     openConfigDir: '開啟設定目錄',
+     openLogDir: '開啟日誌目錄',
++    clearAllLogs: '完全清空日誌',
++    clearAllLogsHint: '重新啟動程式並清空 debug 目錄中的全部日誌與除錯檔案',
++    clearAllLogsConfirmTitle: '完全清空日誌？',
++    clearAllLogsConfirmMessage: '程式將立即重新啟動，並在建立新日誌前清空 debug 目錄。此操作無法復原。',
++    clearAllLogsConfirm: '清空並重新啟動',
++    clearAllLogsScheduled: '正在重新啟動並完全清空日誌',
++    clearAllLogsFailed: '無法安排日誌清理',
+     exportLogs: '匯出日誌',
+     exportLogsHint: '打包日誌與 config，並依 24.5 MB 上限自動保留最近的除錯圖片',
+     exportingLogs: '正在匯出日誌...',
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+new file mode 100644
+index 0000000..a0fcc4b
+--- /dev/null
++++ b/pnpm-workspace.yaml
+@@ -0,0 +1,2 @@
++allowBuilds:
++  esbuild: true

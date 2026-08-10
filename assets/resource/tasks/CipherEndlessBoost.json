@@ -1,0 +1,95 @@
+{
+    "task": [
+        {
+            "name": "CipherEndlessBoost",
+            "label": "密函无尽加速",
+            "description": "自动处理密函探险结算流程。无尽模式持续完成结算循环；驱离模式完成结算并重新开启副本，开启“是否开启技能”后才检测并执行角色 E、Q 技能组合。",
+            "entry": "RewardConfirmEntry",
+            "option": [
+                "CipherMode"
+            ],
+            "group": [
+                "DailyAFK"
+            ],
+            "controller": [
+                "Win32-Foreground"
+            ]
+        }
+    ],
+    "option": {
+        "CipherMode": {
+            "type": "select",
+            "label": "模式",
+            "description": "选择密函探险的执行模式。无尽模式完成结算后继续下一轮；驱离模式完成结算后重新开启副本，可通过“是否开启技能”启用角色技能设置。",
+            "default_case": "Endless",
+            "cases": [
+                {
+                    "name": "Endless",
+                    "label": "无尽"
+                },
+                {
+                    "name": "Expel",
+                    "label": "驱离",
+                    "option": [
+                        "CipherEnableSkills"
+                    ],
+                    "pipeline_override": {
+                        "RewardConfirmEntry": {
+                            "next": [
+                                "CipherExpelMonitor"
+                            ]
+                        },
+                        "RewardConfirmFirstPageClick3": {
+                            "next": [
+                                "CipherExpelAgainByClick",
+                                "CipherExpelWaitAgain"
+                            ]
+                        },
+                        "RewardConfirmThirdPageClick3": {
+                            "next": [
+                                "CipherExpelMonitor"
+                            ]
+                        },
+                        "LiseSkillCastEnd": {
+                            "next": [
+                                "CipherExpelSettlementMonitor"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        "CipherEnableSkills": {
+            "type": "switch",
+            "label": "是否开启技能",
+            "description": "开启后显示并执行密函驱离的角色技能设置；关闭时只处理副本结算与重新进入，不检测或释放角色技能。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "option": [
+                        "LiseCombatStartDelay",
+                        "LiseHighPlatformOnly",
+                        "LiseEnableE",
+                        "LiseECount",
+                        "LiseEInterval",
+                        "LiseEnableQ"
+                    ]
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "pipeline_override": {
+                        "CipherExpelMonitor": {
+                            "next": [
+                                "RewardConfirmByClick",
+                                "CipherExpelMonitor"
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}

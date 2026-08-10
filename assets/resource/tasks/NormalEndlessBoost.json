@@ -1,0 +1,492 @@
+{
+    "task": [
+        {
+            "name": "NormalEndlessBoost",
+            "label": "普通无尽加速",
+            "description": "自动处理普通副本循环。扼守和驱离按设定副本轮次运行；无尽模式仅快速点击局内的“继续挑战”和“确认选择”；扼守与驱离均可通过“是否开启技能”启用角色 E、Q 技能组合。",
+            "entry": "NormalEndlessEntry",
+            "option": [
+                "NormalMode"
+            ],
+            "group": [
+                "DailyAFK"
+            ],
+            "controller": [
+                "Win32-Foreground"
+            ]
+        }
+    ],
+    "option": {
+        "NormalMode": {
+            "type": "select",
+            "label": "模式",
+            "description": "选择普通副本的执行模式。扼守和驱离按副本轮次运行；无尽模式仅监听并快速点击局内的“继续挑战”和“确认选择”，不处理轮次或角色技能；扼守与驱离可分别开启角色技能设置。",
+            "default_case": "Endless",
+            "cases": [
+                {
+                    "name": "Endless",
+                    "label": "扼守",
+                    "option": [
+                        "NormalEndlessRestartCount",
+                        "NormalHoldEnableSkills"
+                    ],
+                    "pipeline_override": {
+                        "NormalEndlessMonitor": {
+                            "next": [
+                                "NormalEndlessContinueChallenge",
+                                "NormalEndlessConfirmChoice",
+                                "NormalEndlessAgainDetected",
+                                "NormalEndlessIdle"
+                            ]
+                        },
+                        "NormalEndlessCombatEntry": {
+                            "next": [
+                                "NormalEndlessContinueChallenge",
+                                "NormalEndlessConfirmChoice",
+                                "NormalEndlessAgainDetected",
+                                "LisePressE",
+                                "LisePressQ",
+                                "LiseSkillCastEnd"
+                            ]
+                        },
+                        "LiseCombatLoadDelay": {
+                            "next": [
+                                "NormalEndlessCombatEntry"
+                            ]
+                        },
+                        "LiseCombatHudReadyFrame1": {
+                            "on_error": [
+                                "NormalEndlessMonitor"
+                            ]
+                        },
+                        "LiseCombatHudReadyFrame2": {
+                            "on_error": [
+                                "NormalEndlessMonitor"
+                            ]
+                        },
+                        "LiseCombatHudReady": {
+                            "next": [
+                                "LiseCombatLoadDelay",
+                                "NormalEndlessCombatEntry"
+                            ]
+                        },
+                        "LiseSkillCastEnd": {
+                            "next": [
+                                "NormalEndlessMonitor"
+                            ]
+                        },
+                        "LiseWaitCombatReady": {
+                            "next": [
+                                "NormalEndlessCombatEntry"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Infinite",
+                    "label": "无尽",
+                    "pipeline_override": {
+                        "NormalEndlessEntry": {
+                            "action": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_action": "focus_guard_start",
+                                    "custom_action_param": {}
+                                }
+                            },
+                            "next": [
+                                "NormalEndlessMonitor"
+                            ]
+                        },
+                        "NormalEndlessMonitor": {
+                            "next": [
+                                "NormalEndlessContinueChallenge",
+                                "NormalEndlessConfirmChoice",
+                                "NormalEndlessIdle"
+                            ]
+                        },
+                        "NormalEndlessContinueChallenge": {
+                            "action": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_action": "focus_guard_action",
+                                    "custom_action_param": {
+                                        "kind": "click",
+                                        "target": [
+                                            900,
+                                            500
+                                        ],
+                                        "repeat": 3,
+                                        "interval_ms": 50,
+                                        "restore_delay_ms": 100
+                                    }
+                                }
+                            },
+                            "next": [
+                                "NormalEndlessMonitor"
+                            ]
+                        },
+                        "NormalEndlessConfirmChoice": {
+                            "action": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_action": "focus_guard_action",
+                                    "custom_action_param": {
+                                        "kind": "click",
+                                        "target": [
+                                            640,
+                                            505
+                                        ],
+                                        "repeat": 3,
+                                        "interval_ms": 50,
+                                        "restore_delay_ms": 100
+                                    }
+                                }
+                            },
+                            "next": [
+                                "NormalEndlessMonitor"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Expel",
+                    "label": "驱离",
+                    "option": [
+                        "NormalExpelRestartCount",
+                        "NormalExpelEnableSkills"
+                    ],
+                    "pipeline_override": {
+                        "NormalEndlessEntry": {
+                            "next": [
+                                "NormalExpelMonitor"
+                            ]
+                        },
+                        "NormalEndlessAgainDetected": {
+                            "next": [
+                                "NormalExpelRoundQuota"
+                            ]
+                        },
+                        "NormalEndlessRestartClick3": {
+                            "focus": {
+                                "Node.Action.Succeeded": {
+                                    "content": "[普通驱离] 已点击再次进行，等待开始挑战",
+                                    "display": [
+                                        "log"
+                                    ]
+                                }
+                            }
+                        },
+                        "NormalEndlessStartChallengeClick3": {
+                            "focus": {
+                                "Node.Action.Succeeded": {
+                                    "content": "[普通驱离] 已点击开始挑战，进入下一轮副本",
+                                    "display": [
+                                        "log"
+                                    ]
+                                }
+                            },
+                            "next": [
+                                "NormalExpelMonitor"
+                            ]
+                        },
+                        "LiseCombatLoadDelay": {
+                            "next": [
+                                "NormalExpelCombatEntry"
+                            ]
+                        },
+                        "LiseSkillCastEnd": {
+                            "next": [
+                                "NormalExpelMonitor"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        "NormalHoldEnableSkills": {
+            "type": "switch",
+            "label": "是否开启技能",
+            "description": "开启后显示并执行普通扼守的角色技能设置；关闭时只处理副本轮次与结算，不释放角色技能。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "option": [
+                        "NormalHoldCombatStartDelay",
+                        "LiseEnableE",
+                        "LiseECount",
+                        "NormalHoldEInterval",
+                        "LiseEnableQ"
+                    ],
+                    "pipeline_override": {
+                        "NormalEndlessEntry": {
+                            "next": [
+                                "LiseCombatHudReadyFrame1",
+                                "LiseWaitCombatReady"
+                            ]
+                        },
+                        "NormalEndlessStartChallengeClick3": {
+                            "next": [
+                                "LiseCombatHudReadyFrame1",
+                                "LiseWaitCombatReady"
+                            ]
+                        },
+                        "LiseCombatHudReadyFrame1": {
+                            "on_error": [
+                                "LiseWaitCombatReady"
+                            ]
+                        },
+                        "LiseCombatHudReadyFrame2": {
+                            "on_error": [
+                                "LiseWaitCombatReady"
+                            ]
+                        },
+                        "LiseCombatHudReady": {
+                            "next": [
+                                "LiseCombatLoadDelay",
+                                "NormalEndlessCombatEntry"
+                            ]
+                        },
+                        "LiseWaitCombatReady": {
+                            "next": [
+                                "LiseCombatHudReadyFrame1",
+                                "LiseWaitCombatReady"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭"
+                }
+            ]
+        },
+        "NormalExpelEnableSkills": {
+            "type": "switch",
+            "label": "是否开启技能",
+            "description": "开启后显示并执行普通驱离的角色技能设置；关闭时只处理副本结算与重新进入，不检测或释放角色技能。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "option": [
+                        "LiseCombatStartDelay",
+                        "NormalLiseHighPlatformOnly",
+                        "LiseEnableE",
+                        "LiseECount",
+                        "LiseEInterval",
+                        "LiseEnableQ"
+                    ],
+                    "pipeline_override": {
+                        "NormalEndlessEntry": {
+                            "next": [
+                                "LiseCombatHudReadyFrame1",
+                                "LiseWaitCombatReady"
+                            ]
+                        },
+                        "NormalEndlessStartChallengeClick3": {
+                            "next": [
+                                "LiseCombatHudReadyFrame1",
+                                "LiseWaitCombatReady"
+                            ]
+                        },
+                        "LiseCombatHudReadyFrame1": {
+                            "on_error": [
+                                "LiseWaitCombatReady"
+                            ]
+                        },
+                        "LiseCombatHudReadyFrame2": {
+                            "on_error": [
+                                "LiseWaitCombatReady"
+                            ]
+                        },
+                        "LiseCombatHudReady": {
+                            "next": [
+                                "LiseCombatLoadDelay",
+                                "NormalExpelCombatEntry"
+                            ]
+                        },
+                        "LiseWaitCombatReady": {
+                            "next": [
+                                "LiseCombatHudReadyFrame1",
+                                "LiseWaitCombatReady"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "pipeline_override": {
+                        "NormalExpelMonitor": {
+                            "next": [
+                                "NormalEndlessAgainDetected",
+                                "NormalExpelMonitor"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        "NormalEndlessRestartCount": {
+            "type": "input",
+            "label": "副本轮次",
+            "description": "设置总共完成多少个 99 轮副本。填写 1 时完成当前副本后结束；填写 2 时点击一次“再次进行”，再完成一个 99 轮副本后结束。",
+            "inputs": [
+                {
+                    "name": "count",
+                    "label": "轮次",
+                    "default": "1",
+                    "pipeline_type": "int",
+                    "verify": "^[1-9]\\d{0,2}$"
+                }
+            ],
+            "pipeline_override": {
+                "NormalEndlessRestartQuota": {
+                    "max_hit": "{count}",
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "normal_endless_log_round",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                },
+                "NormalEndlessRoundDecision": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "normal_endless_decide_restart",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "NormalExpelRestartCount": {
+            "type": "input",
+            "label": "副本轮次",
+            "description": "设置普通驱离总共完成多少轮副本。填写 1 时完成当前副本后结束；填写 2 时点击一次“再次进行”和“开始挑战”，再完成一轮后结束。",
+            "inputs": [
+                {
+                    "name": "count",
+                    "label": "轮次",
+                    "default": "1",
+                    "pipeline_type": "int",
+                    "verify": "^[1-9]\\d{0,2}$"
+                }
+            ],
+            "pipeline_override": {
+                "NormalExpelRoundQuota": {
+                    "max_hit": "{count}",
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "normal_expel_log_round",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                },
+                "NormalExpelRoundDecision": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "normal_expel_decide_restart",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "NormalHoldCombatStartDelay": {
+            "type": "input",
+            "label": "技能触发延迟（ms）",
+            "description": "进入每轮副本后等待此时间，再按配置依次执行 E、Q；最低 2000ms。技能结束后返回扼守结算监听。",
+            "inputs": [
+                {
+                    "name": "delay_ms",
+                    "label": "等待时间（ms）",
+                    "default": "2000",
+                    "pipeline_type": "int",
+                    "verify": "^(?:[2-9]\\d{3}|[1-9]\\d{4,})$"
+                }
+            ],
+            "pipeline_override": {
+                "LiseCombatLoadDelay": {
+                    "post_delay": "{delay_ms}"
+                }
+            }
+        },
+        "NormalHoldEInterval": {
+            "type": "input",
+            "label": "连续点击间隔（ms）",
+            "description": "设置普通扼守中每次点击 E 键后的等待时间；最后一次 E 键后同样等待该间隔，再执行 Q 键。",
+            "inputs": [
+                {
+                    "name": "interval_ms",
+                    "label": "间隔（ms）",
+                    "default": "1250",
+                    "pipeline_type": "int",
+                    "verify": "^\\d+$"
+                }
+            ],
+            "pipeline_override": {
+                "LisePressE": {
+                    "repeat_delay": "{interval_ms}",
+                    "post_delay": "{interval_ms}"
+                }
+            }
+        },
+        "NormalLiseHighPlatformOnly": {
+            "type": "switch",
+            "label": "仅高台释放 E",
+            "description": "开启后先锁定左上角小地图的高台或非高台结果，再等待技能触发延迟；高台释放 E、Q，非高台仅在 Q 未启用时释放 Q。关闭后等待设定时间，再按配置依次释放 E、Q。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "pipeline_override": {
+                        "LiseCombatLoadDelay": {
+                            "enabled": false
+                        },
+                        "NormalExpelCombatEntry": {
+                            "next": [
+                                "NormalEndlessAgainDetected",
+                                "LiseHighPlatformWindowStart"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "pipeline_override": {
+                        "LiseCombatLoadDelay": {
+                            "enabled": true
+                        },
+                        "NormalExpelCombatEntry": {
+                            "next": [
+                                "NormalEndlessAgainDetected",
+                                "LisePressE",
+                                "LisePressQ",
+                                "LiseSkillCastEnd"
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}

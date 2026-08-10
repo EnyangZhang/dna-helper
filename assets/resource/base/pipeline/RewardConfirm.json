@@ -1,0 +1,441 @@
+{
+    "RewardConfirmEntry": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_start",
+                "custom_action_param": {}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "RewardConfirmByClick",
+            "RewardConfirmIdle"
+        ]
+    },
+    "RewardConfirmThirdPageByClick": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/space_confirm_choice.png",
+                "roi": [
+                    760,
+                    380,
+                    360,
+                    150
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    920,
+                    480
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmThirdPageClick2"
+        ]
+    },
+    "RewardConfirmThirdPageClick2": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    920,
+                    480
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmThirdPageClick3"
+        ]
+    },
+    "RewardConfirmThirdPageClick3": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [920, 480],
+                    "repeat": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmEntry"
+        ]
+    },
+    "RewardConfirmByClick": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/confirm_choice.png",
+                "roi": [
+                    500,
+                    520,
+                    300,
+                    130
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    620,
+                    607
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmFirstPageClick2"
+        ]
+    },
+    "RewardConfirmFirstPageClick2": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    620,
+                    607
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmFirstPageClick3"
+        ]
+    },
+    "RewardConfirmFirstPageClick3": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [620, 607],
+                    "repeat": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmContinueChallenge",
+            "RewardConfirmWaitContinue"
+        ]
+    },
+    "RewardConfirmContinueChallenge": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/continue_challenge.png",
+                "roi": [
+                    700,
+                    400,
+                    420,
+                    150
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    900,
+                    500
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmContinueChallengeClick2"
+        ]
+    },
+    "RewardConfirmContinueChallengeClick2": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    900,
+                    500
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmContinueChallengeClick3"
+        ]
+    },
+    "RewardConfirmContinueChallengeClick3": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [900, 500],
+                    "repeat": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmThirdPageByClick",
+            "RewardConfirmWaitThird"
+        ]
+    },
+    "RewardConfirmWaitContinue": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "RewardConfirmContinueChallenge",
+            "RewardConfirmWaitContinue"
+        ]
+    },
+    "RewardConfirmWaitThird": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "RewardConfirmThirdPageByClick",
+            "RewardConfirmWaitThird"
+        ]
+    },
+    "RewardConfirmIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "RewardConfirmEntry"
+        ]
+    },
+    "CipherExpelCombatEntry": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "RewardConfirmByClick",
+            "LisePressE",
+            "LisePressQ",
+            "LiseSkillCastEnd"
+        ]
+    },
+    "CipherExpelMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "RewardConfirmByClick",
+            "LiseCombatHudReadyFrame1",
+            "CipherExpelMonitor"
+        ]
+    },
+    "CipherExpelSettlementMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "RewardConfirmByClick",
+            "CipherExpelSettlementMonitor"
+        ]
+    },
+    "CipherExpelAgainByClick": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [
+                    800,
+                    560,
+                    300,
+                    130
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    920,
+                    640
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "CipherExpelAgainClick2"
+        ]
+    },
+    "CipherExpelAgainClick2": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Click",
+            "param": {
+                "target": [
+                    920,
+                    640
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "CipherExpelAgainClick3"
+        ]
+    },
+    "CipherExpelAgainClick3": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [920, 640],
+                    "repeat": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "RewardConfirmThirdPageByClick",
+            "CipherExpelWaitThird"
+        ]
+    },
+    "CipherExpelWaitAgain": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "CipherExpelAgainByClick",
+            "CipherExpelWaitAgain"
+        ]
+    },
+    "CipherExpelWaitThird": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "RewardConfirmThirdPageByClick",
+            "CipherExpelWaitThird"
+        ]
+    }
+}

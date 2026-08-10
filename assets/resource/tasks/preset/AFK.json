@@ -1,0 +1,26 @@
+{
+    "preset": [
+        {
+            "name": "CipherAFK",
+            "label": "密函挂机",
+            "description": "只添加并启用密函无尽加速任务。",
+            "task": [
+                {
+                    "name": "CipherEndlessBoost",
+                    "enabled": true
+                }
+            ]
+        },
+        {
+            "name": "NormalAFK",
+            "label": "普通挂机",
+            "description": "只添加并启用普通无尽加速任务。",
+            "task": [
+                {
+                    "name": "NormalEndlessBoost",
+                    "enabled": true
+                }
+            ]
+        }
+    ]
+}

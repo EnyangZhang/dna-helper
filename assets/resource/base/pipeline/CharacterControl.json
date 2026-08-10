@@ -1,0 +1,396 @@
+{
+    "LiseCombatLoadDelay": {
+        "enabled": true,
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[黎瑟] 战斗界面已就绪，开始等待配置的技能触发延迟",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 2000,
+        "next": [
+            "CipherExpelCombatEntry"
+        ]
+    },
+    "LiseHighPlatformWindowStart": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[黎瑟] 立即检查本轮初始小地图并锁定高台分支",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 50,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "timeout": 300,
+        "next": [
+            "LiseHighPlatformMapDetected"
+        ],
+        "on_error": [
+            "LiseHighPlatformWindowTimeout"
+        ]
+    },
+    "LiseHighPlatformWindowTimeout": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[黎瑟] 高台识别结果：非高台",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "LiseNonHighPlatformDelay"
+        ]
+    },
+    "LiseHighPlatformMapDetected": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/high_platform_map.png",
+                "roi": [
+                    15,
+                    48,
+                    165,
+                    165
+                ],
+                "threshold": 0.75,
+                "green_mask": true
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[黎瑟] 高台识别结果：高台",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "LiseHighPlatformDetectedDelay"
+        ]
+    },
+    "LiseHighPlatformDetectedDelay": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[黎瑟] 已记录高台结果，开始等待配置延迟",
+                "display": [
+                    "log"
+                ]
+            },
+            "Node.Action.Starting": {
+                "content": "[黎瑟] 高台分支延迟结束，准备释放技能",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 2000,
+        "post_delay": 0,
+        "next": [
+            "LisePressE",
+            "LisePressQ",
+            "LiseSkillCastEnd"
+        ]
+    },
+    "LiseNonHighPlatformDelay": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[黎瑟] 已记录非高台结果，开始等待配置延迟",
+                "display": [
+                    "log"
+                ]
+            },
+            "Node.Action.Starting": {
+                "content": "[黎瑟] 非高台分支延迟结束，准备释放技能",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 2000,
+        "post_delay": 0,
+        "next": [
+            "LisePressQ",
+            "LiseSkillCastEnd"
+        ]
+    },
+    "LiseCombatHudReadyFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/q_inactive.png",
+                "roi": [
+                    1100,
+                    598,
+                    100,
+                    100
+                ],
+                "threshold": 0.9
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "LiseCombatHudReadyFrame2"
+        ],
+        "on_error": [
+            "CipherExpelMonitor"
+        ]
+    },
+    "LiseCombatHudReadyFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/q_inactive.png",
+                "roi": [
+                    1100,
+                    598,
+                    100,
+                    100
+                ],
+                "threshold": 0.9
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "LiseCombatHudReady"
+        ],
+        "on_error": [
+            "CipherExpelMonitor"
+        ]
+    },
+    "LiseCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/q_inactive.png",
+                "roi": [
+                    1100,
+                    598,
+                    100,
+                    100
+                ],
+                "threshold": 0.9
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[黎瑟] Q 未启用状态已连续确认 3 帧，开始计算延迟并执行技能组合",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "LiseCombatLoadDelay",
+            "CipherExpelCombatEntry"
+        ]
+    },
+    "LisePressE": {
+        "enabled": true,
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key",
+                    "key": 69,
+                    "repeat": 1
+                }
+            }
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[黎瑟] 准备按下 E 键",
+                "display": [
+                    "log"
+                ]
+            },
+            "Node.Action.Succeeded": {
+                "content": "[黎瑟] E 键序列输入已发送",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 1000,
+        "repeat": 2,
+        "repeat_delay": 1000,
+        "next": [
+            "LisePressQ",
+            "LiseSkillCastEnd"
+        ]
+    },
+    "LisePressQ": {
+        "enabled": false,
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key",
+                    "key": 81,
+                    "repeat": 1
+                }
+            }
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[黎瑟] 尝试按下 Q 键",
+                "display": [
+                    "log"
+                ]
+            },
+            "Node.Action.Succeeded": {
+                "content": "[黎瑟] Q 键输入已发送",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "LiseSkillCastEnd"
+        ]
+    },
+    "LiseSkillCastEnd": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[黎瑟] 本次技能组合结束，等待本轮结算",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 1000,
+        "next": [
+            "CipherExpelMonitor"
+        ]
+    },
+    "LiseWaitCombatReady": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "CipherExpelCombatEntry"
+        ]
+    },
+    "FocusGuardEKeyProxy": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "ClickKey",
+            "param": {
+                "key": 69
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    },
+    "FocusGuardQKeyProxy": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "ClickKey",
+            "param": {
+                "key": 81
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    }
+}
