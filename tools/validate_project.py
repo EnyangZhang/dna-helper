@@ -337,7 +337,7 @@ def main() -> None:
                 "NormalOutsideCombatHudReady",
             ),
             "fallback": "NormalOutsideMonitor",
-            "ready_next": "NormalHoldInsideGate",
+            "ready_next": "NormalEndlessIdle",
         },
         "NormalRestart": {
             "nodes": (
@@ -346,7 +346,7 @@ def main() -> None:
                 "NormalRestartCombatHudReady",
             ),
             "fallback": "NormalEndlessWaitStartChallenge",
-            "ready_next": "NormalHoldInsideGate",
+            "ready_next": "NormalEndlessIdle",
         },
         "NormalPostSkill": {
             "nodes": (
@@ -355,7 +355,7 @@ def main() -> None:
                 "NormalPostSkillCombatHudReady",
             ),
             "fallback": "NormalPostSkillOutsideMonitor",
-            "ready_next": "NormalHoldPostSkillInsideGate",
+            "ready_next": "NormalHoldPostSkillIdle",
         },
         "CipherOutside": {
             "nodes": (
@@ -373,7 +373,7 @@ def main() -> None:
                 "CipherPostSkillCombatHudReady",
             ),
             "fallback": "CipherPostSkillOutsideMonitor",
-            "ready_next": "CipherPostSkillInsideGate",
+            "ready_next": "CipherPostSkillInsideIdle",
         },
     }
     for chain_name, chain in state_hud_chains.items():
@@ -467,27 +467,27 @@ def main() -> None:
             raise SystemExit(f"{removed_node}: legacy mixed-state node must stay removed")
 
     expected_state_gates = {
-        "NormalHoldInsideGate": (["NormalEndlessMonitor"], ["NormalOutsideMonitor"]),
-        "NormalExpelInsideGate": (["NormalExpelInsideIdle"], ["NormalOutsideMonitor"]),
+        "NormalHoldInsideGate": (["NormalEndlessMonitor"], ["NormalEndlessIdle"]),
+        "NormalExpelInsideGate": (["NormalExpelInsideIdle"], ["NormalExpelInsideIdle"]),
         "NormalHoldPostSkillInsideGate": (
             ["NormalHoldPostSkillMonitor"],
-            ["NormalPostSkillOutsideMonitor"],
+            ["NormalHoldPostSkillIdle"],
         ),
         "NormalExpelPostSkillInsideGate": (
             ["NormalExpelPostSkillInsideIdle"],
-            ["NormalPostSkillOutsideMonitor"],
+            ["NormalExpelPostSkillInsideIdle"],
         ),
         "CipherPostSkillInsideGate": (
             ["CipherPostSkillInsideIdle"],
-            ["CipherPostSkillOutsideMonitor"],
+            ["CipherPostSkillInsideIdle"],
         ),
         "CipherExpelInsideGate": (
             ["CipherExpelInsideIdle"],
-            ["CipherExpelOutsideMonitor"],
+            ["CipherExpelInsideIdle"],
         ),
         "CipherExpelSettlementGate": (
             ["CipherExpelSettlementIdle"],
-            ["CipherPostSkillOutsideMonitor"],
+            ["CipherExpelSettlementIdle"],
         ),
     }
     for node_name, (expected_next, expected_error) in expected_state_gates.items():
@@ -707,19 +707,31 @@ def main() -> None:
         "NormalMode",
         hold_mode,
         "LiseSkillCastEnd",
-        {"next": ["NormalHoldPostSkillInsideGate"]},
+        {"next": ["NormalHoldPostSkillIdle"]},
     )
     for node_name in (
         "NormalEndlessContinueChallengeClick3",
         "NormalEndlessConfirmChoiceClick3",
-        "NormalEndlessIdle",
     ):
         require_override(
             "NormalMode",
             hold_mode,
             node_name,
-            {"next": ["NormalHoldInsideGate"]},
+            {"next": ["NormalEndlessIdle"]},
         )
+    require_override(
+        "NormalMode",
+        hold_mode,
+        "NormalEndlessIdle",
+        {
+            "next": [
+                "NormalHoldInsideGate",
+                "NormalEndlessAgainDetected",
+                "NormalEndlessStartChallengeByClick",
+                "NormalEndlessIdle",
+            ]
+        },
+    )
 
     infinite_mode = option_case(normal_mode, "Infinite")
     require_override(
@@ -743,6 +755,12 @@ def main() -> None:
             ]
         },
     )
+    require_override(
+        "NormalMode",
+        infinite_mode,
+        "NormalEndlessIdle",
+        {"next": ["NormalEndlessMonitor"]},
+    )
     infinite_continue_action = (
         infinite_mode.get("pipeline_override", {})
         .get("NormalEndlessContinueChallenge", {})
@@ -765,20 +783,20 @@ def main() -> None:
         "NormalMode",
         expel_mode,
         "LiseSkillCastEnd",
-        {"next": ["NormalExpelPostSkillInsideGate"]},
+        {"next": ["NormalExpelPostSkillInsideIdle"]},
     )
     for node_name in ("NormalOutsideCombatHudReady", "NormalRestartCombatHudReady"):
         require_override(
             "NormalMode",
             expel_mode,
             node_name,
-            {"next": ["NormalExpelInsideGate"]},
+            {"next": ["NormalExpelInsideIdle"]},
         )
     require_override(
         "NormalMode",
         expel_mode,
         "NormalPostSkillCombatHudReady",
-        {"next": ["NormalExpelPostSkillInsideGate"]},
+        {"next": ["NormalExpelPostSkillInsideIdle"]},
     )
 
     for option_name, mode_name, stage_total in (
@@ -894,11 +912,17 @@ def main() -> None:
         "CipherExpelSettlementMonitor": [
             "RewardConfirmByClick",
             "CipherExpelSettlementGate",
+            "CipherExpelAgainDetected",
+            "RewardConfirmThirdPageByClick",
+            "CipherExpelSettlementIdle",
         ],
         "CipherExpelMonitor": [
             "RewardConfirmByClick",
             "LiseCombatHudReadyFrame1",
             "CipherExpelInsideGate",
+            "CipherExpelAgainDetected",
+            "RewardConfirmThirdPageByClick",
+            "CipherExpelInsideIdle",
         ],
     }
     for node_name, expected_next in inside_monitors.items():
@@ -912,9 +936,8 @@ def main() -> None:
             )
 
     expected_post_skill_returns = {
-        "NormalHoldPostSkillContinueChallenge": "NormalHoldPostSkillInsideGate",
-        "NormalHoldPostSkillConfirmChoice": "NormalHoldPostSkillInsideGate",
-        "NormalHoldPostSkillIdle": "NormalHoldPostSkillInsideGate",
+        "NormalHoldPostSkillContinueChallenge": "NormalHoldPostSkillIdle",
+        "NormalHoldPostSkillConfirmChoice": "NormalHoldPostSkillIdle",
     }
     for node_name, target in expected_post_skill_returns.items():
         if pipeline_nodes.get(node_name, {}).get("next") != [target]:
@@ -1008,7 +1031,15 @@ def main() -> None:
         "CipherEnableSkills",
         cipher_skills_no,
         "CipherExpelMonitor",
-        {"next": ["RewardConfirmByClick", "CipherExpelInsideGate"]},
+        {
+            "next": [
+                "RewardConfirmByClick",
+                "CipherExpelInsideGate",
+                "CipherExpelAgainDetected",
+                "RewardConfirmThirdPageByClick",
+                "CipherExpelInsideIdle",
+            ]
+        },
     )
 
     forbidden_inside_targets = {
@@ -1023,12 +1054,43 @@ def main() -> None:
         "NormalEndlessCombatEntry",
         "NormalHoldPostSkillMonitor",
         "NormalExpelCombatEntry",
-        "CipherExpelMonitor",
-        "CipherExpelSettlementMonitor",
     ):
         leaked = forbidden_inside_targets & set(pipeline_nodes[node_name].get("next", []))
         if leaked:
             raise SystemExit(f"{node_name}: inside state leaks outside candidates {sorted(leaked)}")
+
+    expected_boundary_waits = {
+        "NormalEndlessIdle": [
+            "NormalHoldInsideGate",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalEndlessIdle",
+        ],
+        "NormalExpelInsideIdle": [
+            "NormalExpelInsideGate",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalExpelInsideIdle",
+        ],
+        "NormalHoldPostSkillIdle": [
+            "NormalHoldPostSkillInsideGate",
+            "NormalPostSkillOutsideMonitor",
+        ],
+        "NormalExpelPostSkillInsideIdle": [
+            "NormalExpelPostSkillInsideGate",
+            "NormalPostSkillOutsideMonitor",
+        ],
+        "CipherPostSkillInsideIdle": [
+            "CipherPostSkillInsideGate",
+            "CipherPostSkillOutsideMonitor",
+        ],
+    }
+    for node_name, expected_next in expected_boundary_waits.items():
+        if pipeline_nodes.get(node_name, {}).get("next") != expected_next:
+            raise SystemExit(
+                f"{node_name}: boundary wait must prefer the health bar and "
+                "then enter its outside-evidence monitor or idle fallback"
+            )
 
     forbidden_outside_targets = {
         "NormalEndlessContinueChallenge",

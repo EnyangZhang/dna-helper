@@ -114,7 +114,7 @@
             }
         },
         "next": [
-            "NormalHoldInsideGate"
+            "NormalEndlessIdle"
         ],
         "on_error": [
             "NormalOutsideMonitor"
@@ -136,7 +136,7 @@
             "NormalEndlessMonitor"
         ],
         "on_error": [
-            "NormalOutsideMonitor"
+            "NormalEndlessIdle"
         ]
     },
     "NormalExpelInsideGate": {
@@ -155,7 +155,7 @@
             "NormalExpelInsideIdle"
         ],
         "on_error": [
-            "NormalOutsideMonitor"
+            "NormalExpelInsideIdle"
         ]
     },
     "NormalExpelInsideIdle": {
@@ -168,7 +168,10 @@
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
-            "NormalExpelInsideGate"
+            "NormalExpelInsideGate",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalExpelInsideIdle"
         ]
     },
     "NormalEndlessMonitor": {
@@ -384,7 +387,7 @@
         "pre_delay": 0,
         "post_delay": 0,
         "next": [
-            "NormalHoldInsideGate"
+            "NormalEndlessIdle"
         ],
         "on_error": [
             "NormalEndlessWaitStartChallenge"
@@ -561,7 +564,10 @@
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
-            "NormalEndlessMonitor"
+            "NormalHoldInsideGate",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalEndlessIdle"
         ]
     },
     "NormalHoldPostSkillMonitor": {
@@ -615,7 +621,7 @@
         "pre_delay": 0,
         "post_delay": 50,
         "next": [
-            "NormalHoldPostSkillInsideGate"
+            "NormalHoldPostSkillIdle"
         ]
     },
     "NormalHoldPostSkillConfirmChoice": {
@@ -652,7 +658,7 @@
         "pre_delay": 0,
         "post_delay": 50,
         "next": [
-            "NormalHoldPostSkillInsideGate"
+            "NormalHoldPostSkillIdle"
         ]
     },
     "NormalHoldPostSkillIdle": {
@@ -667,7 +673,8 @@
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
-            "NormalHoldPostSkillInsideGate"
+            "NormalHoldPostSkillInsideGate",
+            "NormalPostSkillOutsideMonitor"
         ]
     },
     "NormalHoldPostSkillInsideGate": {
@@ -686,7 +693,7 @@
             "NormalHoldPostSkillMonitor"
         ],
         "on_error": [
-            "NormalPostSkillOutsideMonitor"
+            "NormalHoldPostSkillIdle"
         ]
     },
     "NormalExpelPostSkillInsideGate": {
@@ -705,7 +712,7 @@
             "NormalExpelPostSkillInsideIdle"
         ],
         "on_error": [
-            "NormalPostSkillOutsideMonitor"
+            "NormalExpelPostSkillInsideIdle"
         ]
     },
     "NormalExpelPostSkillInsideIdle": {
@@ -718,7 +725,8 @@
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
-            "NormalExpelPostSkillInsideGate"
+            "NormalExpelPostSkillInsideGate",
+            "NormalPostSkillOutsideMonitor"
         ]
     },
     "NormalPostSkillOutsideMonitor": {
@@ -809,7 +817,7 @@
             }
         },
         "next": [
-            "NormalHoldPostSkillInsideGate"
+            "NormalHoldPostSkillIdle"
         ],
         "on_error": [
             "NormalPostSkillOutsideMonitor"

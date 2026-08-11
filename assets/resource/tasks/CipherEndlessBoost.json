@@ -161,7 +161,10 @@
                         "CipherExpelMonitor": {
                             "next": [
                                 "RewardConfirmByClick",
-                                "CipherExpelInsideGate"
+                                "CipherExpelInsideGate",
+                                "CipherExpelAgainDetected",
+                                "RewardConfirmThirdPageByClick",
+                                "CipherExpelInsideIdle"
                             ]
                         }
                     }
