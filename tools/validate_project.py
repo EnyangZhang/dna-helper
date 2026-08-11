@@ -433,6 +433,12 @@ def main() -> None:
             ]
         },
     )
+    require_override(
+        "NormalMode",
+        hold_mode,
+        "LiseSkillCastEnd",
+        {"next": ["NormalHoldPostSkillMonitor"]},
+    )
     expel_mode = option_case(normal_mode, "Expel")
     require_override(
         "NormalMode",
@@ -440,6 +446,67 @@ def main() -> None:
         "NormalEndlessEntry",
         {"next": ["NormalExpelMonitor"]},
     )
+    require_override(
+        "NormalMode",
+        expel_mode,
+        "LiseSkillCastEnd",
+        {"next": ["NormalExpelPostSkillMonitor"]},
+    )
+
+    post_skill_monitors = {
+        "NormalHoldPostSkillMonitor": [
+            "NormalHoldPostSkillContinueChallenge",
+            "NormalHoldPostSkillConfirmChoice",
+            "NormalEndlessAgainDetected",
+            "NormalHoldPostSkillIdle",
+        ],
+        "NormalHoldPostSkillContinueChallenge": ["NormalHoldPostSkillMonitor"],
+        "NormalHoldPostSkillConfirmChoice": ["NormalHoldPostSkillMonitor"],
+        "NormalHoldPostSkillIdle": ["NormalHoldPostSkillMonitor"],
+        "NormalExpelPostSkillMonitor": [
+            "NormalEndlessAgainDetected",
+            "NormalExpelPostSkillMonitor",
+        ],
+    }
+    for node_name, expected_next in post_skill_monitors.items():
+        node = pipeline_nodes.get(node_name)
+        if node is None:
+            raise SystemExit(f"Missing post-skill monitor node: {node_name}")
+        if node.get("next") != expected_next:
+            raise SystemExit(
+                f"{node_name}.next must be {expected_next!r}, "
+                f"got {node.get('next')!r}"
+            )
+        if any(next_node in COMBAT_HUD_READY_NODES for next_node in expected_next):
+            raise SystemExit(f"{node_name}: post-skill path must not re-enter HUD")
+
+    expected_post_skill_clicks = {
+        "NormalHoldPostSkillContinueChallenge": {
+            "kind": "click",
+            "target": [900, 500],
+            "repeat": 3,
+            "interval_ms": 50,
+            "restore_delay_ms": 100,
+        },
+        "NormalHoldPostSkillConfirmChoice": {
+            "kind": "click",
+            "target": [640, 505],
+            "repeat": 3,
+            "interval_ms": 50,
+            "restore_delay_ms": 100,
+        },
+    }
+    for node_name, expected_params in expected_post_skill_clicks.items():
+        action = pipeline_nodes[node_name].get("action", {})
+        params = action.get("param", {})
+        if action.get("type") != "Custom":
+            raise SystemExit(f"{node_name}: post-skill click must restore focus")
+        if params.get("custom_action") != "focus_guard_action":
+            raise SystemExit(f"{node_name}: must use focus_guard_action")
+        if params.get("custom_action_param") != expected_params:
+            raise SystemExit(
+                f"{node_name}: unexpected post-skill click parameters"
+            )
 
     hold_skills = all_options.get("NormalHoldEnableSkills", {})
     hold_skills_yes = option_case(hold_skills, "Yes")

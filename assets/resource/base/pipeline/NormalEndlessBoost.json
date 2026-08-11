@@ -318,6 +318,112 @@
             "NormalEndlessMonitor"
         ]
     },
+    "NormalHoldPostSkillMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalHoldPostSkillContinueChallenge",
+            "NormalHoldPostSkillConfirmChoice",
+            "NormalEndlessAgainDetected",
+            "NormalHoldPostSkillIdle"
+        ]
+    },
+    "NormalHoldPostSkillContinueChallenge": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "NormalEndlessBoost/hold_continue_challenge.png",
+                "roi": [
+                    760,
+                    450,
+                    260,
+                    120
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [
+                        900,
+                        500
+                    ],
+                    "repeat": 3,
+                    "interval_ms": 50,
+                    "restore_delay_ms": 100
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalHoldPostSkillMonitor"
+        ]
+    },
+    "NormalHoldPostSkillConfirmChoice": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "NormalEndlessBoost/hold_confirm_choice.png",
+                "roi": [
+                    500,
+                    450,
+                    320,
+                    120
+                ],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "click",
+                    "target": [
+                        640,
+                        505
+                    ],
+                    "repeat": 3,
+                    "interval_ms": 50,
+                    "restore_delay_ms": 100
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": [
+            "NormalHoldPostSkillMonitor"
+        ]
+    },
+    "NormalHoldPostSkillIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "NormalHoldPostSkillMonitor"
+        ]
+    },
     "NormalEndlessAgainDetected": {
         "recognition": {
             "type": "TemplateMatch",
@@ -538,6 +644,22 @@
         "next": [
             "NormalEndlessAgainDetected",
             "NormalExpelMonitor"
+        ]
+    },
+    "NormalExpelPostSkillMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "NormalEndlessAgainDetected",
+            "NormalExpelPostSkillMonitor"
         ]
     },
     "NormalExpelRoundQuota": {

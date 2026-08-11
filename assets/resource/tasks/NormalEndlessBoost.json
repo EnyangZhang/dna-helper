@@ -71,7 +71,7 @@
                         },
                         "LiseSkillCastEnd": {
                             "next": [
-                                "NormalEndlessMonitor"
+                                "NormalHoldPostSkillMonitor"
                             ]
                         }
                     }
@@ -191,7 +191,7 @@
                         },
                         "LiseSkillCastEnd": {
                             "next": [
-                                "NormalExpelMonitor"
+                                "NormalExpelPostSkillMonitor"
                             ]
                         }
                     }
