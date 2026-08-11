@@ -1,0 +1,6 @@
+{
+    "enabled": true,
+    "bot_token": "在这里填写 BotFather 提供的 Token",
+    "allowed_chat_id": 123456789,
+    "poll_timeout_seconds": 25
+}

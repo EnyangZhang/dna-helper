@@ -3,7 +3,7 @@
         {
             "name": "CipherEndlessBoost",
             "label": "密函无尽加速",
-            "description": "自动处理密函探险结算流程。无尽模式持续完成结算循环；驱离模式完成结算并重新开启副本，开启“是否开启技能”后才检测并执行角色 E、Q 技能组合。",
+            "description": "自动处理密函探险结算流程。无尽模式持续完成结算循环；驱离模式按设定副本轮次运行并重新开启副本，开启“是否开启技能”后才检测并执行角色 E、Q 技能组合。",
             "entry": "RewardConfirmEntry",
             "option": [
                 "CipherMode"
@@ -20,7 +20,7 @@
         "CipherMode": {
             "type": "select",
             "label": "模式",
-            "description": "选择密函探险的执行模式。无尽模式完成结算后继续下一轮；驱离模式完成结算后重新开启副本，可通过“是否开启技能”启用角色技能设置。",
+            "description": "选择密函探险的执行模式。无尽模式完成结算后继续下一轮；驱离模式按副本轮次完成结算并重新开启副本，可通过“是否开启技能”启用角色技能设置。",
             "default_case": "Endless",
             "cases": [
                 {
@@ -31,23 +31,39 @@
                     "name": "Expel",
                     "label": "驱离",
                     "option": [
+                        "CipherExpelRestartCount",
                         "CipherEnableSkills"
                     ],
                     "pipeline_override": {
                         "RewardConfirmEntry": {
+                            "action": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_action": "focus_guard_start",
+                                    "custom_action_param": {
+                                        "progress_mode": "密函驱离",
+                                        "progress_total": 1,
+                                        "progress_stage_total": 0
+                                    }
+                                }
+                            },
                             "next": [
-                                "CipherExpelMonitor"
+                                "CipherExpelEntryMonitor"
                             ]
                         },
                         "RewardConfirmFirstPageClick3": {
                             "next": [
-                                "CipherExpelAgainByClick",
-                                "CipherExpelWaitAgain"
+                                "CipherExpelOutsideMonitor"
+                            ]
+                        },
+                        "CipherExpelAgainClick3": {
+                            "next": [
+                                "CipherExpelOutsideMonitor"
                             ]
                         },
                         "RewardConfirmThirdPageClick3": {
                             "next": [
-                                "CipherExpelMonitor"
+                                "CipherExpelOutsideMonitor"
                             ]
                         },
                         "LiseSkillCastEnd": {
@@ -58,6 +74,58 @@
                     }
                 }
             ]
+        },
+        "CipherExpelRestartCount": {
+            "type": "input",
+            "label": "副本轮次",
+            "description": "设置密函驱离总共完成多少轮副本。轮次只在识别到“再次进行”时增加；达到设定轮数后结束任务，否则点击“再次进行”和 Space 确认进入下一轮。",
+            "inputs": [
+                {
+                    "name": "count",
+                    "label": "轮次",
+                    "default": "1",
+                    "pipeline_type": "int",
+                    "verify": "^[1-9]\\d{0,3}$"
+                }
+            ],
+            "pipeline_override": {
+                "RewardConfirmEntry": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "focus_guard_start",
+                            "custom_action_param": {
+                                "progress_mode": "密函驱离",
+                                "progress_total": "{count}",
+                                "progress_stage_total": 0
+                            }
+                        }
+                    }
+                },
+                "CipherExpelRoundQuota": {
+                    "max_hit": "{count}",
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "cipher_expel_log_round",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                },
+                "CipherExpelRoundDecision": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "cipher_expel_decide_restart",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                }
+            }
         },
         "CipherEnableSkills": {
             "type": "switch",
@@ -72,7 +140,19 @@
                         "LiseCombatStartDelay",
                         "LiseHighPlatformOnly",
                         "LiseEnableE"
-                    ]
+                    ],
+                    "pipeline_override": {
+                        "RewardConfirmFirstPageClick3": {
+                            "next": [
+                                "CipherPostSkillOutsideMonitor"
+                            ]
+                        },
+                        "CipherExpelAgainClick3": {
+                            "next": [
+                                "CipherPostSkillOutsideMonitor"
+                            ]
+                        }
+                    }
                 },
                 {
                     "name": "No",
@@ -81,7 +161,7 @@
                         "CipherExpelMonitor": {
                             "next": [
                                 "RewardConfirmByClick",
-                                "CipherExpelMonitor"
+                                "CipherExpelInsideGate"
                             ]
                         }
                     }

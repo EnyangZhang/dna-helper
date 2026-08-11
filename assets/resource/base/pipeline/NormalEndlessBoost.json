@@ -7,14 +7,168 @@
             "type": "Custom",
             "param": {
                 "custom_action": "focus_guard_start",
-                "custom_action_param": {}
+                "custom_action_param": {
+                    "progress_mode": "普通扼守",
+                    "progress_total": 1,
+                    "progress_stage_total": 99
+                }
             }
         },
         "rate_limit": 0,
         "pre_delay": 0,
         "post_delay": 0,
         "next": [
+            "NormalOutsideMonitor"
+        ]
+    },
+    "NormalOutsideMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalOutsideCombatHudFrame1",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalOutsideIdle"
+        ]
+    },
+    "NormalOutsideIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "NormalOutsideMonitor"
+        ]
+    },
+    "NormalOutsideCombatHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "NormalOutsideCombatHudFrame2"
+        ],
+        "on_error": [
+            "NormalOutsideMonitor"
+        ]
+    },
+    "NormalOutsideCombatHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "NormalOutsideCombatHudReady"
+        ],
+        "on_error": [
+            "NormalOutsideMonitor"
+        ]
+    },
+    "NormalOutsideCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[普通副本] 局外监控已连续确认 3 帧战斗 HUD，切换到局内监控",
+                "display": ["log"]
+            }
+        },
+        "next": [
+            "NormalHoldInsideGate"
+        ],
+        "on_error": [
+            "NormalOutsideMonitor"
+        ]
+    },
+    "NormalHoldInsideGate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
             "NormalEndlessMonitor"
+        ],
+        "on_error": [
+            "NormalOutsideMonitor"
+        ]
+    },
+    "NormalExpelInsideGate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "NormalExpelInsideIdle"
+        ],
+        "on_error": [
+            "NormalOutsideMonitor"
+        ]
+    },
+    "NormalExpelInsideIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "NormalExpelInsideGate"
         ]
     },
     "NormalEndlessMonitor": {
@@ -30,8 +184,6 @@
         "next": [
             "NormalEndlessContinueChallenge",
             "NormalEndlessConfirmChoice",
-            "NormalEndlessAgainDetected",
-            "LiseCombatHudReadyFrame1",
             "NormalEndlessIdle"
         ]
     },
@@ -48,7 +200,6 @@
         "next": [
             "NormalEndlessContinueChallenge",
             "NormalEndlessConfirmChoice",
-            "NormalEndlessAgainDetected",
             "LiseSkillOrderEntry",
             "LiseSkillCastEnd"
         ]
@@ -118,7 +269,8 @@
                         900,
                         500
                     ],
-                    "repeat": 1
+                    "repeat": 1,
+                    "progress_event": "continue_challenge"
                 }
             }
         },
@@ -141,7 +293,100 @@
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
+            "NormalEndlessRestartByClick",
             "NormalEndlessStartChallengeByClick",
+            "NormalRestartCombatHudFrame1",
+            "NormalEndlessWaitStartChallenge"
+        ]
+    },
+    "NormalRestartCombatHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [
+                    90,
+                    675,
+                    180,
+                    40
+                ],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "NormalRestartCombatHudFrame2"
+        ],
+        "on_error": [
+            "NormalEndlessWaitStartChallenge"
+        ]
+    },
+    "NormalRestartCombatHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [
+                    90,
+                    675,
+                    180,
+                    40
+                ],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "NormalRestartCombatHudReady"
+        ],
+        "on_error": [
+            "NormalEndlessWaitStartChallenge"
+        ]
+    },
+    "NormalRestartCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [
+                    90,
+                    675,
+                    180,
+                    40
+                ],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[普通副本] 已连续确认 3 帧战斗 HUD，跳过开始挑战等待并恢复副本监控",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "NormalHoldInsideGate"
+        ],
+        "on_error": [
             "NormalEndlessWaitStartChallenge"
         ]
     },
@@ -209,7 +454,8 @@
                         770,
                         490
                     ],
-                    "repeat": 1
+                    "repeat": 1,
+                    "progress_event": "next_round_started"
                 }
             }
         },
@@ -225,7 +471,7 @@
         "pre_delay": 0,
         "post_delay": 50,
         "next": [
-            "NormalEndlessMonitor"
+            "NormalEndlessWaitStartChallenge"
         ]
     },
     "NormalEndlessConfirmChoice": {
@@ -331,7 +577,6 @@
         "next": [
             "NormalHoldPostSkillContinueChallenge",
             "NormalHoldPostSkillConfirmChoice",
-            "NormalEndlessAgainDetected",
             "NormalHoldPostSkillIdle"
         ]
     },
@@ -361,7 +606,8 @@
                     ],
                     "repeat": 3,
                     "interval_ms": 50,
-                    "restore_delay_ms": 100
+                    "restore_delay_ms": 100,
+                    "progress_event": "continue_challenge"
                 }
             }
         },
@@ -369,7 +615,7 @@
         "pre_delay": 0,
         "post_delay": 50,
         "next": [
-            "NormalHoldPostSkillMonitor"
+            "NormalHoldPostSkillInsideGate"
         ]
     },
     "NormalHoldPostSkillConfirmChoice": {
@@ -406,7 +652,7 @@
         "pre_delay": 0,
         "post_delay": 50,
         "next": [
-            "NormalHoldPostSkillMonitor"
+            "NormalHoldPostSkillInsideGate"
         ]
     },
     "NormalHoldPostSkillIdle": {
@@ -421,7 +667,152 @@
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
+            "NormalHoldPostSkillInsideGate"
+        ]
+    },
+    "NormalHoldPostSkillInsideGate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
             "NormalHoldPostSkillMonitor"
+        ],
+        "on_error": [
+            "NormalPostSkillOutsideMonitor"
+        ]
+    },
+    "NormalExpelPostSkillInsideGate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "NormalExpelPostSkillInsideIdle"
+        ],
+        "on_error": [
+            "NormalPostSkillOutsideMonitor"
+        ]
+    },
+    "NormalExpelPostSkillInsideIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "NormalExpelPostSkillInsideGate"
+        ]
+    },
+    "NormalPostSkillOutsideMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "NormalPostSkillCombatHudFrame1",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalPostSkillOutsideIdle"
+        ]
+    },
+    "NormalPostSkillOutsideIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "NormalPostSkillOutsideMonitor"
+        ]
+    },
+    "NormalPostSkillCombatHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "NormalPostSkillCombatHudFrame2"
+        ],
+        "on_error": [
+            "NormalPostSkillOutsideMonitor"
+        ]
+    },
+    "NormalPostSkillCombatHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "NormalPostSkillCombatHudReady"
+        ],
+        "on_error": [
+            "NormalPostSkillOutsideMonitor"
+        ]
+    },
+    "NormalPostSkillCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[普通副本] 本轮技能已释放，战斗 HUD 恢复后继续局内监控且不重复释放",
+                "display": ["log"]
+            }
+        },
+        "next": [
+            "NormalHoldPostSkillInsideGate"
+        ],
+        "on_error": [
+            "NormalPostSkillOutsideMonitor"
         ]
     },
     "NormalEndlessAgainDetected": {
@@ -625,41 +1016,8 @@
         "pre_delay": 0,
         "post_delay": 0,
         "next": [
-            "NormalEndlessAgainDetected",
             "LiseSkillOrderEntry",
             "LiseSkillCastEnd"
-        ]
-    },
-    "NormalExpelMonitor": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "DoNothing"
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 50,
-        "max_hit": 10000000,
-        "next": [
-            "NormalEndlessAgainDetected",
-            "NormalExpelMonitor"
-        ]
-    },
-    "NormalExpelPostSkillMonitor": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "DoNothing"
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 50,
-        "max_hit": 10000000,
-        "next": [
-            "NormalEndlessAgainDetected",
-            "NormalExpelPostSkillMonitor"
         ]
     },
     "NormalExpelRoundQuota": {

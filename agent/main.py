@@ -7,7 +7,9 @@ import sys
 from maa.agent.agent_server import AgentServer
 
 import focus_restore  # noqa: F401  Registers foreground-window restore actions.
+import progress_monitor  # noqa: F401  Registers the monitor bootstrap action.
 import round_logger  # noqa: F401  Registers the custom action.
+import telegram_bot
 
 
 def main() -> int:
@@ -18,6 +20,7 @@ def main() -> int:
     try:
         AgentServer.join()
     finally:
+        telegram_bot.stop()
         AgentServer.shut_down()
     return 0
 

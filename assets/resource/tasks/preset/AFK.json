@@ -3,8 +3,12 @@
         {
             "name": "CipherAFK",
             "label": "密函挂机",
-            "description": "只添加并启用密函无尽加速任务。",
+            "description": "先启动进度监控，再执行密函无尽加速任务。",
             "task": [
+                {
+                    "name": "ProgressMonitor",
+                    "enabled": true
+                },
                 {
                     "name": "CipherEndlessBoost",
                     "enabled": true
@@ -14,8 +18,12 @@
         {
             "name": "NormalAFK",
             "label": "普通挂机",
-            "description": "只添加并启用普通无尽加速任务。",
+            "description": "先启动进度监控，再执行普通无尽加速任务。",
             "task": [
+                {
+                    "name": "ProgressMonitor",
+                    "enabled": true
+                },
                 {
                     "name": "NormalEndlessBoost",
                     "enabled": true

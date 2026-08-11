@@ -1,0 +1,190 @@
+"""Background Telegram long-polling service for on-demand progress queries."""
+
+from __future__ import annotations
+
+import json
+import os
+import queue
+import threading
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+import progress_state
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_CONFIG_PATH = _PROJECT_ROOT / "config" / "telegram.json"
+_stop_event = threading.Event()
+_thread: threading.Thread | None = None
+_sender_thread: threading.Thread | None = None
+_config: dict[str, Any] | None = None
+_outbound: queue.Queue[str] = queue.Queue()
+_TASK_LABELS = {
+    "密函无尽": ("密函无尽加速", "无尽"),
+    "密函驱离": ("密函无尽加速", "驱离"),
+    "普通扼守": ("普通无尽加速", "扼守"),
+    "普通无尽": ("普通无尽加速", "无尽"),
+    "普通驱离": ("普通无尽加速", "驱离"),
+}
+
+
+def start() -> bool:
+    """Start the bot if a valid local configuration is available."""
+    global _config, _sender_thread, _thread
+    config = _load_config()
+    if not config:
+        return False
+    if _thread and _thread.is_alive():
+        return True
+    _stop_event.clear()
+    _config = config
+    _thread = threading.Thread(
+        target=_poll_loop,
+        args=(config,),
+        name="dna-telegram-status",
+        daemon=True,
+    )
+    _sender_thread = threading.Thread(
+        target=_send_loop,
+        args=(config,),
+        name="dna-telegram-sender",
+        daemon=True,
+    )
+    _thread.start()
+    _sender_thread.start()
+    return True
+
+
+def stop() -> None:
+    _stop_event.set()
+
+
+def notify_task_started(mode: str) -> bool:
+    """Queue one non-blocking notification when a new Maa task starts."""
+    if _config is None or _stop_event.is_set():
+        return False
+    task_name, mode_name = _TASK_LABELS.get(mode, (mode, mode))
+    _outbound.put(f"DNA Helper 任务已启动\n任务：{task_name}\n模式：{mode_name}")
+    return True
+
+
+def _load_config() -> dict[str, Any] | None:
+    raw: dict[str, Any] = {}
+    try:
+        if _CONFIG_PATH.is_file():
+            parsed = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                raw = parsed
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    token = os.getenv("DNA_TELEGRAM_BOT_TOKEN") or raw.get("bot_token")
+    chat_id = os.getenv("DNA_TELEGRAM_CHAT_ID") or raw.get("allowed_chat_id")
+    enabled = raw.get("enabled", True)
+    try:
+        chat_id = int(chat_id)
+    except (TypeError, ValueError):
+        return None
+    if not enabled or not isinstance(token, str) or not token.strip():
+        return None
+    return {
+        "bot_token": token.strip(),
+        "allowed_chat_id": chat_id,
+        "poll_timeout_seconds": min(
+            50, max(5, int(raw.get("poll_timeout_seconds", 25)))
+        ),
+    }
+
+
+def _poll_loop(config: dict[str, Any]) -> None:
+    token = config["bot_token"]
+    allowed_chat_id = config["allowed_chat_id"]
+    poll_timeout = config["poll_timeout_seconds"]
+    offset: int | None = None
+    failure_delay = 1
+
+    while not _stop_event.is_set():
+        params: dict[str, Any] = {
+            "timeout": poll_timeout,
+            "allowed_updates": json.dumps(["message"]),
+        }
+        if offset is not None:
+            params["offset"] = offset
+        try:
+            response = _api_call(token, "getUpdates", params, poll_timeout + 5)
+            failure_delay = 1
+            for update in response.get("result", []):
+                if not isinstance(update, dict):
+                    continue
+                update_id = update.get("update_id")
+                _handle_update(token, allowed_chat_id, update)
+                if isinstance(update_id, int):
+                    offset = update_id + 1
+        except (OSError, ValueError, urllib.error.URLError):
+            _stop_event.wait(failure_delay)
+            failure_delay = min(30, failure_delay * 2)
+
+
+def _send_loop(config: dict[str, Any]) -> None:
+    token = config["bot_token"]
+    chat_id = config["allowed_chat_id"]
+    while not _stop_event.is_set():
+        try:
+            message = _outbound.get(timeout=0.5)
+        except queue.Empty:
+            continue
+        try:
+            delay = 1
+            while not _stop_event.is_set():
+                try:
+                    _send_message(token, chat_id, message)
+                    break
+                except (OSError, ValueError, urllib.error.URLError):
+                    _stop_event.wait(delay)
+                    delay = min(30, delay * 2)
+        finally:
+            _outbound.task_done()
+
+
+def _handle_update(token: str, allowed_chat_id: int, update: dict[str, Any]) -> None:
+    message = update.get("message")
+    if not isinstance(message, dict):
+        return
+    chat = message.get("chat")
+    if not isinstance(chat, dict) or chat.get("id") != allowed_chat_id:
+        return
+    text = message.get("text")
+    if not isinstance(text, str):
+        return
+    command = text.strip().lower().split("@", 1)[0]
+    if command in {"/status", "进度"}:
+        _send_message(token, allowed_chat_id, progress_state.format_status())
+    elif command in {"/start", "/help", "帮助"}:
+        _send_message(
+            token,
+            allowed_chat_id,
+            "DNA Helper 状态机器人已连接。\n发送 /status 或“进度”查询当前状态。",
+        )
+
+
+def _send_message(token: str, chat_id: int, text: str) -> None:
+    _api_call(token, "sendMessage", {"chat_id": chat_id, "text": text}, timeout=5)
+
+
+def _api_call(
+    token: str, method: str, params: dict[str, Any], timeout: int
+) -> dict[str, Any]:
+    data = urllib.parse.urlencode(params).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/{method}",
+        data=data,
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        raise ValueError("Telegram API returned an unsuccessful response")
+    return payload

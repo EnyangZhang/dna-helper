@@ -3,7 +3,7 @@
         {
             "name": "NormalEndlessBoost",
             "label": "普通无尽加速",
-            "description": "自动处理普通副本循环。扼守和驱离按设定副本轮次运行；无尽模式仅快速点击局内的“继续挑战”和“确认选择”；扼守与驱离均可通过“是否开启技能”启用角色 E、Q 技能组合。",
+            "description": "自动处理普通副本循环。扼守和驱离按设定副本轮次运行；无尽模式仅快速点击局内的“继续挑战”和“确认选择”并记录局内轮次；扼守与驱离均可通过“是否开启技能”启用角色 E、Q 技能组合。",
             "entry": "NormalEndlessEntry",
             "option": [
                 "NormalMode"
@@ -20,7 +20,7 @@
         "NormalMode": {
             "type": "select",
             "label": "模式",
-            "description": "选择普通副本的执行模式。扼守和驱离按副本轮次运行；无尽模式仅监听并快速点击局内的“继续挑战”和“确认选择”，不处理轮次或角色技能；扼守与驱离可分别开启角色技能设置。",
+            "description": "选择普通副本的执行模式。扼守和驱离按副本轮次运行；无尽模式仅监听并快速点击局内的“继续挑战”和“确认选择”，记录局内轮次但不处理副本轮次或角色技能；扼守与驱离可分别开启角色技能设置。",
             "default_case": "Endless",
             "cases": [
                 {
@@ -31,19 +31,37 @@
                         "NormalHoldEnableSkills"
                     ],
                     "pipeline_override": {
+                        "NormalEndlessEntry": {
+                            "next": [
+                                "NormalOutsideMonitor"
+                            ]
+                        },
                         "NormalEndlessMonitor": {
                             "next": [
                                 "NormalEndlessContinueChallenge",
                                 "NormalEndlessConfirmChoice",
-                                "NormalEndlessAgainDetected",
                                 "NormalEndlessIdle"
+                            ]
+                        },
+                        "NormalEndlessContinueChallengeClick3": {
+                            "next": [
+                                "NormalHoldInsideGate"
+                            ]
+                        },
+                        "NormalEndlessConfirmChoiceClick3": {
+                            "next": [
+                                "NormalHoldInsideGate"
+                            ]
+                        },
+                        "NormalEndlessIdle": {
+                            "next": [
+                                "NormalHoldInsideGate"
                             ]
                         },
                         "NormalEndlessCombatEntry": {
                             "next": [
                                 "NormalEndlessContinueChallenge",
                                 "NormalEndlessConfirmChoice",
-                                "NormalEndlessAgainDetected",
                                 "LiseSkillOrderEntry",
                                 "LiseSkillCastEnd"
                             ]
@@ -53,25 +71,9 @@
                                 "NormalEndlessCombatEntry"
                             ]
                         },
-                        "LiseCombatHudReadyFrame1": {
-                            "on_error": [
-                                "NormalEndlessMonitor"
-                            ]
-                        },
-                        "LiseCombatHudReadyFrame2": {
-                            "on_error": [
-                                "NormalEndlessMonitor"
-                            ]
-                        },
-                        "LiseCombatHudReady": {
-                            "next": [
-                                "LiseCombatLoadDelay",
-                                "NormalEndlessCombatEntry"
-                            ]
-                        },
                         "LiseSkillCastEnd": {
                             "next": [
-                                "NormalHoldPostSkillMonitor"
+                                "NormalHoldPostSkillInsideGate"
                             ]
                         }
                     }
@@ -85,7 +87,11 @@
                                 "type": "Custom",
                                 "param": {
                                     "custom_action": "focus_guard_start",
-                                    "custom_action_param": {}
+                                    "custom_action_param": {
+                                        "progress_mode": "普通无尽",
+                                        "progress_total": 0,
+                                        "progress_stage_total": 0
+                                    }
                                 }
                             },
                             "next": [
@@ -112,7 +118,8 @@
                                         ],
                                         "repeat": 3,
                                         "interval_ms": 50,
-                                        "restore_delay_ms": 100
+                                        "restore_delay_ms": 100,
+                                        "progress_event": "continue_challenge"
                                     }
                                 }
                             },
@@ -153,7 +160,7 @@
                     "pipeline_override": {
                         "NormalEndlessEntry": {
                             "next": [
-                                "NormalExpelMonitor"
+                                "NormalOutsideMonitor"
                             ]
                         },
                         "NormalEndlessAgainDetected": {
@@ -181,7 +188,7 @@
                                 }
                             },
                             "next": [
-                                "NormalExpelMonitor"
+                                "NormalEndlessWaitStartChallenge"
                             ]
                         },
                         "LiseCombatLoadDelay": {
@@ -189,9 +196,24 @@
                                 "NormalExpelCombatEntry"
                             ]
                         },
+                        "NormalOutsideCombatHudReady": {
+                            "next": [
+                                "NormalExpelInsideGate"
+                            ]
+                        },
+                        "NormalRestartCombatHudReady": {
+                            "next": [
+                                "NormalExpelInsideGate"
+                            ]
+                        },
+                        "NormalPostSkillCombatHudReady": {
+                            "next": [
+                                "NormalExpelPostSkillInsideGate"
+                            ]
+                        },
                         "LiseSkillCastEnd": {
                             "next": [
-                                "NormalExpelPostSkillMonitor"
+                                "NormalExpelPostSkillInsideGate"
                             ]
                         }
                     }
@@ -212,38 +234,28 @@
                         "NormalHoldEnableE"
                     ],
                     "pipeline_override": {
-                        "NormalEndlessEntry": {
+                        "NormalOutsideCombatHudReady": {
                             "next": [
-                                "NormalEndlessMonitor"
+                                "LiseCombatLoadDelay"
                             ]
                         },
-                        "NormalEndlessStartChallengeClick3": {
+                        "NormalRestartCombatHudReady": {
                             "next": [
-                                "NormalEndlessMonitor"
+                                "LiseCombatLoadDelay"
                             ]
                         },
-                        "NormalEndlessMonitor": {
+                        "NormalEndlessContinueChallengeClick3": {
                             "next": [
-                                "NormalEndlessContinueChallenge",
-                                "NormalEndlessConfirmChoice",
-                                "NormalEndlessAgainDetected",
-                                "LiseCombatHudReadyFrame1",
-                                "NormalEndlessIdle"
+                                "NormalEndlessCombatEntry"
                             ]
                         },
-                        "LiseCombatHudReadyFrame1": {
-                            "on_error": [
-                                "NormalEndlessMonitor"
-                            ]
-                        },
-                        "LiseCombatHudReadyFrame2": {
-                            "on_error": [
-                                "NormalEndlessMonitor"
-                            ]
-                        },
-                        "LiseCombatHudReady": {
+                        "NormalEndlessConfirmChoiceClick3": {
                             "next": [
-                                "LiseCombatLoadDelay",
+                                "NormalEndlessCombatEntry"
+                            ]
+                        },
+                        "NormalEndlessIdle": {
+                            "next": [
                                 "NormalEndlessCombatEntry"
                             ]
                         }
@@ -270,36 +282,24 @@
                         "LiseEnableE"
                     ],
                     "pipeline_override": {
-                        "NormalEndlessEntry": {
+                        "NormalOutsideCombatHudReady": {
                             "next": [
-                                "NormalExpelMonitor"
+                                "LiseCombatLoadDelay"
                             ]
                         },
-                        "NormalEndlessStartChallengeClick3": {
+                        "NormalRestartCombatHudReady": {
                             "next": [
-                                "NormalExpelMonitor"
+                                "LiseCombatLoadDelay"
                             ]
                         },
-                        "NormalExpelMonitor": {
+                        "NormalExpelCombatEntry": {
                             "next": [
-                                "NormalEndlessAgainDetected",
-                                "LiseCombatHudReadyFrame1",
-                                "NormalExpelMonitor"
+                                "LiseSkillOrderEntry",
+                                "LiseSkillCastEnd"
                             ]
                         },
-                        "LiseCombatHudReadyFrame1": {
-                            "on_error": [
-                                "NormalExpelMonitor"
-                            ]
-                        },
-                        "LiseCombatHudReadyFrame2": {
-                            "on_error": [
-                                "NormalExpelMonitor"
-                            ]
-                        },
-                        "LiseCombatHudReady": {
+                        "LiseCombatLoadDelay": {
                             "next": [
-                                "LiseCombatLoadDelay",
                                 "NormalExpelCombatEntry"
                             ]
                         }
@@ -307,15 +307,7 @@
                 },
                 {
                     "name": "No",
-                    "label": "关闭",
-                    "pipeline_override": {
-                        "NormalExpelMonitor": {
-                            "next": [
-                                "NormalEndlessAgainDetected",
-                                "NormalExpelMonitor"
-                            ]
-                        }
-                    }
+                    "label": "关闭"
                 }
             ]
         },
@@ -333,6 +325,19 @@
                 }
             ],
             "pipeline_override": {
+                "NormalEndlessEntry": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "focus_guard_start",
+                            "custom_action_param": {
+                                "progress_mode": "普通扼守",
+                                "progress_total": "{count}",
+                                "progress_stage_total": 99
+                            }
+                        }
+                    }
+                },
                 "NormalEndlessRestartQuota": {
                     "max_hit": "{count}",
                     "action": {
@@ -372,6 +377,19 @@
                 }
             ],
             "pipeline_override": {
+                "NormalEndlessEntry": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "focus_guard_start",
+                            "custom_action_param": {
+                                "progress_mode": "普通驱离",
+                                "progress_total": "{count}",
+                                "progress_stage_total": 0
+                            }
+                        }
+                    }
+                },
                 "NormalExpelRoundQuota": {
                     "max_hit": "{count}",
                     "action": {

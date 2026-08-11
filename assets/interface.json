@@ -43,12 +43,18 @@
             "name": "DailyAFK",
             "label": "$group_daily_afk_label",
             "default_expand": true
+        },
+        {
+            "name": "Monitor",
+            "label": "$group_monitor_label",
+            "default_expand": true
         }
     ],
     "task": [],
     "import": [
         "resource/tasks/CipherEndlessBoost.json",
         "resource/tasks/NormalEndlessBoost.json",
+        "resource/tasks/ProgressMonitor.json",
         "resource/tasks/LiseExpelSkillCast.json",
         "resource/tasks/preset/AFK.json"
     ],

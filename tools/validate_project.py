@@ -11,6 +11,7 @@ ASSETS = ROOT / "assets"
 TASK_GROUP_REQUIREMENTS = {
     "CipherEndlessBoost": "DailyAFK",
     "NormalEndlessBoost": "DailyAFK",
+    "ProgressMonitor": "Monitor",
 }
 PIPELINE_EDGE_FIELDS = ("next", "on_error")
 # Agent custom actions invoke these nodes by name through Context.run_action or
@@ -20,6 +21,7 @@ DYNAMIC_PIPELINE_TARGETS = {
     "RewardConfirmFirstPageClick2",
     "RewardConfirmContinueChallengeClick2",
     "CipherExpelAgainClick2",
+    "CipherExpelAgainByClick",
     "NormalEndlessStartChallengeClick2",
     "NormalEndlessConfirmChoiceClick2",
     "FocusGuardEKeyProxy",
@@ -132,7 +134,16 @@ def main() -> None:
     controller_names = {item["name"] for item in interface.get("controller", [])}
     if not controller_names:
         raise SystemExit("assets/interface.json: at least one controller is required")
-    group_names = {item["name"] for item in interface.get("group", [])}
+    groups_by_name = {
+        item["name"]: item for item in interface.get("group", []) if "name" in item
+    }
+    group_names = set(groups_by_name)
+    monitor_group = groups_by_name.get("Monitor")
+    if monitor_group is None or monitor_group.get("label") != "$group_monitor_label":
+        raise SystemExit("Monitor group must use the localized monitor label")
+    locale = load_json(ASSETS / interface["languages"]["zh_cn"])
+    if locale.get("group_monitor_label") != "监控":
+        raise SystemExit("Monitor group must render as 监控 in zh_cn")
 
     task_entries: set[str] = set()
     task_names: set[str] = set()
@@ -224,6 +235,24 @@ def main() -> None:
                 f"{sorted(unknown)}"
             )
 
+    required_preset_tasks = {
+        "CipherAFK": ["ProgressMonitor", "CipherEndlessBoost"],
+        "NormalAFK": ["ProgressMonitor", "NormalEndlessBoost"],
+    }
+    presets_by_name = {preset["name"]: preset for _, preset in presets}
+    for preset_name, expected_tasks in required_preset_tasks.items():
+        preset = presets_by_name.get(preset_name)
+        if preset is None:
+            raise SystemExit(f"Missing required preset: {preset_name}")
+        actual_tasks = [item.get("name") for item in preset.get("task", [])]
+        if actual_tasks != expected_tasks:
+            raise SystemExit(
+                f"{preset_name} tasks must be ordered as {expected_tasks!r}, "
+                f"got {actual_tasks!r}"
+            )
+        if not all(item.get("enabled") is True for item in preset.get("task", [])):
+            raise SystemExit(f"{preset_name} tasks must all be enabled")
+
     pipeline_nodes: dict[str, dict] = {}
     pipeline_owners: dict[str, str] = {}
     template_paths: set[str] = set()
@@ -251,6 +280,12 @@ def main() -> None:
     if missing_entries:
         raise SystemExit(f"Missing task entry pipeline nodes: {sorted(missing_entries)}")
 
+    monitor_action = (
+        pipeline_nodes.get("ProgressMonitorEntry", {}).get("action", {}).get("param", {})
+    )
+    if monitor_action.get("custom_action") != "progress_monitor_start":
+        raise SystemExit("ProgressMonitorEntry must call progress_monitor_start")
+
     missing_dynamic_targets = DYNAMIC_PIPELINE_TARGETS - set(pipeline_nodes)
     if missing_dynamic_targets:
         raise SystemExit(
@@ -275,6 +310,181 @@ def main() -> None:
             raise SystemExit(
                 f"{node_name}: combat HUD threshold must be {COMBAT_HUD_THRESHOLD}"
             )
+
+    state_hud_chains = {
+        "NormalOutside": {
+            "nodes": (
+                "NormalOutsideCombatHudFrame1",
+                "NormalOutsideCombatHudFrame2",
+                "NormalOutsideCombatHudReady",
+            ),
+            "fallback": "NormalOutsideMonitor",
+            "ready_next": "NormalHoldInsideGate",
+        },
+        "NormalRestart": {
+            "nodes": (
+                "NormalRestartCombatHudFrame1",
+                "NormalRestartCombatHudFrame2",
+                "NormalRestartCombatHudReady",
+            ),
+            "fallback": "NormalEndlessWaitStartChallenge",
+            "ready_next": "NormalHoldInsideGate",
+        },
+        "NormalPostSkill": {
+            "nodes": (
+                "NormalPostSkillCombatHudFrame1",
+                "NormalPostSkillCombatHudFrame2",
+                "NormalPostSkillCombatHudReady",
+            ),
+            "fallback": "NormalPostSkillOutsideMonitor",
+            "ready_next": "NormalHoldPostSkillInsideGate",
+        },
+        "CipherOutside": {
+            "nodes": (
+                "CipherOutsideCombatHudFrame1",
+                "CipherOutsideCombatHudFrame2",
+                "CipherOutsideCombatHudReady",
+            ),
+            "fallback": "CipherExpelOutsideMonitor",
+            "ready_next": "CipherExpelMonitor",
+        },
+        "CipherPostSkill": {
+            "nodes": (
+                "CipherPostSkillCombatHudFrame1",
+                "CipherPostSkillCombatHudFrame2",
+                "CipherPostSkillCombatHudReady",
+            ),
+            "fallback": "CipherPostSkillOutsideMonitor",
+            "ready_next": "CipherPostSkillInsideGate",
+        },
+    }
+    for chain_name, chain in state_hud_chains.items():
+        frame1, frame2, ready = chain["nodes"]
+        expected_next = {
+            frame1: [frame2],
+            frame2: [ready],
+            ready: [chain["ready_next"]],
+        }
+        for node_name in (frame1, frame2, ready):
+            node = pipeline_nodes.get(node_name)
+            if node is None:
+                raise SystemExit(f"Missing {chain_name} HUD state node: {node_name}")
+            recognition = node.get("recognition", {})
+            params = recognition.get("param", {})
+            if recognition.get("type") != "TemplateMatch":
+                raise SystemExit(f"{node_name}: HUD state recognition must use TemplateMatch")
+            if params.get("template") != COMBAT_HUD_TEMPLATE:
+                raise SystemExit(f"{node_name}: unexpected HUD state template")
+            if params.get("roi") != COMBAT_HUD_ROI:
+                raise SystemExit(f"{node_name}: unexpected HUD state ROI")
+            if params.get("threshold") != COMBAT_HUD_THRESHOLD:
+                raise SystemExit(f"{node_name}: unexpected HUD state threshold")
+            if node.get("next") != expected_next[node_name]:
+                raise SystemExit(f"{node_name}: invalid HUD state next node")
+            if node.get("on_error") != [chain["fallback"]]:
+                raise SystemExit(f"{node_name}: failed HUD state check must return to its state monitor")
+
+    expected_outside_monitors = {
+        "NormalOutsideMonitor": [
+            "NormalOutsideCombatHudFrame1",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalOutsideIdle",
+        ],
+        "NormalEndlessWaitStartChallenge": [
+            "NormalEndlessRestartByClick",
+            "NormalEndlessStartChallengeByClick",
+            "NormalRestartCombatHudFrame1",
+            "NormalEndlessWaitStartChallenge",
+        ],
+        "NormalPostSkillOutsideMonitor": [
+            "NormalPostSkillCombatHudFrame1",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalPostSkillOutsideIdle",
+        ],
+        "CipherExpelOutsideMonitor": [
+            "CipherOutsideCombatHudFrame1",
+            "CipherExpelAgainDetected",
+            "RewardConfirmThirdPageByClick",
+            "CipherExpelOutsideIdle",
+        ],
+        "CipherPostSkillOutsideMonitor": [
+            "CipherPostSkillCombatHudFrame1",
+            "CipherExpelAgainDetected",
+            "RewardConfirmThirdPageByClick",
+            "CipherPostSkillOutsideIdle",
+        ],
+    }
+    for node_name, expected_next in expected_outside_monitors.items():
+        node = pipeline_nodes.get(node_name)
+        if node is None or node.get("next") != expected_next:
+            raise SystemExit(
+                f"{node_name}: outside state candidates must be {expected_next!r}"
+            )
+
+    expected_entry_router = [
+        "CipherOutsideCombatHudFrame1",
+        "RewardConfirmByClick",
+        "CipherExpelAgainDetected",
+        "RewardConfirmThirdPageByClick",
+        "CipherExpelEntryIdle",
+    ]
+    if pipeline_nodes.get("CipherExpelEntryMonitor", {}).get("next") != expected_entry_router:
+        raise SystemExit(
+            "CipherExpelEntryMonitor: unknown-state entry must classify HUD, "
+            "inside confirmation, and outside buttons"
+        )
+
+    for removed_node in (
+        "CipherExpelWaitAgain",
+        "CipherExpelWaitThird",
+        "CipherRestartCombatHudFrame1",
+        "CipherRestartCombatHudFrame2",
+        "CipherRestartCombatHudReady",
+        "NormalExpelMonitor",
+        "NormalExpelPostSkillMonitor",
+    ):
+        if removed_node in pipeline_nodes:
+            raise SystemExit(f"{removed_node}: legacy mixed-state node must stay removed")
+
+    expected_state_gates = {
+        "NormalHoldInsideGate": (["NormalEndlessMonitor"], ["NormalOutsideMonitor"]),
+        "NormalExpelInsideGate": (["NormalExpelInsideIdle"], ["NormalOutsideMonitor"]),
+        "NormalHoldPostSkillInsideGate": (
+            ["NormalHoldPostSkillMonitor"],
+            ["NormalPostSkillOutsideMonitor"],
+        ),
+        "NormalExpelPostSkillInsideGate": (
+            ["NormalExpelPostSkillInsideIdle"],
+            ["NormalPostSkillOutsideMonitor"],
+        ),
+        "CipherPostSkillInsideGate": (
+            ["CipherPostSkillInsideIdle"],
+            ["CipherPostSkillOutsideMonitor"],
+        ),
+        "CipherExpelInsideGate": (
+            ["CipherExpelInsideIdle"],
+            ["CipherExpelOutsideMonitor"],
+        ),
+        "CipherExpelSettlementGate": (
+            ["CipherExpelSettlementIdle"],
+            ["CipherPostSkillOutsideMonitor"],
+        ),
+    }
+    for node_name, (expected_next, expected_error) in expected_state_gates.items():
+        node = pipeline_nodes.get(node_name)
+        recognition = node.get("recognition", {}) if node else {}
+        params = recognition.get("param", {})
+        if (
+            recognition.get("type") != "TemplateMatch"
+            or params.get("template") != COMBAT_HUD_TEMPLATE
+            or params.get("roi") != COMBAT_HUD_ROI
+            or params.get("threshold") != COMBAT_HUD_THRESHOLD
+        ):
+            raise SystemExit(f"{node_name}: state gate must use the combat health bar")
+        if node.get("next") != expected_next or node.get("on_error") != expected_error:
+            raise SystemExit(f"{node_name}: invalid inside/outside state transition")
 
     if "CharacterControl/q_inactive.png" in template_paths:
         raise SystemExit("Q icon must not be used as a combat HUD trigger")
@@ -418,8 +628,51 @@ def main() -> None:
                 {"enabled": enabled},
             )
 
+    def progress_start_action(mode: str, total: object, stage_total: int) -> dict:
+        return {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_start",
+                "custom_action_param": {
+                    "progress_mode": mode,
+                    "progress_total": total,
+                    "progress_stage_total": stage_total,
+                },
+            },
+        }
+
+    if pipeline_nodes.get("RewardConfirmEntry", {}).get("action") != progress_start_action(
+        "密函无尽", 0, 0
+    ):
+        raise SystemExit("RewardConfirmEntry must initialize cipher endless progress")
+    if pipeline_nodes.get("NormalEndlessEntry", {}).get("action") != progress_start_action(
+        "普通扼守", 1, 99
+    ):
+        raise SystemExit("NormalEndlessEntry must initialize normal hold progress")
+
+    expected_progress_events = {
+        "RewardConfirmThirdPageClick3": "cipher_cycle_completed",
+        "NormalEndlessContinueChallengeClick3": "continue_challenge",
+        "NormalEndlessStartChallengeClick3": "next_round_started",
+    }
+    for node_name, expected_event in expected_progress_events.items():
+        params = (
+            pipeline_nodes.get(node_name, {})
+            .get("action", {})
+            .get("param", {})
+            .get("custom_action_param", {})
+        )
+        if params.get("progress_event") != expected_event:
+            raise SystemExit(f"{node_name}: must emit progress event {expected_event}")
+
     normal_mode = all_options.get("NormalMode", {})
     hold_mode = option_case(normal_mode, "Endless")
+    require_override(
+        "NormalMode",
+        hold_mode,
+        "NormalEndlessEntry",
+        {"next": ["NormalOutsideMonitor"]},
+    )
     require_override(
         "NormalMode",
         hold_mode,
@@ -428,7 +681,6 @@ def main() -> None:
             "next": [
                 "NormalEndlessContinueChallenge",
                 "NormalEndlessConfirmChoice",
-                "NormalEndlessAgainDetected",
                 "NormalEndlessIdle",
             ]
         },
@@ -437,48 +689,207 @@ def main() -> None:
         "NormalMode",
         hold_mode,
         "LiseSkillCastEnd",
-        {"next": ["NormalHoldPostSkillMonitor"]},
+        {"next": ["NormalHoldPostSkillInsideGate"]},
     )
+    for node_name in (
+        "NormalEndlessContinueChallengeClick3",
+        "NormalEndlessConfirmChoiceClick3",
+        "NormalEndlessIdle",
+    ):
+        require_override(
+            "NormalMode",
+            hold_mode,
+            node_name,
+            {"next": ["NormalHoldInsideGate"]},
+        )
+
+    infinite_mode = option_case(normal_mode, "Infinite")
+    require_override(
+        "NormalMode",
+        infinite_mode,
+        "NormalEndlessEntry",
+        {
+            "action": progress_start_action("普通无尽", 0, 0),
+            "next": ["NormalEndlessMonitor"],
+        },
+    )
+    require_override(
+        "NormalMode",
+        infinite_mode,
+        "NormalEndlessMonitor",
+        {
+            "next": [
+                "NormalEndlessContinueChallenge",
+                "NormalEndlessConfirmChoice",
+                "NormalEndlessIdle",
+            ]
+        },
+    )
+    infinite_continue_action = (
+        infinite_mode.get("pipeline_override", {})
+        .get("NormalEndlessContinueChallenge", {})
+        .get("action", {})
+    )
+    infinite_continue_params = (
+        infinite_continue_action.get("param", {}).get("custom_action_param", {})
+    )
+    if infinite_continue_params.get("progress_event") != "continue_challenge":
+        raise SystemExit("NormalMode/Infinite must advance one logical in-dungeon round")
+
     expel_mode = option_case(normal_mode, "Expel")
     require_override(
         "NormalMode",
         expel_mode,
         "NormalEndlessEntry",
-        {"next": ["NormalExpelMonitor"]},
+        {"next": ["NormalOutsideMonitor"]},
     )
     require_override(
         "NormalMode",
         expel_mode,
         "LiseSkillCastEnd",
-        {"next": ["NormalExpelPostSkillMonitor"]},
+        {"next": ["NormalExpelPostSkillInsideGate"]},
+    )
+    for node_name in ("NormalOutsideCombatHudReady", "NormalRestartCombatHudReady"):
+        require_override(
+            "NormalMode",
+            expel_mode,
+            node_name,
+            {"next": ["NormalExpelInsideGate"]},
+        )
+    require_override(
+        "NormalMode",
+        expel_mode,
+        "NormalPostSkillCombatHudReady",
+        {"next": ["NormalExpelPostSkillInsideGate"]},
     )
 
-    post_skill_monitors = {
+    for option_name, mode_name, stage_total in (
+        ("NormalEndlessRestartCount", "普通扼守", 99),
+        ("NormalExpelRestartCount", "普通驱离", 0),
+    ):
+        option = all_options.get(option_name, {})
+        action = (
+            option.get("pipeline_override", {})
+            .get("NormalEndlessEntry", {})
+            .get("action")
+        )
+        if action != progress_start_action(mode_name, "{count}", stage_total):
+            raise SystemExit(f"{option_name}: must initialize configured progress")
+
+    cipher_mode = all_options.get("CipherMode", {})
+    cipher_expel_mode = option_case(cipher_mode, "Expel")
+    if "CipherExpelRestartCount" not in cipher_expel_mode.get("option", []):
+        raise SystemExit("CipherMode/Expel must expose CipherExpelRestartCount")
+    require_override(
+        "CipherMode",
+        cipher_expel_mode,
+        "RewardConfirmEntry",
+        {
+            "action": progress_start_action("密函驱离", 1, 0),
+            "next": ["CipherExpelEntryMonitor"],
+        },
+    )
+    require_override(
+        "CipherMode",
+        cipher_expel_mode,
+        "RewardConfirmThirdPageClick3",
+        {"next": ["CipherExpelOutsideMonitor"]},
+    )
+    require_override(
+        "CipherMode",
+        cipher_expel_mode,
+        "LiseSkillCastEnd",
+        {"next": ["CipherExpelSettlementMonitor"]},
+    )
+
+    cipher_round_option = all_options.get("CipherExpelRestartCount", {})
+    cipher_round_inputs = cipher_round_option.get("inputs", [])
+    if not cipher_round_inputs or cipher_round_inputs[0].get("default") != "1":
+        raise SystemExit("CipherExpelRestartCount must default to one completed dungeon")
+    if cipher_round_inputs[0].get("verify") != r"^[1-9]\d{0,3}$":
+        raise SystemExit("CipherExpelRestartCount must accept values from 1 through 9999")
+    cipher_round_override = cipher_round_option.get("pipeline_override", {})
+    if cipher_round_override.get("RewardConfirmEntry", {}).get(
+        "action"
+    ) != progress_start_action("密函驱离", "{count}", 0):
+        raise SystemExit("CipherExpelRestartCount must initialize finite progress")
+    cipher_quota_override = cipher_round_override.get("CipherExpelRoundQuota", {})
+    if cipher_quota_override.get("max_hit") != "{count}":
+        raise SystemExit("CipherExpelRestartCount must control CipherExpelRoundQuota.max_hit")
+    for node_name, action_name in (
+        ("CipherExpelRoundQuota", "cipher_expel_log_round"),
+        ("CipherExpelRoundDecision", "cipher_expel_decide_restart"),
+    ):
+        action = cipher_round_override.get(node_name, {}).get("action", {})
+        params = action.get("param", {})
+        if (
+            action.get("type") != "Custom"
+            or params.get("custom_action") != action_name
+            or params.get("custom_action_param") != {"total": "{count}"}
+        ):
+            raise SystemExit(f"CipherExpelRestartCount: invalid {node_name} override")
+
+    expected_cipher_round_chain = {
+        "CipherExpelAgainDetected": ["CipherExpelRoundQuota"],
+        "CipherExpelRoundQuota": ["CipherExpelRoundLog"],
+        "CipherExpelRoundLog": ["CipherExpelRoundDecision"],
+        "CipherExpelRoundDecision": ["CipherExpelFinished"],
+    }
+    for node_name, expected_next in expected_cipher_round_chain.items():
+        if pipeline_nodes.get(node_name, {}).get("next") != expected_next:
+            raise SystemExit(f"{node_name}: invalid cipher expel round chain")
+    if pipeline_nodes.get("CipherExpelFinished", {}).get("action", {}).get("type") != "StopTask":
+        raise SystemExit("CipherExpelFinished must stop the task at the configured quota")
+
+    inside_monitors = {
+        "NormalEndlessMonitor": [
+            "NormalEndlessContinueChallenge",
+            "NormalEndlessConfirmChoice",
+            "NormalEndlessIdle",
+        ],
+        "NormalEndlessCombatEntry": [
+            "NormalEndlessContinueChallenge",
+            "NormalEndlessConfirmChoice",
+            "LiseSkillOrderEntry",
+            "LiseSkillCastEnd",
+        ],
+        "NormalExpelCombatEntry": [
+            "LiseSkillOrderEntry",
+            "LiseSkillCastEnd",
+        ],
         "NormalHoldPostSkillMonitor": [
             "NormalHoldPostSkillContinueChallenge",
             "NormalHoldPostSkillConfirmChoice",
-            "NormalEndlessAgainDetected",
             "NormalHoldPostSkillIdle",
         ],
-        "NormalHoldPostSkillContinueChallenge": ["NormalHoldPostSkillMonitor"],
-        "NormalHoldPostSkillConfirmChoice": ["NormalHoldPostSkillMonitor"],
-        "NormalHoldPostSkillIdle": ["NormalHoldPostSkillMonitor"],
-        "NormalExpelPostSkillMonitor": [
-            "NormalEndlessAgainDetected",
-            "NormalExpelPostSkillMonitor",
+        "CipherExpelSettlementMonitor": [
+            "RewardConfirmByClick",
+            "CipherExpelSettlementGate",
+        ],
+        "CipherExpelMonitor": [
+            "RewardConfirmByClick",
+            "LiseCombatHudReadyFrame1",
+            "CipherExpelInsideGate",
         ],
     }
-    for node_name, expected_next in post_skill_monitors.items():
+    for node_name, expected_next in inside_monitors.items():
         node = pipeline_nodes.get(node_name)
         if node is None:
-            raise SystemExit(f"Missing post-skill monitor node: {node_name}")
+            raise SystemExit(f"Missing inside monitor node: {node_name}")
         if node.get("next") != expected_next:
             raise SystemExit(
                 f"{node_name}.next must be {expected_next!r}, "
                 f"got {node.get('next')!r}"
             )
-        if any(next_node in COMBAT_HUD_READY_NODES for next_node in expected_next):
-            raise SystemExit(f"{node_name}: post-skill path must not re-enter HUD")
+
+    expected_post_skill_returns = {
+        "NormalHoldPostSkillContinueChallenge": "NormalHoldPostSkillInsideGate",
+        "NormalHoldPostSkillConfirmChoice": "NormalHoldPostSkillInsideGate",
+        "NormalHoldPostSkillIdle": "NormalHoldPostSkillInsideGate",
+    }
+    for node_name, target in expected_post_skill_returns.items():
+        if pipeline_nodes.get(node_name, {}).get("next") != [target]:
+            raise SystemExit(f"{node_name}: must stay in the post-skill inside state")
 
     expected_post_skill_clicks = {
         "NormalHoldPostSkillContinueChallenge": {
@@ -487,6 +898,7 @@ def main() -> None:
             "repeat": 3,
             "interval_ms": 50,
             "restore_delay_ms": 100,
+            "progress_event": "continue_challenge",
         },
         "NormalHoldPostSkillConfirmChoice": {
             "kind": "click",
@@ -510,75 +922,96 @@ def main() -> None:
 
     hold_skills = all_options.get("NormalHoldEnableSkills", {})
     hold_skills_yes = option_case(hold_skills, "Yes")
-    require_override(
-        "NormalHoldEnableSkills",
-        hold_skills_yes,
-        "NormalEndlessEntry",
-        {"next": ["NormalEndlessMonitor"]},
-    )
-    require_override(
-        "NormalHoldEnableSkills",
-        hold_skills_yes,
-        "NormalEndlessStartChallengeClick3",
-        {"next": ["NormalEndlessMonitor"]},
-    )
-    require_override(
-        "NormalHoldEnableSkills",
-        hold_skills_yes,
-        "NormalEndlessMonitor",
-        {
-            "next": [
-                "NormalEndlessContinueChallenge",
-                "NormalEndlessConfirmChoice",
-                "NormalEndlessAgainDetected",
-                "LiseCombatHudReadyFrame1",
-                "NormalEndlessIdle",
-            ]
-        },
-    )
-    for hud_node in ("LiseCombatHudReadyFrame1", "LiseCombatHudReadyFrame2"):
+    for hud_node in ("NormalOutsideCombatHudReady", "NormalRestartCombatHudReady"):
         require_override(
             "NormalHoldEnableSkills",
             hold_skills_yes,
             hud_node,
-            {"on_error": ["NormalEndlessMonitor"]},
+            {"next": ["LiseCombatLoadDelay"]},
+        )
+    for node_name in (
+        "NormalEndlessContinueChallengeClick3",
+        "NormalEndlessConfirmChoiceClick3",
+        "NormalEndlessIdle",
+    ):
+        require_override(
+            "NormalHoldEnableSkills",
+            hold_skills_yes,
+            node_name,
+            {"next": ["NormalEndlessCombatEntry"]},
         )
 
     expel_skills = all_options.get("NormalExpelEnableSkills", {})
     expel_skills_yes = option_case(expel_skills, "Yes")
-    for entry_node in ("NormalEndlessEntry", "NormalEndlessStartChallengeClick3"):
-        require_override(
-            "NormalExpelEnableSkills",
-            expel_skills_yes,
-            entry_node,
-            {"next": ["NormalExpelMonitor"]},
-        )
-    require_override(
-        "NormalExpelEnableSkills",
-        expel_skills_yes,
-        "NormalExpelMonitor",
-        {
-            "next": [
-                "NormalEndlessAgainDetected",
-                "LiseCombatHudReadyFrame1",
-                "NormalExpelMonitor",
-            ]
-        },
-    )
-    for hud_node in ("LiseCombatHudReadyFrame1", "LiseCombatHudReadyFrame2"):
+    for hud_node in ("NormalOutsideCombatHudReady", "NormalRestartCombatHudReady"):
         require_override(
             "NormalExpelEnableSkills",
             expel_skills_yes,
             hud_node,
-            {"on_error": ["NormalExpelMonitor"]},
+            {"next": ["LiseCombatLoadDelay"]},
         )
-    expel_skills_no = option_case(expel_skills, "No")
     require_override(
         "NormalExpelEnableSkills",
-        expel_skills_no,
-        "NormalExpelMonitor",
-        {"next": ["NormalEndlessAgainDetected", "NormalExpelMonitor"]},
+        expel_skills_yes,
+        "NormalExpelCombatEntry",
+        {
+            "next": [
+                "LiseSkillOrderEntry",
+                "LiseSkillCastEnd",
+            ]
+        },
     )
+    expel_skills_no = option_case(expel_skills, "No")
+    if expel_skills_no.get("pipeline_override"):
+        raise SystemExit("NormalExpelEnableSkills/No must not add skill or button candidates")
+
+    cipher_skills = all_options.get("CipherEnableSkills", {})
+    cipher_skills_yes = option_case(cipher_skills, "Yes")
+    for node_name in ("RewardConfirmFirstPageClick3", "CipherExpelAgainClick3"):
+        require_override(
+            "CipherEnableSkills",
+            cipher_skills_yes,
+            node_name,
+            {"next": ["CipherPostSkillOutsideMonitor"]},
+        )
+    cipher_skills_no = option_case(cipher_skills, "No")
+    require_override(
+        "CipherEnableSkills",
+        cipher_skills_no,
+        "CipherExpelMonitor",
+        {"next": ["RewardConfirmByClick", "CipherExpelInsideGate"]},
+    )
+
+    forbidden_inside_targets = {
+        "NormalEndlessAgainDetected",
+        "NormalEndlessStartChallengeByClick",
+        "CipherExpelAgainByClick",
+        "CipherExpelAgainDetected",
+        "RewardConfirmThirdPageByClick",
+    }
+    for node_name in (
+        "NormalEndlessMonitor",
+        "NormalEndlessCombatEntry",
+        "NormalHoldPostSkillMonitor",
+        "NormalExpelCombatEntry",
+        "CipherExpelMonitor",
+        "CipherExpelSettlementMonitor",
+    ):
+        leaked = forbidden_inside_targets & set(pipeline_nodes[node_name].get("next", []))
+        if leaked:
+            raise SystemExit(f"{node_name}: inside state leaks outside candidates {sorted(leaked)}")
+
+    forbidden_outside_targets = {
+        "NormalEndlessContinueChallenge",
+        "NormalEndlessConfirmChoice",
+        "RewardConfirmByClick",
+        "LiseSkillOrderEntry",
+        "LiseCombatHudReadyFrame1",
+    }
+    for node_name in expected_outside_monitors:
+        leaked = forbidden_outside_targets & set(pipeline_nodes[node_name].get("next", []))
+        if leaked:
+            raise SystemExit(f"{node_name}: outside state leaks inside candidates {sorted(leaked)}")
 
     for interval_option_name in ("LiseEInterval", "NormalHoldEInterval"):
         interval = all_options.get(interval_option_name, {})

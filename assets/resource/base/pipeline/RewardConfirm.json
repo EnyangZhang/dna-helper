@@ -7,7 +7,11 @@
             "type": "Custom",
             "param": {
                 "custom_action": "focus_guard_start",
-                "custom_action_param": {}
+                "custom_action_param": {
+                    "progress_mode": "密函无尽",
+                    "progress_total": 0,
+                    "progress_stage_total": 0
+                }
             }
         },
         "rate_limit": 0,
@@ -79,7 +83,8 @@
                 "custom_action_param": {
                     "kind": "click",
                     "target": [920, 480],
-                    "repeat": 1
+                    "repeat": 1,
+                    "progress_event": "cipher_cycle_completed"
                 }
             }
         },
@@ -299,6 +304,128 @@
             "LiseSkillCastEnd"
         ]
     },
+    "CipherExpelEntryMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "CipherOutsideCombatHudFrame1",
+            "RewardConfirmByClick",
+            "CipherExpelAgainDetected",
+            "RewardConfirmThirdPageByClick",
+            "CipherExpelEntryIdle"
+        ]
+    },
+    "CipherExpelEntryIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "CipherExpelEntryMonitor"
+        ]
+    },
+    "CipherExpelOutsideMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "CipherOutsideCombatHudFrame1",
+            "CipherExpelAgainDetected",
+            "RewardConfirmThirdPageByClick",
+            "CipherExpelOutsideIdle"
+        ]
+    },
+    "CipherExpelOutsideIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "CipherExpelOutsideMonitor"
+        ]
+    },
+    "CipherOutsideCombatHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "CipherOutsideCombatHudFrame2"
+        ],
+        "on_error": [
+            "CipherExpelOutsideMonitor"
+        ]
+    },
+    "CipherOutsideCombatHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "CipherOutsideCombatHudReady"
+        ],
+        "on_error": [
+            "CipherExpelOutsideMonitor"
+        ]
+    },
+    "CipherOutsideCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[密函驱离] 局外监控已连续确认 3 帧战斗 HUD，切换到局内监控",
+                "display": ["log"]
+            }
+        },
+        "next": [
+            "CipherExpelMonitor"
+        ],
+        "on_error": [
+            "CipherExpelOutsideMonitor"
+        ]
+    },
     "CipherExpelMonitor": {
         "recognition": {
             "type": "DirectHit"
@@ -313,6 +440,38 @@
         "next": [
             "RewardConfirmByClick",
             "LiseCombatHudReadyFrame1",
+            "CipherExpelInsideGate"
+        ]
+    },
+    "CipherExpelInsideGate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "CipherExpelInsideIdle"
+        ],
+        "on_error": [
+            "CipherExpelOutsideMonitor"
+        ]
+    },
+    "CipherExpelInsideIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
             "CipherExpelMonitor"
         ]
     },
@@ -329,7 +488,159 @@
         "max_hit": 10000000,
         "next": [
             "RewardConfirmByClick",
+            "CipherExpelSettlementGate"
+        ]
+    },
+    "CipherExpelSettlementGate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "CipherExpelSettlementIdle"
+        ],
+        "on_error": [
+            "CipherPostSkillOutsideMonitor"
+        ]
+    },
+    "CipherExpelSettlementIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
             "CipherExpelSettlementMonitor"
+        ]
+    },
+    "CipherPostSkillOutsideMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "CipherPostSkillCombatHudFrame1",
+            "CipherExpelAgainDetected",
+            "RewardConfirmThirdPageByClick",
+            "CipherPostSkillOutsideIdle"
+        ]
+    },
+    "CipherPostSkillOutsideIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "CipherPostSkillOutsideMonitor"
+        ]
+    },
+    "CipherPostSkillCombatHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "CipherPostSkillCombatHudFrame2"
+        ],
+        "on_error": [
+            "CipherPostSkillOutsideMonitor"
+        ]
+    },
+    "CipherPostSkillCombatHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "timeout": 120,
+        "next": [
+            "CipherPostSkillCombatHudReady"
+        ],
+        "on_error": [
+            "CipherPostSkillOutsideMonitor"
+        ]
+    },
+    "CipherPostSkillCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "CipherPostSkillInsideGate"
+        ],
+        "on_error": [
+            "CipherPostSkillOutsideMonitor"
+        ]
+    },
+    "CipherPostSkillInsideGate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "next": [
+            "CipherPostSkillInsideIdle"
+        ],
+        "on_error": [
+            "CipherPostSkillOutsideMonitor"
+        ]
+    },
+    "CipherPostSkillInsideIdle": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "CipherPostSkillInsideGate"
         ]
     },
     "CipherExpelAgainByClick": {
@@ -401,40 +712,104 @@
         "pre_delay": 0,
         "post_delay": 50,
         "next": [
-            "RewardConfirmThirdPageByClick",
-            "CipherExpelWaitThird"
+            "CipherExpelOutsideMonitor"
         ]
     },
-    "CipherExpelWaitAgain": {
+    "CipherExpelAgainDetected": {
         "recognition": {
-            "type": "DirectHit"
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [800, 560, 300, 130],
+                "threshold": 0.8
+            }
         },
         "action": {
             "type": "DoNothing"
         },
         "rate_limit": 0,
         "pre_delay": 0,
-        "post_delay": 50,
-        "max_hit": 10000000,
+        "post_delay": 0,
         "next": [
-            "CipherExpelAgainByClick",
-            "CipherExpelWaitAgain"
+            "CipherExpelRoundQuota"
         ]
     },
-    "CipherExpelWaitThird": {
+    "CipherExpelRoundQuota": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "cipher_expel_log_round",
+                "custom_action_param": {
+                    "total": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "max_hit": 1,
+        "next": [
+            "CipherExpelRoundLog"
+        ]
+    },
+    "CipherExpelRoundLog": {
         "recognition": {
             "type": "DirectHit"
         },
         "action": {
             "type": "DoNothing"
         },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[密函驱离] 已完成第 1 / 1 轮",
+                "display": ["log"]
+            }
+        },
         "rate_limit": 0,
         "pre_delay": 0,
-        "post_delay": 50,
-        "max_hit": 10000000,
+        "post_delay": 0,
         "next": [
-            "RewardConfirmThirdPageByClick",
-            "CipherExpelWaitThird"
+            "CipherExpelRoundDecision"
         ]
+    },
+    "CipherExpelRoundDecision": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "cipher_expel_decide_restart",
+                "custom_action_param": {
+                    "total": 1
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "CipherExpelFinished"
+        ]
+    },
+    "CipherExpelFinished": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "StopTask"
+        },
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[密函驱离] 已完成设定的副本轮次，不再点击再次进行，任务结束",
+                "display": ["log", "toast"]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
     }
 }

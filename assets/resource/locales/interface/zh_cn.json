@@ -3,6 +3,7 @@
     "preset_afk_label": "挂机",
     "preset_afk_description": "适合长时间挂机运行的任务",
     "group_daily_afk_label": "日常挂机",
+    "group_monitor_label": "监控",
     "task_cipher_endless_boost_label": "密函无尽加速",
     "task_cipher_endless_boost_description": "自动处理密函探险结算流程；驱离模式每局按配置执行一次角色技能",
     "app": {

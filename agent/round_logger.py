@@ -8,6 +8,8 @@ from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
 
+import progress_state
+
 
 @AgentServer.custom_action("normal_endless_log_round")
 class NormalEndlessRoundLogger(CustomAction):
@@ -17,6 +19,7 @@ class NormalEndlessRoundLogger(CustomAction):
         params = _parse_params(argv.custom_action_param)
         total = max(1, int(params.get("total", 1)))
         current = max(1, context.get_hit_count("NormalEndlessRestartQuota"))
+        progress_state.complete_round(current, total, "普通扼守")
         content = f"[普通扼守] 已完成第 {current} / {total} 轮（每轮 99 局）"
 
         succeeded = context.override_pipeline(
@@ -61,6 +64,7 @@ class NormalExpelRoundLogger(CustomAction):
         params = _parse_params(argv.custom_action_param)
         total = max(1, int(params.get("total", 1)))
         current = max(1, context.get_hit_count("NormalExpelRoundQuota"))
+        progress_state.complete_round(current, total, "普通驱离")
         content = f"[普通驱离] 已完成第 {current} / {total} 轮"
 
         succeeded = context.override_pipeline(
@@ -93,6 +97,51 @@ class NormalExpelRoundDecision(CustomAction):
         )
         succeeded = context.override_pipeline(
             {"NormalExpelRoundDecision": {"next": [next_node]}}
+        )
+        return CustomAction.RunResult(success=succeeded)
+
+
+@AgentServer.custom_action("cipher_expel_log_round")
+class CipherExpelRoundLogger(CustomAction):
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
+        total = max(1, int(params.get("total", 1)))
+        current = max(1, context.get_hit_count("CipherExpelRoundQuota"))
+        progress_state.complete_round(current, total, "密函驱离")
+        content = f"[密函驱离] 已完成第 {current} / {total} 轮"
+
+        succeeded = context.override_pipeline(
+            {
+                "CipherExpelRoundLog": {
+                    "focus": {
+                        "Node.Action.Succeeded": {
+                            "content": content,
+                            "display": ["log"],
+                        }
+                    }
+                }
+            }
+        )
+        return CustomAction.RunResult(success=succeeded)
+
+
+@AgentServer.custom_action("cipher_expel_decide_restart")
+class CipherExpelRoundDecision(CustomAction):
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
+        total = max(1, int(params.get("total", 1)))
+        current = max(1, context.get_hit_count("CipherExpelRoundQuota"))
+        next_node = (
+            "CipherExpelAgainByClick"
+            if current < total
+            else "CipherExpelFinished"
+        )
+        succeeded = context.override_pipeline(
+            {"CipherExpelRoundDecision": {"next": [next_node]}}
         )
         return CustomAction.RunResult(success=succeeded)
 

@@ -12,6 +12,9 @@ from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
 
+import progress_state
+import telegram_bot
+
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -166,9 +169,19 @@ class FocusGuardStart(CustomAction):
     def run(
         self, context: Context, argv: CustomAction.RunArg
     ) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
         game_hwnd = _controller_hwnd(context)
         _remember_window(_foreground_window(), game_hwnd)
         _start_foreground_watcher(game_hwnd)
+        progress_mode = str(params.get("progress_mode", "普通扼守"))
+        task_started = progress_state.start_task(
+            progress_mode,
+            int(params.get("progress_total", 1)),
+            int(params.get("progress_stage_total", 99)),
+            int(getattr(argv.task_detail, "task_id", 0)),
+        )
+        if task_started:
+            telegram_bot.notify_task_started(progress_mode)
         return CustomAction.RunResult(success=True)
 
 
@@ -260,5 +273,14 @@ class FocusGuardAction(CustomAction):
                 _release_cursor_clip()
                 if restore_hwnd:
                     _restore_window(restore_hwnd)
+
+        if succeeded:
+            progress_event = params.get("progress_event")
+            if progress_event == "continue_challenge":
+                progress_state.increment_stage()
+            elif progress_event == "next_round_started":
+                progress_state.start_next_round()
+            elif progress_event == "cipher_cycle_completed":
+                progress_state.advance_cipher_cycle()
 
         return CustomAction.RunResult(success=succeeded)

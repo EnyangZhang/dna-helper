@@ -9,7 +9,7 @@ DNA Helper 由四层组成：
 1. **MXU v2.1.3**：读取 Project Interface v2 配置，提供控制器、配置、任务列表、启动/停止、日志和截图界面。
 2. **MaaFramework v5.10.4**：负责截图、模板识别、Pipeline 调度和 Win32 输入。
 3. **Pipeline JSON**：描述页面状态、识别优先级、点击链、技能链和长期监控。
-4. **Python Agent**：只处理 Pipeline 不适合表达的窗口焦点恢复、动态轮次日志和运行时重开决策。
+4. **Python Agent**：处理 Pipeline 不适合表达的窗口焦点恢复、动态轮次日志、运行时重开决策、共享进度状态和 Telegram 后台监听。
 
 普通识别与点击应优先留在 Pipeline；只有需要系统 API、动态文本或运行时图修改时才使用 Agent。
 
@@ -22,7 +22,7 @@ DNA Helper 由四层组成：
 - 窗口标题正则 `^\s*二重螺旋\s*$`。
 - 截图方式 `PrintWindow`。
 - 鼠标、键盘输入方式 `Seize`。
-- 一个“日常挂机”任务分组。
+- “日常挂机”和“监控”两个任务分组。
 - Python Agent 启动命令 `python agent/main.py`。
 
 `permission_required: true` 表示桌面版需要管理员权限。项目没有 `run.py` 旁路入口；所有依赖自定义动作的任务都必须让 MXU 启动 AgentServer。
@@ -31,26 +31,27 @@ DNA Helper 由四层组成：
 
 ## 用户任务和预设
 
-当前只有两个用户任务，均位于“日常挂机”分组：
+当前有三个用户任务：两个游戏任务位于“日常挂机”分组，一个一次性监听启动任务位于“监控”分组：
 
 | 任务 | 模式 | 轮次 | 技能 | 高台判断 |
 |---|---|---:|---:|---:|
 | 密函无尽加速 | 无尽 | 无 | 无 | 无 |
-| 密函无尽加速 | 驱离 | 无，持续运行 | 可选 | 可选 |
+| 密函无尽加速 | 驱离 | 1–9999，默认 1 | 可选 | 可选 |
 | 普通无尽加速 | 扼守 | 1–999，默认 1 | 可选 | 无 |
 | 普通无尽加速 | 无尽 | 无 | 无 | 无 |
 | 普通无尽加速 | 驱离 | 1–999，默认 1 | 可选 | 可选 |
+| 进度监控 | 无 | 无 | 无 | 无 |
 
 新建配置提供两个互斥用途的独立预设：
 
-- `CipherAFK` / “密函挂机”：只加入 `CipherEndlessBoost`。
-- `NormalAFK` / “普通挂机”：只加入 `NormalEndlessBoost`。
+- `CipherAFK` / “密函挂机”：先加入 `ProgressMonitor`，再加入 `CipherEndlessBoost`。
+- `NormalAFK` / “普通挂机”：先加入 `ProgressMonitor`，再加入 `NormalEndlessBoost`。
 
-预设不得同时启用两个长期任务，否则排在第一位的任务不会自然结束，后续任务无法启动。预设定义在 `resource/tasks/preset/AFK.json`，不得通过修改用户生成的 `config/` 实现。
+`ProgressMonitor` 必须排在对应游戏任务之前；它启动监听后立即结束，因此不会阻塞后续长期任务。预设仍不得同时启用两个游戏任务，否则排在第一位的长期任务不会自然结束。预设定义在 `resource/tasks/preset/AFK.json`，不得通过修改用户生成的 `config/` 实现。
 
 用户可见的新能力必须：
 
-- 加入用户指定的任务分组；本项目当前使用 `DailyAFK` / “日常挂机”。
+- 加入用户指定的任务分组；游戏任务使用 `DailyAFK` / “日常挂机”，监听启动任务使用 `Monitor` / “监控”。
 - 使用正式中文名称和清晰的中文说明。
 - 不显示未解析的本地化键。
 - 不通过 `default_check: true` 绕过新建配置的预设选择。
@@ -62,15 +63,48 @@ assets/resource/base/pipeline/
   RewardConfirm.json          # 密函无尽、密函驱离结算
   NormalEndlessBoost.json     # 普通扼守、无尽、驱离和轮次重开
   CharacterControl.json       # HUD、高台判断、E/Q 与输入代理
+  ProgressMonitor.json        # 一次性启动 Telegram 监听
 
 assets/resource/tasks/
   CipherEndlessBoost.json     # 密函模式和技能开关覆盖
   NormalEndlessBoost.json     # 普通模式、轮次和技能覆盖
+  ProgressMonitor.json        # “监控”分组的正式任务定义
   LiseExpelSkillCast.json     # 共享技能选项
-  preset/AFK.json             # 两个独立挂机预设
+  preset/AFK.json             # 监控在前、游戏任务在后的两个挂机预设
 ```
 
 基础 Pipeline 提供可复用节点；任务选项通过 `pipeline_override` 替换 `next`、`on_error`、`enabled`、延迟、重复次数和日志。维护时必须按“基础节点 + 当前模式覆盖 + 当前子选项覆盖”的最终结果分析，不能只阅读基础文件。
+
+## 进度监控启动任务
+
+UI 的“监控”分组提供正式任务“进度监控”。两个内置预设都把它作为第一个启用任务，后面才是对应的密函或普通长期任务：
+
+```text
+ProgressMonitorEntry
+→ Agent 自定义动作 progress_monitor_start
+→ 启动 Telegram 长轮询与发送线程（已启动时保持幂等）
+→ ProgressMonitorLog
+→ 当前一次性任务结束，继续预设中的游戏任务
+```
+
+`agent/main.py` 只注册 Agent 动作，不在 UI 启动时自动开启 Telegram；监听生命周期由“进度监控”任务显式启动。缺少有效本机配置或启动异常时，该任务记录“已跳过”并成功结束，不得阻塞后续游戏任务。Token 和 Chat ID 只从环境变量或 Git 忽略的 `config/telegram.json` 读取。
+
+## 局内 / 局外状态边界
+
+左下角角色血条 `combat_health_bar.png` 是副本状态边界。局外监控先检查血条，再检查该模式的局外按钮；连续 3 帧命中血条后切到局内。局内监控只包含该模式的局内按钮和血条门控，血条消失后切回局外。候选是在同一 Pipeline 轮询中的优先级列表，不是真正的多线程。
+
+| 功能 | 局内候选 | 局外候选 |
+|---|---|---|
+| 密函无尽 | 第一页确认、继续挑战、Space 确认 | 无 |
+| 密函驱离＋技能开启 | 血条、高台小地图、第一页确认 | 再次进行、Space 确认 |
+| 密函驱离＋技能关闭 | 第一页确认 | 再次进行、Space 确认 |
+| 普通无尽 | 继续挑战、确认选择 | 无 |
+| 普通扼守＋技能开启 | 血条、继续挑战、确认选择 | 再次进行、开始挑战 |
+| 普通扼守＋技能关闭 | 继续挑战、确认选择 | 再次进行、开始挑战 |
+| 普通驱离＋技能开启 | 血条、高台小地图 | 再次进行、开始挑战 |
+| 普通驱离＋技能关闭 | 无 | 再次进行、开始挑战 |
+
+密函驱离和普通扼守/驱离支持从局内或局外任意页面启动。任务入口在状态未知时允许一次性同时探测血条和结算按钮；完成首次分类后严格使用分区监控。技能结束后使用独立的 post-skill 局内/局外节点：血条重新出现只恢复监控，不会再次进入技能链。密函无尽和普通无尽本身没有局外流程，保持原有纯局内链。
 
 ## 密函状态机
 
@@ -96,24 +130,45 @@ RewardConfirmEntry
 
 ### 驱离
 
-`CipherMode=Expel` 将入口改为 `CipherExpelMonitor`：
+`CipherMode=Expel` 将入口改为一次性状态路由：
 
 ```text
-CipherExpelMonitor
-├─ 识别到第一奖励页 → 结算链
-└─ 技能开启且连续确认 HUD → 技能链
+CipherExpelEntryMonitor
+├─ 连续 3 帧血条 → CipherExpelMonitor（局内）
+├─ 第一奖励页 → 完成局内结算后进入局外
+└─ 再次进行 / Space 确认 → CipherExpelOutsideMonitor（局外）
+
+CipherExpelMonitor（局内）
+├─ 第一奖励页 → 结算链
+├─ 技能开启且连续确认 HUD → 本副本唯一一次技能链
+└─ 血条消失 → CipherExpelOutsideMonitor
 
 技能链结束
 → CipherExpelSettlementMonitor
 → 第一奖励页“确认选择”
-→ “再次进行”三连击 (920,640)
-→ 第三奖励页
-→ CipherExpelMonitor
+→ CipherPostSkillOutsideMonitor
+
+局外监控
+├─ “再次进行”三连击 (920,640)
+├─ Space 确认三连击
+└─ 连续 3 帧血条 → 返回对应局内监控
 ```
 
-技能关闭时，`CipherExpelMonitor` 只监听第一奖励页，不进入 HUD 或技能节点。技能开启时每个副本只执行一次；`LiseSkillCastEnd` 转入仅结算监控，因此角色血条 HUD 持续存在或按键失败也不会在同一副本重新触发。
+技能关闭时，`CipherExpelMonitor` 的局内按钮候选只有第一奖励页，血条门控只负责状态切换，不进入技能节点。技能开启时每个副本只执行一次；`LiseSkillCastEnd` 转入 post-skill 状态，因此角色血条持续存在、短暂消失后恢复或按键失败都不会在同一副本重新触发。
 
-密函驱离没有轮次配额，第三页结束后持续返回下一轮监控。
+密函驱离的“副本轮次”与普通驱离使用相同的完成轮次语义，但使用独立节点和计数器：
+
+```text
+检测到“再次进行”
+→ CipherExpelRoundQuota 的 hit_count +1
+→ 记录“已完成第 N / 总轮数”
+→ N >= 总轮数：CipherExpelFinished 停止任务
+→ N < 总轮数：点击“再次进行”
+                → 点击副本外 Space 确认
+                → 进入下一轮
+```
+
+任务入口、血条确认、技能释放、第一页确认和 Space 确认都不计数。只有局外识别到“再次进行”才表示完成一轮。
 
 ## 普通状态机
 
@@ -134,6 +189,8 @@ NormalEndlessAgainDetected
 
 任务入口、HUD 三帧确认、技能释放和“开始挑战”均不计数。技能开关不得改变轮次定义。
 
+`NormalOutsideMonitor` 和重开阶段的 `NormalEndlessWaitStartChallenge` 都只包含局外候选与血条边界。前一步点击未生效时会重试；“开始挑战”被手动点击或漏识别但游戏已加载时，三帧血条链会恢复到当前模式的局内节点。
+
 `round_logger.py` 使用：
 
 - `context.get_hit_count(...)` 读取完成轮数。
@@ -144,14 +201,14 @@ NormalEndlessAgainDetected
 
 `NormalMode=Endless` 在代码中代表界面上的“扼守”：
 
-- 监控局内“继续挑战”。
-- 监控局内“确认选择”。
-- 监控结算页“再次进行”。
-- 技能开启时还监控左下角角色血条 HUD。
+- `NormalEndlessMonitor` 只监控局内“继续挑战”和“确认选择”。
+- `NormalOutsideMonitor` 只监控局外“再次进行”和“开始挑战”。
+- 血条门控负责在两组监控之间切换。
+- 技能开启时，局外到局内的三帧血条确认进入本副本唯一一次技能链。
 
-未达到轮次上限时依次点击“再次进行”和“开始挑战”。技能开启后，新一轮必须重新连续确认 HUD 才能进入技能延迟；技能结束后进入 `NormalHoldPostSkillMonitor`。该监控继续处理局内“继续挑战”“确认选择”和结算“再次进行”，但没有 HUD 候选，因此同一轮不会再次进入技能链。点击“开始挑战”后才返回首次监控并重新允许释放。
+未达到轮次上限时依次点击“再次进行”和“开始挑战”。技能开启后，新一轮必须重新连续确认 HUD 才能进入技能延迟；技能结束后进入 `NormalHoldPostSkillInsideGate` / `NormalHoldPostSkillMonitor`。这组节点仍处理局内按钮，转到局外后只处理重开按钮，但血条恢复只回到 post-skill 节点，因此同一副本不会再次释放。完成重开后才重新允许释放。
 
-任务入口始终先进入统一监控。技能开启只是在监控候选中增加 HUD，不得把入口替换成 HUD 专用等待链；因此从“再次进行”页面启动时仍优先进入完成轮次与重开流程。
+任务入口先进入局外分类监控，因此从“再次进行”页面启动时仍优先进入完成轮次与重开流程；若实际已在副本中，连续三帧血条会切入局内。
 
 ### 无尽
 
@@ -167,9 +224,9 @@ NormalEndlessAgainDetected
 
 `NormalMode=Expel` 的局内没有确认按钮：
 
-- 技能关闭：`NormalExpelMonitor` 只监听“再次进行”。
-- 技能开启：`NormalExpelMonitor` 同时监听“再次进行”和 HUD；前者进入完成轮次与重开流程，后者进入本轮唯一一次技能链。技能结束后切换到 `NormalExpelPostSkillMonitor`，该节点只监听“再次进行”，不再扫描 HUD。
-- 识别“再次进行”后按完成轮次语义计数。
+- 技能关闭：局内只轮询血条门控，不识别按钮；进入局外后才识别“再次进行”和“开始挑战”。
+- 技能开启：连续三帧血条进入本副本唯一一次技能链；技能结束后转入 post-skill 状态，血条恢复不会重新释放。
+- 局外识别“再次进行”后按完成轮次语义计数。
 - 未达到配额时复用普通重开链，等待并点击“开始挑战”。
 
 ## 技能状态机
@@ -258,6 +315,21 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
 - 短暂弹窗可能覆盖原恢复目标。
 - 当前返回值只反映游戏输入是否成功，恢复失败不会使自定义动作失败。
 
+## 进度状态与 Telegram 查询
+
+`progress_state.py` 是 Maa 自定义动作和 Telegram 后台线程共享的进度源。状态通过 `RLock` 保护，并尽力原子替换到 `config/progress_status.json`；持久化失败不得中断自动化。
+
+进度维度遵循 README 的业务定义：
+
+- 局内轮次由成功完成的逻辑“继续挑战”或密函无尽结算循环推进，每组三连击只记录一次。
+- 局外副本轮次是“已完成副本数”，只由普通扼守、普通驱离和密函驱离原有的 `RoundLogger` 在识别到“再次进行”后写入。
+- `Start Challenge` 成功后只把状态切回运行并清零局内进度，不增加局外副本轮次。
+- 密函驱离的 Space 确认只表示已重新进入下一轮，不重复增加已完成数。
+
+`focus_guard_start` 从任务和轮次选项接收 `progress_mode`、`progress_total`、`progress_stage_total`。密函无尽循环会重复进入任务入口，因此使用 Maa `task_id` 去重初始化和启动通知。
+
+`telegram_bot.py` 仅在 `ProgressMonitorStart` 被执行且存在有效 `config/telegram.json` 或对应环境变量时启动。打开或重启 UI 本身不会启动监听。接收轮询和主动发送使用独立守护线程；网络失败采用退避重试，不得阻塞 Pipeline 输入。只响应 `allowed_chat_id`，Token 与状态文件都位于已被 Git 忽略的 `config/`。
+
 ## 坐标与识别约束
 
 - 所有模板、ROI 和点击坐标以 `1280×720` 控制器截图为基准。
@@ -288,6 +360,8 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
 
 - `focus_restore.py` 通过 `Context.run_action` 调用的点击和按键代理。
 - `round_logger.py` 通过 `Context.override_pipeline` 选择的普通重开入口。
+
+`progress_monitor.py` 注册 `progress_monitor_start` 自定义动作，但不通过 `Context.run_action` 跳转其他节点；它只覆盖 `ProgressMonitorLog` 的本次日志内容并始终成功返回。
 
 修改 Agent 中的节点名映射时必须同步更新该清单。可达性分析必须从用户任务入口和动态目标共同出发；只遍历静态 `next` 会误删真实运行节点。
 

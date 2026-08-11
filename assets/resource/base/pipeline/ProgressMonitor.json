@@ -1,0 +1,39 @@
+{
+    "ProgressMonitorEntry": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "progress_monitor_start",
+                "custom_action_param": {}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "ProgressMonitorLog"
+        ]
+    },
+    "ProgressMonitorLog": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[进度监控] 初始化完成",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    }
+}
