@@ -794,6 +794,17 @@ def main() -> None:
         if action != progress_start_action(mode_name, "{count}", stage_total):
             raise SystemExit(f"{option_name}: must initialize configured progress")
 
+    normal_expel_round_inputs = all_options.get("NormalExpelRestartCount", {}).get(
+        "inputs", []
+    )
+    if (
+        not normal_expel_round_inputs
+        or normal_expel_round_inputs[0].get("default") != "1"
+    ):
+        raise SystemExit("NormalExpelRestartCount must default to one completed dungeon")
+    if normal_expel_round_inputs[0].get("verify") != r"^[1-9]\d{0,3}$":
+        raise SystemExit("NormalExpelRestartCount must accept values from 1 through 9999")
+
     cipher_mode = all_options.get("CipherMode", {})
     cipher_expel_mode = option_case(cipher_mode, "Expel")
     if "CipherExpelRestartCount" not in cipher_expel_mode.get("option", []):

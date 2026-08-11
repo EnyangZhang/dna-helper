@@ -366,14 +366,14 @@
         "NormalExpelRestartCount": {
             "type": "input",
             "label": "副本轮次",
-            "description": "设置普通驱离总共完成多少轮副本。填写 1 时完成当前副本后结束；填写 2 时点击一次“再次进行”和“开始挑战”，再完成一轮后结束。",
+            "description": "设置普通驱离总共完成多少轮副本，范围 1–9999。填写 1 时完成当前副本后结束；填写 2 时点击一次“再次进行”和“开始挑战”，再完成一轮后结束。",
             "inputs": [
                 {
                     "name": "count",
                     "label": "轮次",
                     "default": "1",
                     "pipeline_type": "int",
-                    "verify": "^[1-9]\\d{0,2}$"
+                    "verify": "^[1-9]\\d{0,3}$"
                 }
             ],
             "pipeline_override": {
