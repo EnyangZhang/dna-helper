@@ -252,6 +252,11 @@ def main() -> None:
             )
         if not all(item.get("enabled") is True for item in preset.get("task", [])):
             raise SystemExit(f"{preset_name} tasks must all be enabled")
+        monitor_preset = preset.get("task", [])[0]
+        if "option" in monitor_preset:
+            raise SystemExit(
+                f"{preset_name}: ProgressMonitor run mode must be auto-detected"
+            )
 
     pipeline_nodes: dict[str, dict] = {}
     pipeline_owners: dict[str, str] = {}
@@ -285,6 +290,19 @@ def main() -> None:
     )
     if monitor_action.get("custom_action") != "progress_monitor_start":
         raise SystemExit("ProgressMonitorEntry must call progress_monitor_start")
+
+    if "ProgressMonitorRunMode" in all_options:
+        raise SystemExit("ProgressMonitor run mode must not require a UI option")
+    monitor_log = pipeline_nodes.get("ProgressMonitorLog", {})
+    if monitor_log.get("next") != ["ProgressMonitorKeepAlive"]:
+        raise SystemExit(
+            "ProgressMonitorLog must keep standalone monitoring active by default"
+        )
+    keep_alive = pipeline_nodes.get("ProgressMonitorKeepAlive", {})
+    if keep_alive.get("next") != ["ProgressMonitorKeepAlive"]:
+        raise SystemExit("ProgressMonitorKeepAlive must remain active until UI stop")
+    if int(keep_alive.get("post_delay", 0)) < 1000:
+        raise SystemExit("ProgressMonitorKeepAlive must not busy-loop")
 
     missing_dynamic_targets = DYNAMIC_PIPELINE_TARGETS - set(pipeline_nodes)
     if missing_dynamic_targets:

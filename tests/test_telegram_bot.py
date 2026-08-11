@@ -46,6 +46,43 @@ class TelegramBotTest(unittest.TestCase):
         self.assertFalse(telegram_bot.notify_task_started("密函无尽"))
         put.assert_not_called()
 
+    @patch.object(telegram_bot._outbound, "put")
+    def test_standalone_monitor_start_notification_is_queued(self, put) -> None:
+        telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
+        self.assertTrue(telegram_bot.notify_monitor_started())
+        put.assert_called_once_with("DNA Helper 监控已开启\n无任务")
+
+    def test_stop_reports_only_an_active_monitor(self) -> None:
+        self.assertFalse(telegram_bot.stop())
+        telegram_bot._stop_event.clear()
+        telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
+        self.assertTrue(telegram_bot.stop())
+        self.assertFalse(telegram_bot.stop())
+
+    @patch.object(telegram_bot._outbound, "put")
+    @patch("telegram_bot.progress_state.format_status", return_value="当前状态")
+    def test_auto_status_is_queued_every_thirty_minutes(
+        self, format_status, put
+    ) -> None:
+        class StopAfterSecondWait:
+            def __init__(self) -> None:
+                self.wait_count = 0
+
+            def wait(self, seconds: int) -> bool:
+                self.wait_count += 1
+                self.assert_interval = seconds
+                return self.wait_count >= 2
+
+        stop_event = StopAfterSecondWait()
+        telegram_bot._auto_status_loop(stop_event)
+
+        self.assertEqual(
+            stop_event.assert_interval, telegram_bot._AUTO_STATUS_INTERVAL_SECONDS
+        )
+        self.assertEqual(telegram_bot._AUTO_STATUS_INTERVAL_SECONDS, 1800)
+        format_status.assert_called_once_with()
+        put.assert_called_once_with("当前状态")
+
 
 if __name__ == "__main__":
     unittest.main()

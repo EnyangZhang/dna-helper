@@ -18,10 +18,13 @@ import progress_state
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "telegram.json"
 _stop_event = threading.Event()
+_lifecycle_lock = threading.Lock()
 _thread: threading.Thread | None = None
 _sender_thread: threading.Thread | None = None
+_auto_status_thread: threading.Thread | None = None
 _config: dict[str, Any] | None = None
 _outbound: queue.Queue[str] = queue.Queue()
+_AUTO_STATUS_INTERVAL_SECONDS = 30 * 60
 _TASK_LABELS = {
     "密函无尽": ("密函无尽加速", "无尽"),
     "密函驱离": ("密函无尽加速", "驱离"),
@@ -33,33 +36,65 @@ _TASK_LABELS = {
 
 def start() -> bool:
     """Start the bot if a valid local configuration is available."""
-    global _config, _sender_thread, _thread
+    global _auto_status_thread, _config, _sender_thread, _stop_event, _thread
     config = _load_config()
     if not config:
         return False
-    if _thread and _thread.is_alive():
-        return True
-    _stop_event.clear()
-    _config = config
-    _thread = threading.Thread(
-        target=_poll_loop,
-        args=(config,),
-        name="dna-telegram-status",
-        daemon=True,
-    )
-    _sender_thread = threading.Thread(
-        target=_send_loop,
-        args=(config,),
-        name="dna-telegram-sender",
-        daemon=True,
-    )
-    _thread.start()
-    _sender_thread.start()
+    with _lifecycle_lock:
+        if _thread and _thread.is_alive() and not _stop_event.is_set():
+            return True
+        run_stop_event = threading.Event()
+        _stop_event = run_stop_event
+        _config = config
+        _thread = threading.Thread(
+            target=_poll_loop,
+            args=(config, run_stop_event),
+            name="dna-telegram-status",
+            daemon=True,
+        )
+        _sender_thread = threading.Thread(
+            target=_send_loop,
+            args=(config, run_stop_event),
+            name="dna-telegram-sender",
+            daemon=True,
+        )
+        _auto_status_thread = threading.Thread(
+            target=_auto_status_loop,
+            args=(run_stop_event,),
+            name="dna-telegram-auto-status",
+            daemon=True,
+        )
+        _thread.start()
+        _sender_thread.start()
+        _auto_status_thread.start()
     return True
 
 
-def stop() -> None:
-    _stop_event.set()
+def stop() -> bool:
+    """Stop the active bot and report whether a running instance was stopped."""
+
+    global _config
+    with _lifecycle_lock:
+        was_running = _config is not None and not _stop_event.is_set()
+        _stop_event.set()
+        _config = None
+        while True:
+            try:
+                _outbound.get_nowait()
+            except queue.Empty:
+                break
+            else:
+                _outbound.task_done()
+    return was_running
+
+
+def notify_monitor_started() -> bool:
+    """Queue the standalone-monitor start notification."""
+
+    if _config is None or _stop_event.is_set():
+        return False
+    _outbound.put("DNA Helper 监控已开启\n无任务")
+    return True
 
 
 def notify_task_started(mode: str) -> bool:
@@ -99,14 +134,14 @@ def _load_config() -> dict[str, Any] | None:
     }
 
 
-def _poll_loop(config: dict[str, Any]) -> None:
+def _poll_loop(config: dict[str, Any], stop_event: threading.Event) -> None:
     token = config["bot_token"]
     allowed_chat_id = config["allowed_chat_id"]
     poll_timeout = config["poll_timeout_seconds"]
     offset: int | None = None
     failure_delay = 1
 
-    while not _stop_event.is_set():
+    while not stop_event.is_set():
         params: dict[str, Any] = {
             "timeout": poll_timeout,
             "allowed_updates": json.dumps(["message"]),
@@ -115,8 +150,12 @@ def _poll_loop(config: dict[str, Any]) -> None:
             params["offset"] = offset
         try:
             response = _api_call(token, "getUpdates", params, poll_timeout + 5)
+            if stop_event.is_set():
+                break
             failure_delay = 1
             for update in response.get("result", []):
+                if stop_event.is_set():
+                    break
                 if not isinstance(update, dict):
                     continue
                 update_id = update.get("update_id")
@@ -124,29 +163,35 @@ def _poll_loop(config: dict[str, Any]) -> None:
                 if isinstance(update_id, int):
                     offset = update_id + 1
         except (OSError, ValueError, urllib.error.URLError):
-            _stop_event.wait(failure_delay)
+            stop_event.wait(failure_delay)
             failure_delay = min(30, failure_delay * 2)
 
 
-def _send_loop(config: dict[str, Any]) -> None:
+def _send_loop(config: dict[str, Any], stop_event: threading.Event) -> None:
     token = config["bot_token"]
     chat_id = config["allowed_chat_id"]
-    while not _stop_event.is_set():
+    while not stop_event.is_set():
         try:
             message = _outbound.get(timeout=0.5)
         except queue.Empty:
             continue
         try:
             delay = 1
-            while not _stop_event.is_set():
+            while not stop_event.is_set():
                 try:
                     _send_message(token, chat_id, message)
                     break
                 except (OSError, ValueError, urllib.error.URLError):
-                    _stop_event.wait(delay)
+                    stop_event.wait(delay)
                     delay = min(30, delay * 2)
         finally:
             _outbound.task_done()
+
+
+def _auto_status_loop(stop_event: threading.Event) -> None:
+    """Queue the current status every 30 minutes without blocking game work."""
+    while not stop_event.wait(_AUTO_STATUS_INTERVAL_SECONDS):
+        _outbound.put(progress_state.format_status())
 
 
 def _handle_update(token: str, allowed_chat_id: int, update: dict[str, Any]) -> None:

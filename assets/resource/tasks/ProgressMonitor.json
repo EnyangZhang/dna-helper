@@ -3,7 +3,7 @@
         {
             "name": "ProgressMonitor",
             "label": "进度监控",
-            "description": "一次性启动 Telegram 进度监听，然后立即结束并继续执行后续挂机任务；未配置 Telegram 时只记录提示，不阻塞任务队列。",
+            "description": "单独运行时持续监控并可用 UI 的结束任务按钮停止；排在游戏任务前时会自动让后续任务继续执行。",
             "entry": "ProgressMonitorEntry",
             "group": [
                 "Monitor"

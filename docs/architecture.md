@@ -31,7 +31,7 @@ DNA Helper 由四层组成：
 
 ## 用户任务和预设
 
-当前有三个用户任务：两个游戏任务位于“日常挂机”分组，一个一次性监听启动任务位于“监控”分组：
+当前有三个用户任务：两个游戏任务位于“日常挂机”分组，一个可独立保活或自动让行的监听启动任务位于“监控”分组：
 
 | 任务 | 模式 | 轮次 | 技能 | 高台判断 |
 |---|---|---:|---:|---:|
@@ -47,7 +47,7 @@ DNA Helper 由四层组成：
 - `CipherAFK` / “密函挂机”：先加入 `ProgressMonitor`，再加入 `CipherEndlessBoost`。
 - `NormalAFK` / “普通挂机”：先加入 `ProgressMonitor`，再加入 `NormalEndlessBoost`。
 
-`ProgressMonitor` 必须排在对应游戏任务之前；它启动监听后立即结束，因此不会阻塞后续长期任务。预设仍不得同时启用两个游戏任务，否则排在第一位的长期任务不会自然结束。预设定义在 `resource/tasks/preset/AFK.json`，不得通过修改用户生成的 `config/` 实现。
+`ProgressMonitor` 在预设中必须排在对应游戏任务之前。MXU 会先把每项 `Calling post_task: entry=...` 与返回的 `task_id` 写入当前 `debug/mxu-tauri.log`；Agent 用自身 `task_id` 定位本轮监控提交记录，并在最多 500ms 的只读重试窗口内检查其后的已提交入口。若存在 `RewardConfirmEntry` 或 `NormalEndlessEntry`，它把 `ProgressMonitorLog.next` 动态覆盖为空；否则保留基础 Pipeline 的保活路径。该判断不调用 `MaaTaskerGetTaskDetail`、不访问不存在的 Maa 任务 ID、不依赖任务选项，因此已保存的旧预设无需迁移。预设仍不得同时启用两个游戏任务，否则排在第一位的长期任务不会自然结束。预设定义在 `resource/tasks/preset/AFK.json`，不得通过修改用户生成的 `config/` 实现。
 
 用户可见的新能力必须：
 
@@ -63,7 +63,7 @@ assets/resource/base/pipeline/
   RewardConfirm.json          # 密函无尽、密函驱离结算
   NormalEndlessBoost.json     # 普通扼守、无尽、驱离和轮次重开
   CharacterControl.json       # HUD、高台判断、E/Q 与输入代理
-  ProgressMonitor.json        # 一次性启动 Telegram 监听
+  ProgressMonitor.json        # 启动 Telegram 监听并按队列自动保活/让行
 
 assets/resource/tasks/
   CipherEndlessBoost.json     # 密函模式和技能开关覆盖
@@ -77,17 +77,25 @@ assets/resource/tasks/
 
 ## 进度监控启动任务
 
-UI 的“监控”分组提供正式任务“进度监控”。两个内置预设都把它作为第一个启用任务，后面才是对应的密函或普通长期任务：
+UI 的“监控”分组提供正式任务“进度监控”，它会自动选择两种运行方式：
+
+- 独立运行：`ProgressMonitorLog` 转入自循环的 `ProgressMonitorKeepAlive`，任务保持运行，直到 UI 停止。
+- 队列引导：Agent 从 MXU 的当前提交日志确认后续 `RewardConfirmEntry` 或 `NormalEndlessEntry`，把 `ProgressMonitorLog.next` 覆盖为空并完成当前任务。
+
+两个内置预设都把它作为第一个启用任务，后面才是对应的密函或普通长期任务：
 
 ```text
 ProgressMonitorEntry
 → Agent 自定义动作 progress_monitor_start
-→ 启动 Telegram 长轮询与发送线程（已启动时保持幂等）
+→ 启动 Telegram 长轮询、发送与 30 分钟定时状态线程（已启动时保持幂等）
 → ProgressMonitorLog
-→ 当前一次性任务结束，继续预设中的游戏任务
+→ 检测到后续游戏任务：当前任务结束，继续预设中的游戏任务
+→ 未检测到后续游戏任务：进入 ProgressMonitorKeepAlive，等待 UI 停止
 ```
 
-`agent/main.py` 只注册 Agent 动作，不在 UI 启动时自动开启 Telegram；监听生命周期由“进度监控”任务显式启动。缺少有效本机配置或启动异常时，该任务记录“已跳过”并成功结束，不得阻塞后续游戏任务。Token 和 Chat ID 只从环境变量或 Git 忽略的 `config/telegram.json` 读取。
+独立运行且监听成功启动时，Agent 把 `DNA Helper 监控已开启\n无任务` 放入非阻塞发送队列。队列引导模式不发送该消息，避免在紧接着的正式游戏任务启动通知前误报“无任务”。
+
+`agent/main.py` 只注册 Agent 动作，不在 UI 启动时自动开启 Telegram；监听生命周期由“进度监控”任务显式启动。缺少有效本机配置或启动异常时，该任务记录“已跳过”；队列引导仍成功结束且不得阻塞后续游戏任务，独立运行则保留 UI 停止能力。Token 和 Chat ID 只从环境变量或 Git 忽略的 `config/telegram.json` 读取。
 
 ## 局内 / 局外状态边界
 
@@ -328,7 +336,9 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
 
 `focus_guard_start` 从任务和轮次选项接收 `progress_mode`、`progress_total`、`progress_stage_total`。密函无尽循环会重复进入任务入口，因此使用 Maa `task_id` 去重初始化和启动通知。
 
-`telegram_bot.py` 仅在 `ProgressMonitorStart` 被执行且存在有效 `config/telegram.json` 或对应环境变量时启动。打开或重启 UI 本身不会启动监听。接收轮询和主动发送使用独立守护线程；网络失败采用退避重试，不得阻塞 Pipeline 输入。只响应 `allowed_chat_id`，Token 与状态文件都位于已被 Git 忽略的 `config/`。
+`telegram_bot.py` 仅在 `ProgressMonitorStart` 被执行且存在有效 `config/telegram.json` 或对应环境变量时启动。打开或重启 UI 本身不会启动监听。接收轮询、消息发送和定时调度使用三个独立守护线程；定时线程第一次等待 1800 秒后把 `progress_state.format_status()` 的结果放入现有发送队列，之后每 1800 秒重复。它不直接调用网络接口也不修改进度。网络失败采用退避重试，不得阻塞 Pipeline 输入。只响应 `allowed_chat_id`，Token 与状态文件都位于已被 Git 忽略的 `config/`。
+
+`ProgressMonitorLifecycle` 通过 MaaFramework 的 `TaskerEventSink` 接收 UI 任务生命周期。独立运行时，`ProgressMonitorEntry` 收到 `Tasker.Task.Failed` 表示用户从 UI 停止任务，此时关闭监控；队列引导正常完成产生的 `Succeeded` 必须忽略，否则后续游戏任务无法使用监听。`RewardConfirmEntry` 或 `NormalEndlessEntry` 收到 `Tasker.Task.Succeeded`（自然完成）或 `Tasker.Task.Failed`（包括 UI 停止）后同样调用 `telegram_bot.stop()`：只有该调用确实从运行态切到停止态时才打印“监听已停止”，因此未选择监控时结束游戏任务不会产生误导日志。当前运行实例的停止事件立即唤醒可中断等待并清空未发送队列；已经进入系统网络调用的请求允许在自身超时内返回，但停止后不再处理其结果。每次重新开始时创建新的停止事件和线程，避免快速停止后重启复用旧线程。
 
 ## 坐标与识别约束
 

@@ -4,7 +4,7 @@ DNA Helper 是基于 [MaaFramework](https://github.com/MaaXYZ/MaaFramework) 和 
 
 - 密函无尽加速：无尽、驱离。
 - 普通无尽加速：扼守、无尽、驱离。
-- 进度监控：一次性启动 Telegram 监听，不执行游戏操作。
+- 进度监控：可独立持续运行并由 UI 手动停止；排在游戏任务前时自动作为一次性 Telegram 启动器。
 
 任务通过图像识别确认当前页面，再执行鼠标或键盘输入。所有模板、ROI 和固定坐标均按 `1280×720` 基准画面制作。
 
@@ -100,7 +100,7 @@ python -m unittest discover -s tests -v
 正常结果应包含类似：
 
 ```text
-OK: 1 controller(s), 2 group(s), 3 task(s), 2 preset(s), 112 reachable pipeline node(s), 9 template(s)
+OK: 1 controller(s), 2 group(s), 3 task(s), 2 preset(s), 113 reachable pipeline node(s), 9 template(s)
 ```
 
 ### 第 5 步：首次编译定制 MXU
@@ -189,7 +189,7 @@ dist\DNAHelper\DNAHelper.exe
 9. 让游戏停在对应副本或可识别页面，然后点击“开始任务”，也可以按 `F10`。
 10. 需要停止时点击“停止任务”或按 `F11`。
 
-两个标签页彼此独立，避免把两个长期任务排进同一队列后由第一个任务永久阻塞第二个。“进度监控”启动监听后会立即结束，不会阻塞后面的挂机任务。也可以从“添加任务 → 监控”手动添加它，但必须放在游戏任务之前。
+两个标签页彼此独立，避免把两个长期游戏任务排进同一队列后由第一个任务永久阻塞第二个。“进度监控”会读取 MXU 已完成的本轮任务提交记录；确认后面还有游戏任务时自动作为一次性启动器，因此启动监听后立即让位给游戏任务。
 
 控制器使用真实前台鼠标键盘输入。每组点击或按键结束后 Agent 会尝试切回原窗口，但 Windows 可能拒绝恢复；运行时不要依赖焦点一定能够成功切回。
 
@@ -402,7 +402,7 @@ python tools\inspect_windows.py
 
 ## 手机查询当前进度
 
-“进度监控”任务负责启动 Telegram Bot。两个内置预设都把它放在游戏任务之前并默认启用；它启动后台监听后立即结束，队列随后继续执行挂机任务。仅仅打开 UI 不会启动监听。每次新游戏任务启动时，Bot 自动发送一次正式任务名和模式；之后不会定时推送。配置的手机账号发送 `/status` 或“进度”时，Bot 返回当前状态、运行时间和更新时间。
+“进度监控”任务负责启动 Telegram Bot。仅仅打开 UI 不会启动监听。单独运行时任务会持续保持运行，UI 的“结束任务”按钮和 `F11` 始终可用，并向手机发送“监控已开启 / 无任务”；停止后关闭 Telegram。若它后面排有受支持的游戏任务，Agent 会从 MXU 当前日志的已提交任务映射中确认队列并自动作为一次性启动器，启动后台监听后立即让位，不发送“无任务”，而由游戏任务发送正式任务名和模式。监控启动满 30 分钟后自动发送一次与 `/status` 相同的当前状态，此后每 30 分钟继续发送。配置的手机账号也可以随时发送 `/status` 或“进度”，立即查询当前状态、运行时间和更新时间。
 
 手机状态沿用上文的轮次定义：
 
@@ -412,7 +412,9 @@ python tools\inspect_windows.py
 
 局内“继续挑战”、密函完整结算循环等逻辑事件成功后只累计一次，不会按三次物理点击重复计数。局外副本轮次仍只由“再次进行”触发的原有轮次日志更新；Telegram 不建立第二套业务计数。密函无尽循环会再次经过任务入口，但初始化按同一个 Maa `task_id` 去重，同一任务只发送一次启动通知。
 
-Telegram 轮询和发送分别使用后台线程。断网、超时和重试不会阻塞游戏点击或技能操作；配置缺失、损坏或启动异常时，“进度监控”记录“已跳过”并成功结束，后续游戏任务仍会运行。
+Telegram 接收轮询、消息发送和 30 分钟定时调度分别使用后台线程；定时线程只读取共享状态并放入发送队列，不修改轮次。断网、超时和重试不会阻塞游戏点击或技能操作；配置缺失、损坏或启动异常时，“进度监控”记录“已跳过”，队列中的后续游戏任务仍会运行。
+
+监控受 UI 任务生命周期约束：独立监控被手动停止时立即关闭；执行内置预设时，游戏任务自然完成，或点击“停止任务”/按 `F11` 终止游戏任务后，也会停止 Telegram 轮询、发送和定时线程，并清除尚未发送的队列消息。只有实际运行的监听被关闭时才记录“监听已停止”；未选择监控时结束普通任务不会产生这条日志。若手动创建“监控＋游戏任务”的自定义队列，只需把监控放在最前；Agent 只读取 MXU 已写入的当前任务提交映射，不会查询不存在的 Maa 任务 ID。
 
 先在 Telegram 中通过 `@BotFather` 创建 Bot，并向新 Bot 发送 `/start`，然后在项目目录运行：
 
@@ -420,7 +422,7 @@ Telegram 轮询和发送分别使用后台线程。断网、超时和重试不�
 python tools\configure_telegram.py
 ```
 
-按提示粘贴 Bot Token。Token 输入时不会显示；如果桌面版已经构建，脚本写入 `dist/DNAHelper/config/telegram.json`，否则写入项目的 `config/telegram.json`。`config/` 已被 Git 忽略，不得提交或公开 Token。配置完成后启动包含“进度监控”的预设，或把该任务放在游戏任务前手动执行；仅重启 DNA Helper 不会启动监听。电脑必须保持联网并能访问 `api.telegram.org`。Bot 只响应配置中的 Chat ID，其他账号的消息会被忽略。
+按提示粘贴 Bot Token。Token 输入时不会显示；如果桌面版已经构建，脚本写入 `dist/DNAHelper/config/telegram.json`，否则写入项目的 `config/telegram.json`。`config/` 已被 Git 忽略，不得提交或公开 Token。配置完成后可以启动内置挂机预设，也可以单独运行“进度监控”；仅重启 DNA Helper 不会启动监听。电脑必须保持联网并能访问 `api.telegram.org`。Bot 只响应配置中的 Chat ID，其他账号的消息会被忽略。
 
 如需手动配置，可复制 `config.example/telegram.json`：源码运行时放到项目的 `config/telegram.json`，桌面版放到 `dist/DNAHelper/config/telegram.json`。
 
@@ -430,7 +432,7 @@ python tools\configure_telegram.py
 agent/
   main.py                       # AgentServer 入口
   focus_restore.py              # 输入代理与焦点恢复
-  progress_monitor.py           # “进度监控”一次性启动动作
+  progress_monitor.py           # “进度监控”自动识别独立/队列运行方式
   progress_state.py             # 线程安全的局内/局外进度状态
   round_logger.py               # 普通扼守、普通驱离、密函驱离的副本轮次日志和重开决策
   telegram_bot.py               # Telegram 按需查询后台服务
@@ -472,7 +474,7 @@ python -m unittest discover -s tests -v
 ## 当前已知限制
 
 - 桌面版尚未强制检查 `1280×720`。
-- 长期监控使用 `max_hit: 10000000`，并非数学意义上的无限。
+- 长期监控使用 `max_hit: 1000000000`，并非数学意义上的无限。
 - 正常的非高台和部分 HUD 等待仍通过错误分支表达，可能持续生成 `debug/on_error` 截图。
 - 构建过程不是事务式的。
 - 焦点恢复失败不会反馈为任务失败。
