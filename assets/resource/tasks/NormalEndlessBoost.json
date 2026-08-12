@@ -56,6 +56,8 @@
                         "NormalEndlessIdle": {
                             "next": [
                                 "NormalHoldInsideGate",
+                                "NormalEndlessContinueChallenge",
+                                "NormalEndlessConfirmChoice",
                                 "NormalEndlessAgainDetected",
                                 "NormalEndlessStartChallengeByClick",
                                 "NormalEndlessIdle"

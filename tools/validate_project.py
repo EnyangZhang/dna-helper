@@ -726,6 +726,8 @@ def main() -> None:
         {
             "next": [
                 "NormalHoldInsideGate",
+                "NormalEndlessContinueChallenge",
+                "NormalEndlessConfirmChoice",
                 "NormalEndlessAgainDetected",
                 "NormalEndlessStartChallengeByClick",
                 "NormalEndlessIdle",
@@ -1062,6 +1064,8 @@ def main() -> None:
     expected_boundary_waits = {
         "NormalEndlessIdle": [
             "NormalHoldInsideGate",
+            "NormalEndlessContinueChallenge",
+            "NormalEndlessConfirmChoice",
             "NormalEndlessAgainDetected",
             "NormalEndlessStartChallengeByClick",
             "NormalEndlessIdle",
@@ -1074,7 +1078,11 @@ def main() -> None:
         ],
         "NormalHoldPostSkillIdle": [
             "NormalHoldPostSkillInsideGate",
-            "NormalPostSkillOutsideMonitor",
+            "NormalHoldPostSkillContinueChallenge",
+            "NormalHoldPostSkillConfirmChoice",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalHoldPostSkillIdle",
         ],
         "NormalExpelPostSkillInsideIdle": [
             "NormalExpelPostSkillInsideGate",
@@ -1088,8 +1096,25 @@ def main() -> None:
     for node_name, expected_next in expected_boundary_waits.items():
         if pipeline_nodes.get(node_name, {}).get("next") != expected_next:
             raise SystemExit(
-                f"{node_name}: boundary wait must prefer the health bar and "
-                "then enter its outside-evidence monitor or idle fallback"
+                f"{node_name}: boundary wait must preserve the expected "
+                "health-bar, mode-local button, outside-evidence, and idle order"
+            )
+
+    hold_only_targets = {
+        "NormalEndlessContinueChallenge",
+        "NormalEndlessConfirmChoice",
+        "NormalHoldPostSkillContinueChallenge",
+        "NormalHoldPostSkillConfirmChoice",
+    }
+    for node_name in (
+        "NormalExpelInsideIdle",
+        "NormalExpelPostSkillInsideIdle",
+        "NormalPostSkillOutsideMonitor",
+    ):
+        leaked = hold_only_targets & set(pipeline_nodes[node_name].get("next", []))
+        if leaked:
+            raise SystemExit(
+                f"{node_name}: expel boundary must not use Hold-only buttons {sorted(leaked)}"
             )
 
     forbidden_outside_targets = {

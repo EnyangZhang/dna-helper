@@ -565,6 +565,8 @@
         "max_hit": 10000000,
         "next": [
             "NormalHoldInsideGate",
+            "NormalEndlessContinueChallenge",
+            "NormalEndlessConfirmChoice",
             "NormalEndlessAgainDetected",
             "NormalEndlessStartChallengeByClick",
             "NormalEndlessIdle"
@@ -674,7 +676,11 @@
         "max_hit": 10000000,
         "next": [
             "NormalHoldPostSkillInsideGate",
-            "NormalPostSkillOutsideMonitor"
+            "NormalHoldPostSkillContinueChallenge",
+            "NormalHoldPostSkillConfirmChoice",
+            "NormalEndlessAgainDetected",
+            "NormalEndlessStartChallengeByClick",
+            "NormalHoldPostSkillIdle"
         ]
     },
     "NormalHoldPostSkillInsideGate": {
