@@ -50,6 +50,24 @@ class ProgressStateTest(unittest.TestCase):
         message = progress_state.format_status()
         self.assertIn("局内轮次：1", message)
 
+    def test_normal_infinite_reports_99_only_once(self) -> None:
+        progress_state.start_task("普通无尽", 0, 0, task_id=101)
+        milestones = [progress_state.increment_stage() for _ in range(100)]
+
+        self.assertEqual([index + 1 for index, hit in enumerate(milestones) if hit], [99])
+        self.assertEqual(progress_state.snapshot()["stage_count"], 100)
+
+    def test_cipher_infinite_reports_99_only_once(self) -> None:
+        progress_state.start_task("密函无尽", 0, 0, task_id=102)
+        milestones = [progress_state.advance_cipher_cycle() for _ in range(100)]
+
+        self.assertEqual([index + 1 for index, hit in enumerate(milestones) if hit], [99])
+        self.assertEqual(progress_state.snapshot()["stage_count"], 100)
+
+    def test_finite_modes_do_not_report_infinite_99_milestone(self) -> None:
+        progress_state.start_task("普通扼守", 1, 99, task_id=103)
+        self.assertFalse(any(progress_state.increment_stage() for _ in range(100)))
+
     def test_cipher_expel_uses_finite_completed_round_count(self) -> None:
         progress_state.start_task("密函驱离", 4, 0, task_id=99)
         progress_state.complete_round(1, 4, "密函驱离")

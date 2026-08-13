@@ -70,12 +70,15 @@ def start() -> bool:
     return True
 
 
-def stop() -> bool:
-    """Stop the active bot and report whether a running instance was stopped."""
+def stop(final_message: str | None = None) -> bool:
+    """Stop the active bot and optionally send one final lifecycle message."""
 
     global _config
+    final_config: dict[str, Any] | None = None
     with _lifecycle_lock:
         was_running = _config is not None and not _stop_event.is_set()
+        if was_running and final_message and _config is not None:
+            final_config = dict(_config)
         _stop_event.set()
         _config = None
         while True:
@@ -85,6 +88,8 @@ def stop() -> bool:
                 break
             else:
                 _outbound.task_done()
+    if final_config is not None:
+        _send_final_message_async(final_config, final_message)
     return was_running
 
 
@@ -104,6 +109,47 @@ def notify_task_started(mode: str) -> bool:
     task_name, mode_name = _TASK_LABELS.get(mode, (mode, mode))
     _outbound.put(f"DNA Helper 任务已启动\n任务：{task_name}\n模式：{mode_name}")
     return True
+
+
+def notify_infinite_99_completed() -> bool:
+    """Queue the one-shot 99-cycle milestone for modes without an end node."""
+
+    if _config is None or _stop_event.is_set():
+        return False
+    mode = str(progress_state.snapshot().get("mode", ""))
+    if mode not in {"密函无尽", "普通无尽"}:
+        return False
+    task_name, mode_name = _TASK_LABELS[mode]
+    _outbound.put(
+        f"DNA Helper 局内 99 轮已完成\n任务：{task_name}\n模式：{mode_name}"
+    )
+    return True
+
+
+def format_task_completed_message() -> str:
+    """Build the natural-completion notification from the shared task state."""
+
+    mode = str(progress_state.snapshot().get("mode", "任务"))
+    task_name, mode_name = _TASK_LABELS.get(mode, (mode, mode))
+    return f"DNA Helper 任务已完成\n任务：{task_name}\n模式：{mode_name}"
+
+
+def _send_final_message_async(config: dict[str, Any], message: str) -> None:
+    """Send the completion notice independently from the stopped main queue."""
+
+    threading.Thread(
+        target=_send_final_message,
+        args=(config, message),
+        name="dna-telegram-final-message",
+        daemon=True,
+    ).start()
+
+
+def _send_final_message(config: dict[str, Any], message: str) -> None:
+    try:
+        _send_message(config["bot_token"], config["allowed_chat_id"], message)
+    except (KeyError, OSError, ValueError, urllib.error.URLError):
+        return
 
 
 def _load_config() -> dict[str, Any] | None:

@@ -65,7 +65,7 @@ def _has_queued_game_task_from_log(current_task_id: int) -> bool:
 
 @AgentServer.tasker_sink()
 class ProgressMonitorLifecycle(TaskerEventSink):
-    """Stop Telegram when the UI-run game task finishes or is stopped."""
+    """Report natural completion, then stop Telegram with the UI task."""
 
     def on_tasker_task(
         self,
@@ -86,7 +86,12 @@ class ProgressMonitorLifecycle(TaskerEventSink):
             return
         if noti_type not in {NotificationType.Succeeded, NotificationType.Failed}:
             return
-        if telegram_bot.stop():
+        final_message = (
+            telegram_bot.format_task_completed_message()
+            if noti_type == NotificationType.Succeeded
+            else None
+        )
+        if telegram_bot.stop(final_message=final_message):
             print("[进度监控] UI 任务已结束，Telegram 监听已停止", flush=True)
 
 

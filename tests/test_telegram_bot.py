@@ -47,6 +47,36 @@ class TelegramBotTest(unittest.TestCase):
         put.assert_not_called()
 
     @patch.object(telegram_bot._outbound, "put")
+    @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "密函无尽"})
+    def test_infinite_99_completion_is_queued(self, snapshot, put) -> None:
+        telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
+
+        self.assertTrue(telegram_bot.notify_infinite_99_completed())
+
+        snapshot.assert_called_once_with()
+        put.assert_called_once_with(
+            "DNA Helper 局内 99 轮已完成\n任务：密函无尽加速\n模式：无尽"
+        )
+
+    @patch.object(telegram_bot._outbound, "put")
+    @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "普通扼守"})
+    def test_finite_mode_does_not_send_infinite_milestone(self, snapshot, put) -> None:
+        telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
+
+        self.assertFalse(telegram_bot.notify_infinite_99_completed())
+
+        snapshot.assert_called_once_with()
+        put.assert_not_called()
+
+    @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "普通驱离"})
+    def test_task_completion_message_uses_current_mode(self, snapshot) -> None:
+        self.assertEqual(
+            telegram_bot.format_task_completed_message(),
+            "DNA Helper 任务已完成\n任务：普通无尽加速\n模式：驱离",
+        )
+        snapshot.assert_called_once_with()
+
+    @patch.object(telegram_bot._outbound, "put")
     def test_standalone_monitor_start_notification_is_queued(self, put) -> None:
         telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
         self.assertTrue(telegram_bot.notify_monitor_started())
@@ -58,6 +88,34 @@ class TelegramBotTest(unittest.TestCase):
         telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
         self.assertTrue(telegram_bot.stop())
         self.assertFalse(telegram_bot.stop())
+
+    @patch("telegram_bot._send_final_message_async")
+    def test_stop_sends_final_message_outside_cleared_queue(self, send_final) -> None:
+        telegram_bot._stop_event.clear()
+        telegram_bot._config = {
+            "bot_token": "token",
+            "allowed_chat_id": 123,
+            "poll_timeout_seconds": 25,
+        }
+
+        self.assertTrue(telegram_bot.stop(final_message="任务完成消息"))
+
+        send_final.assert_called_once_with(
+            {
+                "bot_token": "token",
+                "allowed_chat_id": 123,
+                "poll_timeout_seconds": 25,
+            },
+            "任务完成消息",
+        )
+
+    @patch("telegram_bot._send_message", side_effect=OSError("offline"))
+    def test_final_message_network_failure_is_non_blocking(self, send_message) -> None:
+        telegram_bot._send_final_message(
+            {"bot_token": "token", "allowed_chat_id": 123},
+            "任务完成消息",
+        )
+        send_message.assert_called_once_with("token", 123, "任务完成消息")
 
     @patch.object(telegram_bot._outbound, "put")
     @patch("telegram_bot.progress_state.format_status", return_value="当前状态")

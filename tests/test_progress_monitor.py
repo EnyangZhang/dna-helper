@@ -102,15 +102,22 @@ class ProgressMonitorTest(unittest.TestCase):
         progress_monitor.ProgressMonitorLifecycle().on_tasker_task(
             None, NotificationType.Failed, detail
         )
-        stop.assert_called_once_with()
+        stop.assert_called_once_with(final_message=None)
 
+    @patch(
+        "progress_monitor.telegram_bot.format_task_completed_message",
+        return_value="任务完成消息",
+    )
     @patch("progress_monitor.telegram_bot.stop")
-    def test_natural_game_completion_stops_monitor(self, stop) -> None:
+    def test_natural_game_completion_notifies_then_stops(
+        self, stop, format_completed
+    ) -> None:
         detail = SimpleNamespace(entry="RewardConfirmEntry")
         progress_monitor.ProgressMonitorLifecycle().on_tasker_task(
             None, NotificationType.Succeeded, detail
         )
-        stop.assert_called_once_with()
+        format_completed.assert_called_once_with()
+        stop.assert_called_once_with(final_message="任务完成消息")
 
     @patch("progress_monitor.telegram_bot.stop")
     def test_monitor_bootstrap_completion_does_not_stop_monitor(self, stop) -> None:
@@ -143,7 +150,7 @@ class ProgressMonitorTest(unittest.TestCase):
         progress_monitor.ProgressMonitorLifecycle().on_tasker_task(
             None, NotificationType.Failed, detail
         )
-        stop.assert_called_once_with()
+        stop.assert_called_once_with(final_message=None)
         print_mock.assert_not_called()
 
 

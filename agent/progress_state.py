@@ -13,6 +13,7 @@ from typing import Any
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _STATUS_PATH = _PROJECT_ROOT / "config" / "progress_status.json"
+_INFINITE_COMPLETION_STAGE = 99
 _lock = threading.RLock()
 _state: dict[str, Any] = {
     "task_id": 0,
@@ -52,16 +53,20 @@ def start_task(
         return True
 
 
-def increment_stage() -> None:
-    """Record one logical in-dungeon cycle, not each physical click."""
+def increment_stage() -> bool:
+    """Record one logical cycle and report the infinite-mode 99 milestone."""
     with _lock:
         if _state["status"] not in {"running", "waiting_next_round"}:
-            return
+            return False
         stage_total = int(_state["stage_total"])
         next_count = int(_state["stage_count"]) + 1
         _state["stage_count"] = min(next_count, stage_total) if stage_total else next_count
         _state["updated_at"] = time.time()
         _persist_locked()
+        return (
+            _state["mode"] == "普通无尽"
+            and int(_state["stage_count"]) == _INFINITE_COMPLETION_STAGE
+        )
 
 
 def complete_round(current: int, total: int, mode: str | None = None) -> None:
@@ -82,18 +87,23 @@ def complete_round(current: int, total: int, mode: str | None = None) -> None:
         _persist_locked()
 
 
-def advance_cipher_cycle() -> None:
-    """Advance cipher endless progress or mark cipher expel as re-entered."""
+def advance_cipher_cycle() -> bool:
+    """Advance cipher progress and report its infinite-mode 99 milestone."""
     with _lock:
         if _state["mode"] == "密函无尽" and _state["status"] == "running":
             _state["stage_count"] = int(_state["stage_count"]) + 1
+            milestone_reached = (
+                int(_state["stage_count"]) == _INFINITE_COMPLETION_STAGE
+            )
         elif _state["mode"] == "密函驱离" and _state["status"] == "waiting_next_round":
             _state["status"] = "running"
             _state["stage_count"] = 0
+            milestone_reached = False
         else:
-            return
+            return False
         _state["updated_at"] = time.time()
         _persist_locked()
+        return milestone_reached
 
 
 def start_next_round() -> None:

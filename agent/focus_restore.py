@@ -48,14 +48,26 @@ _user32.AttachThreadInput.argtypes = [
 _user32.AttachThreadInput.restype = wintypes.BOOL
 _user32.ClipCursor.argtypes = [ctypes.POINTER(wintypes.RECT)]
 _user32.ClipCursor.restype = wintypes.BOOL
+
+
+class _POINT(ctypes.Structure):
+    _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+
+_user32.GetCursorPos.argtypes = [ctypes.POINTER(_POINT)]
+_user32.GetCursorPos.restype = wintypes.BOOL
+_user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+_user32.SetCursorPos.restype = wintypes.BOOL
 _kernel32.GetCurrentThreadId.argtypes = []
 _kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
 _SW_RESTORE = 9
 _state_lock = threading.Lock()
 _fallback_hwnd = 0
+_fallback_cursor_position: tuple[int, int] | None = None
 _game_hwnd = 0
 _watcher_started = False
+_restore_in_progress = False
 _e_sequence_lock = threading.Lock()
 _e_sequence_progress: dict[tuple[int, str], int] = {}
 
@@ -90,12 +102,31 @@ def _is_restore_target(hwnd: int, game_hwnd: int) -> bool:
     )
 
 
-def _remember_window(hwnd: int, game_hwnd: int) -> int:
-    global _fallback_hwnd
+def _cursor_position() -> tuple[int, int] | None:
+    point = _POINT()
+    if not _user32.GetCursorPos(ctypes.byref(point)):
+        return None
+    return int(point.x), int(point.y)
+
+
+def _remember_restore_target(
+    hwnd: int, game_hwnd: int
+) -> tuple[int, tuple[int, int] | None]:
+    global _fallback_cursor_position, _fallback_hwnd
     with _state_lock:
-        if _is_restore_target(hwnd, game_hwnd):
+        if not _restore_in_progress and _is_restore_target(hwnd, game_hwnd):
+            position = _cursor_position()
+            if hwnd != _fallback_hwnd or position is not None:
+                _fallback_cursor_position = position
             _fallback_hwnd = hwnd
-        return _fallback_hwnd if _is_restore_target(_fallback_hwnd, game_hwnd) else 0
+        if not _is_restore_target(_fallback_hwnd, game_hwnd):
+            return 0, None
+        return _fallback_hwnd, _fallback_cursor_position
+
+
+def _remember_window(hwnd: int, game_hwnd: int) -> int:
+    restore_hwnd, _ = _remember_restore_target(hwnd, game_hwnd)
+    return restore_hwnd
 
 
 def _watch_foreground_window() -> None:
@@ -124,6 +155,16 @@ def _release_cursor_clip() -> None:
     _user32.ClipCursor(None)
 
 
+def _restore_cursor(position: tuple[int, int]) -> bool:
+    return bool(_user32.SetCursorPos(position[0], position[1]))
+
+
+def _set_restore_in_progress(value: bool) -> None:
+    global _restore_in_progress
+    with _state_lock:
+        _restore_in_progress = value
+
+
 def _restore_window(hwnd: int) -> bool:
     if not _is_restore_target(hwnd, 0):
         return False
@@ -150,6 +191,19 @@ def _restore_window(hwnd: int) -> bool:
     finally:
         for thread_id in reversed(thread_ids):
             _user32.AttachThreadInput(current_thread, thread_id, False)
+
+
+def _restore_window_and_cursor(
+    hwnd: int, cursor_position: tuple[int, int] | None
+) -> bool:
+    _set_restore_in_progress(True)
+    try:
+        _release_cursor_clip()
+        if not hwnd or not _restore_window(hwnd):
+            return False
+        return cursor_position is None or _restore_cursor(cursor_position)
+    finally:
+        _set_restore_in_progress(False)
 
 
 def _parse_params(raw: object) -> dict:
@@ -240,7 +294,9 @@ class FocusGuardAction(CustomAction):
             )
 
         game_hwnd = _controller_hwnd(context)
-        restore_hwnd = _remember_window(_foreground_window(), game_hwnd)
+        restore_hwnd, restore_cursor_position = _remember_restore_target(
+            _foreground_window(), game_hwnd
+        )
         succeeded = True
 
         try:
@@ -270,17 +326,18 @@ class FocusGuardAction(CustomAction):
                 time.sleep(restore_delay_ms / 1000)
         finally:
             if should_restore:
-                _release_cursor_clip()
-                if restore_hwnd:
-                    _restore_window(restore_hwnd)
+                _restore_window_and_cursor(restore_hwnd, restore_cursor_position)
 
         if succeeded:
             progress_event = params.get("progress_event")
+            infinite_99_completed = False
             if progress_event == "continue_challenge":
-                progress_state.increment_stage()
+                infinite_99_completed = progress_state.increment_stage()
             elif progress_event == "next_round_started":
                 progress_state.start_next_round()
             elif progress_event == "cipher_cycle_completed":
-                progress_state.advance_cipher_cycle()
+                infinite_99_completed = progress_state.advance_cipher_cycle()
+            if infinite_99_completed:
+                telegram_bot.notify_infinite_99_completed()
 
         return CustomAction.RunResult(success=succeeded)
