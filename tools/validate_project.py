@@ -770,7 +770,7 @@ def main() -> None:
         "NormalMode",
         hold_mode,
         "NormalEndlessContinueChallengeClick3",
-        {"next": ["NormalHoldContinueCooldown"]},
+        {"next": ["NormalContinueTransition"]},
     )
     require_override(
         "NormalMode",
@@ -836,7 +836,13 @@ def main() -> None:
         "NormalMode",
         infinite_mode,
         "NormalEndlessContinueChallenge",
-        {"next": ["NormalInfiniteContinueCooldown"]},
+        {"next": ["NormalContinueTransition"]},
+    )
+    require_override(
+        "NormalMode",
+        infinite_mode,
+        "NormalContinueTransition",
+        {"next": ["NormalEndlessConfirmChoice", "NormalEndlessMonitor"]},
     )
 
     expel_mode = option_case(normal_mode, "Expel")
@@ -1004,7 +1010,7 @@ def main() -> None:
             )
 
     expected_post_skill_returns = {
-        "NormalHoldPostSkillContinueChallenge": "NormalHoldPostSkillContinueCooldown",
+        "NormalHoldPostSkillContinueChallenge": "NormalHoldPostSkillContinueTransition",
         "NormalHoldPostSkillConfirmChoice": "NormalHoldPostSkillIdle",
     }
     for node_name, target in expected_post_skill_returns.items():
@@ -1040,21 +1046,26 @@ def main() -> None:
                 f"{node_name}: unexpected post-skill click parameters"
             )
 
-    expected_continue_cooldowns = {
-        "NormalInfiniteContinueCooldown": "NormalEndlessMonitor",
-        "NormalHoldContinueCooldown": "NormalEndlessIdle",
-        "NormalHoldPostSkillContinueCooldown": "NormalHoldPostSkillIdle",
+    expected_continue_transitions = {
+        "NormalContinueTransition": [
+            "NormalEndlessConfirmChoice",
+            "NormalEndlessIdle",
+        ],
+        "NormalHoldPostSkillContinueTransition": [
+            "NormalHoldPostSkillConfirmChoice",
+            "NormalHoldPostSkillIdle",
+        ],
     }
-    for node_name, target in expected_continue_cooldowns.items():
+    for node_name, targets in expected_continue_transitions.items():
         node = pipeline_nodes.get(node_name, {})
         if node.get("recognition", {}).get("type") != "DirectHit":
-            raise SystemExit(f"{node_name}: continue cooldown must use DirectHit")
+            raise SystemExit(f"{node_name}: continue transition must use DirectHit")
         if node.get("action", {}).get("type") != "DoNothing":
-            raise SystemExit(f"{node_name}: continue cooldown must not send input")
-        if int(node.get("post_delay", 0)) < 1500:
-            raise SystemExit(f"{node_name}: continue cooldown is too short")
-        if node.get("next") != [target]:
-            raise SystemExit(f"{node_name}: invalid continue cooldown return")
+            raise SystemExit(f"{node_name}: continue transition must not send input")
+        if int(node.get("post_delay", 0)) != 0:
+            raise SystemExit(f"{node_name}: continue transition must not block the next page")
+        if node.get("next") != targets:
+            raise SystemExit(f"{node_name}: invalid continue transition order")
 
     hold_skills = all_options.get("NormalHoldEnableSkills", {})
     hold_skills_yes = option_case(hold_skills, "Yes")
@@ -1078,8 +1089,8 @@ def main() -> None:
     require_override(
         "NormalHoldEnableSkills",
         hold_skills_yes,
-        "NormalHoldContinueCooldown",
-        {"next": ["NormalEndlessCombatEntry"]},
+        "NormalContinueTransition",
+        {"next": ["NormalEndlessConfirmChoice", "NormalEndlessCombatEntry"]},
     )
 
     expel_skills = all_options.get("NormalExpelEnableSkills", {})

@@ -223,7 +223,7 @@ NormalEndlessAgainDetected
 - `NormalOutsideMonitor` 只监控局外“再次进行”和“开始挑战”。
 - 血条门控只负责确认局内；血条缺失后的边界未知状态仍轮询“继续挑战 / 确认选择”，并只由局外专属按钮确认是否真的进入局外。
 - 技能开启时，局外到局内的三帧血条确认进入本副本唯一一次技能链。
-- “继续挑战”成功后先经过 `NormalHoldContinueCooldown`；技能已释放的路径使用 `NormalHoldPostSkillContinueCooldown`。两个节点都等待 1500ms 后才返回对应监控，避免按钮切换残影立即重新触发。
+- “继续挑战”成功后立即经过 `NormalContinueTransition`；技能已释放的路径使用 `NormalHoldPostSkillContinueTransition`。两者不设置固定延迟，而是优先识别下一页合法的“确认选择”，未命中才恢复对应局内监控。按钮残影的快速重试由 Agent 的 5 秒逻辑进度去重兜底。
 
 未达到轮次上限时依次点击“再次进行”和“开始挑战”。技能开启后，新一轮必须重新连续确认 HUD 才能进入技能延迟；技能结束后进入 `NormalHoldPostSkillInsideGate` / `NormalHoldPostSkillMonitor`。这组节点及其边界未知空闲节点都处理局内按钮；局外专属按钮命中后才进入重开链。血条恢复只回到 post-skill 节点，因此同一副本不会再次释放。完成重开后才重新允许释放。
 
@@ -235,7 +235,7 @@ NormalEndlessAgainDetected
 
 - 只识别“继续挑战”和“确认选择”。
 - 每次由 `focus_guard_action` 一次完成三连击。
-- 三连击后先经过 `NormalInfiniteContinueCooldown` 等待 1500ms，再恢复按钮监控。
+- 三连击后立即经过 `NormalContinueTransition`，优先检查“确认选择”后恢复按钮监控。
 - 不识别“再次进行”。
 - 不统计局外副本轮次，但持续累计局内逻辑轮次。
 - 不进入 HUD 或技能链。

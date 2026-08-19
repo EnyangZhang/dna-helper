@@ -45,7 +45,7 @@
                         },
                         "NormalEndlessContinueChallengeClick3": {
                             "next": [
-                                "NormalHoldContinueCooldown"
+                                "NormalContinueTransition"
                             ]
                         },
                         "NormalEndlessConfirmChoiceClick3": {
@@ -129,7 +129,13 @@
                                 }
                             },
                             "next": [
-                                "NormalInfiniteContinueCooldown"
+                                "NormalContinueTransition"
+                            ]
+                        },
+                        "NormalContinueTransition": {
+                            "next": [
+                                "NormalEndlessConfirmChoice",
+                                "NormalEndlessMonitor"
                             ]
                         },
                         "NormalEndlessConfirmChoice": {
@@ -254,8 +260,9 @@
                                 "LiseCombatLoadDelay"
                             ]
                         },
-                        "NormalHoldContinueCooldown": {
+                        "NormalContinueTransition": {
                             "next": [
+                                "NormalEndlessConfirmChoice",
                                 "NormalEndlessCombatEntry"
                             ]
                         },
