@@ -71,11 +71,11 @@ _kernel32.GetCurrentThreadId.argtypes = []
 _kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
 _SW_RESTORE = 9
+_SKILL_FOREGROUND_SETTLE_SECONDS = 0.1
 _WM_KEYDOWN = 0x0100
 _WM_KEYUP = 0x0101
 _MAPVK_VK_TO_VSC = 0
 _BACKGROUND_KEY_HOLD_SECONDS = 0.03
-_BACKGROUND_PRIME_SETTLE_SECONDS = 0.1
 _state_lock = threading.Lock()
 _fallback_hwnd = 0
 _fallback_cursor_position: tuple[int, int] | None = None
@@ -84,8 +84,8 @@ _watcher_started = False
 _restore_in_progress = False
 _e_sequence_lock = threading.Lock()
 _e_sequence_progress: dict[tuple[int, str], int] = {}
-_background_ready_lock = threading.Lock()
-_background_ready_hwnd = 0
+_hybrid_skill_lock = threading.Lock()
+_hybrid_skill_ready_hwnd = 0
 
 
 def _next_e_sequence_index(task_id: int, node_name: str, total: int) -> int:
@@ -149,10 +149,7 @@ def _watch_foreground_window() -> None:
     while True:
         with _state_lock:
             game_hwnd = _game_hwnd
-        foreground = _foreground_window()
-        if game_hwnd and foreground == game_hwnd:
-            _mark_background_window_ready(game_hwnd)
-        _remember_window(foreground, game_hwnd)
+        _remember_window(_foreground_window(), game_hwnd)
         time.sleep(0.1)
 
 
@@ -179,7 +176,7 @@ def _restore_cursor(position: tuple[int, int]) -> bool:
 
 
 def _send_background_key(hwnd: int, key: int) -> bool:
-    """Post one key press to the game without changing foreground focus."""
+    """Post one key press to the initialized game window without focusing it."""
     if not hwnd or not _user32.IsWindow(hwnd):
         return False
     scan_code = int(_user32.MapVirtualKeyW(key, _MAPVK_VK_TO_VSC))
@@ -191,66 +188,21 @@ def _send_background_key(hwnd: int, key: int) -> bool:
     return bool(_user32.PostMessageW(hwnd, _WM_KEYUP, key, up_lparam))
 
 
-def _mark_background_window_ready(hwnd: int) -> None:
-    global _background_ready_hwnd
-    with _background_ready_lock:
-        _background_ready_hwnd = int(hwnd)
+def _reset_hybrid_skill_ready() -> None:
+    global _hybrid_skill_ready_hwnd
+    with _hybrid_skill_lock:
+        _hybrid_skill_ready_hwnd = 0
 
 
-def _reset_background_window_ready() -> None:
-    global _background_ready_hwnd
-    with _background_ready_lock:
-        _background_ready_hwnd = 0
+def _mark_hybrid_skill_ready(hwnd: int) -> None:
+    global _hybrid_skill_ready_hwnd
+    with _hybrid_skill_lock:
+        _hybrid_skill_ready_hwnd = int(hwnd)
 
 
-def _is_background_window_ready(hwnd: int) -> bool:
-    with _background_ready_lock:
-        return bool(hwnd and _background_ready_hwnd == int(hwnd))
-
-
-def _ensure_background_window_ready(
-    game_hwnd: int,
-    restore_hwnd: int,
-    restore_cursor_position: tuple[int, int] | None,
-) -> bool:
-    """Activate the game once so Unreal starts consuming background messages."""
-    if _is_background_window_ready(game_hwnd):
-        return True
-    if not game_hwnd or not _user32.IsWindow(game_hwnd):
-        return False
-    if _foreground_window() == game_hwnd:
-        _mark_background_window_ready(game_hwnd)
-        return True
-    if not _restore_window(game_hwnd):
-        return False
-
-    time.sleep(_BACKGROUND_PRIME_SETTLE_SECONDS)
-    _mark_background_window_ready(game_hwnd)
-    if restore_hwnd:
-        _restore_window_and_cursor(restore_hwnd, restore_cursor_position)
-        time.sleep(_BACKGROUND_PRIME_SETTLE_SECONDS)
-    return True
-
-
-def _send_background_key_with_recovery(
-    game_hwnd: int,
-    key: int,
-    restore_hwnd: int,
-    restore_cursor_position: tuple[int, int] | None,
-) -> bool:
-    if not _ensure_background_window_ready(
-        game_hwnd, restore_hwnd, restore_cursor_position
-    ):
-        return False
-    if _send_background_key(game_hwnd, key):
-        return True
-
-    _reset_background_window_ready()
-    if not _ensure_background_window_ready(
-        game_hwnd, restore_hwnd, restore_cursor_position
-    ):
-        return False
-    return _send_background_key(game_hwnd, key)
+def _is_hybrid_skill_ready(hwnd: int) -> bool:
+    with _hybrid_skill_lock:
+        return bool(hwnd and _hybrid_skill_ready_hwnd == int(hwnd))
 
 
 def _set_restore_in_progress(value: bool) -> None:
@@ -300,6 +252,16 @@ def _restore_window_and_cursor(
         _set_restore_in_progress(False)
 
 
+def _activate_game_for_skill(game_hwnd: int) -> bool:
+    """Put the game in front before the first real E/Q input."""
+    if not game_hwnd or not _user32.IsWindow(game_hwnd):
+        return False
+    if _foreground_window() != game_hwnd and not _restore_window(game_hwnd):
+        return False
+    time.sleep(_SKILL_FOREGROUND_SETTLE_SECONDS)
+    return True
+
+
 def _parse_params(raw: object) -> dict:
     if isinstance(raw, dict):
         return raw
@@ -329,9 +291,7 @@ class FocusGuardStart(CustomAction):
             int(getattr(argv.task_detail, "task_id", 0)),
         )
         if task_started:
-            _reset_background_window_ready()
-            if _foreground_window() == game_hwnd:
-                _mark_background_window_ready(game_hwnd)
+            _reset_hybrid_skill_ready()
             telegram_bot.notify_task_started(progress_mode)
         return CustomAction.RunResult(success=True)
 
@@ -339,6 +299,7 @@ class FocusGuardStart(CustomAction):
 @AgentServer.custom_action("focus_guard_action")
 class FocusGuardAction(CustomAction):
     background_key_input = False
+    force_game_foreground = False
 
     def run(
         self, context: Context, argv: CustomAction.RunArg
@@ -350,7 +311,9 @@ class FocusGuardAction(CustomAction):
         restore_delay_ms = min(
             1000, max(0, int(params.get("restore_delay_ms", 100)))
         )
-        should_restore = bool(params.get("restore", True))
+        background_key_input = bool(self.background_key_input and kind == "key")
+        force_game_foreground = bool(self.force_game_foreground and kind == "key")
+        should_restore = bool(params.get("restore", True)) and not background_key_input
 
         if kind == "click":
             target = params.get("target", [])
@@ -383,7 +346,6 @@ class FocusGuardAction(CustomAction):
         else:
             return CustomAction.RunResult(success=False)
 
-        background_key_input = bool(self.background_key_input and kind == "key")
         e_sequence_index = 0
         e_sequence_total = 0
         if kind == "key" and key == 69:
@@ -397,6 +359,8 @@ class FocusGuardAction(CustomAction):
         restore_hwnd, restore_cursor_position = _remember_restore_target(
             _foreground_window(), game_hwnd
         )
+        if force_game_foreground and not _activate_game_for_skill(game_hwnd):
+            return CustomAction.RunResult(success=False)
         succeeded = True
 
         try:
@@ -424,12 +388,7 @@ class FocusGuardAction(CustomAction):
                     )
                     succeeded = succeeded and log_ready
                 if background_key_input:
-                    input_succeeded = _send_background_key_with_recovery(
-                        game_hwnd,
-                        key,
-                        restore_hwnd,
-                        restore_cursor_position,
-                    )
+                    input_succeeded = _send_background_key(game_hwnd, key)
                     succeeded = succeeded and input_succeeded
                     if input_succeeded and key == 69:
                         detail = context.run_action("FocusGuardEBackgroundLogProxy")
@@ -439,10 +398,10 @@ class FocusGuardAction(CustomAction):
                     succeeded = succeeded and detail is not None and detail.success
                 if index + 1 < repeat and interval_ms:
                     time.sleep(interval_ms / 1000)
-            if should_restore and not background_key_input and restore_delay_ms:
+            if should_restore and restore_delay_ms:
                 time.sleep(restore_delay_ms / 1000)
         finally:
-            if should_restore and not background_key_input:
+            if should_restore:
                 _restore_window_and_cursor(restore_hwnd, restore_cursor_position)
 
         if succeeded:
@@ -462,8 +421,33 @@ class FocusGuardAction(CustomAction):
         return CustomAction.RunResult(success=succeeded)
 
 
-@AgentServer.custom_action("background_skill_action")
-class BackgroundSkillAction(FocusGuardAction):
-    """Experimental E/Q input that never activates the game window."""
+class _ForegroundPrimingSkillAction(FocusGuardAction):
+    """Use one guaranteed foreground E/Q action and then restore focus."""
+
+    force_game_foreground = True
+
+
+class _BackgroundSkillAction(FocusGuardAction):
+    """Use background messages only after foreground priming succeeded."""
 
     background_key_input = True
+
+
+@AgentServer.custom_action("hybrid_skill_action")
+class HybridSkillAction(CustomAction):
+    """First E/Q is foreground with restore; later E/Q uses background input."""
+
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        game_hwnd = _controller_hwnd(context)
+        if _is_hybrid_skill_ready(game_hwnd):
+            background_result = _BackgroundSkillAction().run(context, argv)
+            if background_result.success:
+                return background_result
+            _reset_hybrid_skill_ready()
+
+        foreground_result = _ForegroundPrimingSkillAction().run(context, argv)
+        if foreground_result.success:
+            _mark_hybrid_skill_ready(game_hwnd)
+        return foreground_result

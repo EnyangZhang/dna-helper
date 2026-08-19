@@ -615,10 +615,10 @@ def main() -> None:
             .get("param", {})
             .get("custom_action")
         )
-        if custom_action != "background_skill_action":
+        if custom_action != "hybrid_skill_action":
             raise SystemExit(
                 f"BackgroundSkillInput/Yes must route {node_name} through "
-                "background_skill_action"
+                "hybrid_skill_action"
             )
 
     for e_name, interval_name, q_name, order_name, delay_name in SKILL_OPTION_BRANCHES:

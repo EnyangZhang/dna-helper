@@ -2,8 +2,8 @@
     "option": {
         "BackgroundSkillInput": {
             "type": "switch",
-            "label": "后台发送技能键（实验）",
-            "description": "开启后将角色 E、Q 作为后台窗口消息发送。每个新任务首次发送前，如果游戏尚未在本任务中获得过前台，程序会短暂激活游戏并恢复原窗口与鼠标，初始化 Unreal 输入状态；之后的技能键保持后台投递。Windows 接受消息仍不代表游戏一定消费，持续无效时请关闭此项恢复前台输入。鼠标按钮点击不受此项影响。",
+            "label": "首次前台触发，后续后台发送",
+            "description": "开启后，每个新任务第一次触发 E 或 Q 时会切换到游戏前台，使用真实按键发送该次技能，然后恢复原窗口和鼠标；首次成功后，同一任务后续 E、Q 改用后台窗口消息。若后台消息被 Windows 拒绝，本次自动回退到前台真实按键并再次恢复。其他按钮点击始终使用原有焦点恢复机制。",
             "default_case": "No",
             "cases": [
                 {
@@ -13,18 +13,18 @@
                         "LisePressE": {
                             "action": {
                                 "param": {
-                                    "custom_action": "background_skill_action"
+                                    "custom_action": "hybrid_skill_action"
                                 }
                             },
                             "focus": {
                                 "Node.Action.Starting": {
-                                    "content": "[角色] 准备后台发送 E 键（实验）",
+                                    "content": "[角色] 准备发送 E 键（首次前台，后续后台）",
                                     "display": [
                                         "log"
                                     ]
                                 },
                                 "Node.Action.Succeeded": {
-                                    "content": "[角色] E 后台窗口消息已投递",
+                                    "content": "[角色] E 输入已发送",
                                     "display": [
                                         "log"
                                     ]
@@ -34,18 +34,18 @@
                         "LisePressEAfterQ": {
                             "action": {
                                 "param": {
-                                    "custom_action": "background_skill_action"
+                                    "custom_action": "hybrid_skill_action"
                                 }
                             },
                             "focus": {
                                 "Node.Action.Starting": {
-                                    "content": "[角色] 准备后台发送 E 键（实验）",
+                                    "content": "[角色] 准备发送 E 键（首次前台，后续后台）",
                                     "display": [
                                         "log"
                                     ]
                                 },
                                 "Node.Action.Succeeded": {
-                                    "content": "[角色] E 后台窗口消息已投递",
+                                    "content": "[角色] E 输入已发送",
                                     "display": [
                                         "log"
                                     ]
@@ -55,18 +55,18 @@
                         "LisePressQ": {
                             "action": {
                                 "param": {
-                                    "custom_action": "background_skill_action"
+                                    "custom_action": "hybrid_skill_action"
                                 }
                             },
                             "focus": {
                                 "Node.Action.Starting": {
-                                    "content": "[角色] 准备后台连续发送 3 次 Q 键（间隔 100ms，实验）",
+                                    "content": "[角色] 准备连续发送 3 次 Q 键（首次前台，后续后台）",
                                     "display": [
                                         "log"
                                     ]
                                 },
                                 "Node.Action.Succeeded": {
-                                    "content": "[角色] Q 后台窗口消息已连续投递 3 次",
+                                    "content": "[角色] Q 输入已连续发送 3 次",
                                     "display": [
                                         "log"
                                     ]
@@ -76,18 +76,18 @@
                         "LisePressQBeforeE": {
                             "action": {
                                 "param": {
-                                    "custom_action": "background_skill_action"
+                                    "custom_action": "hybrid_skill_action"
                                 }
                             },
                             "focus": {
                                 "Node.Action.Starting": {
-                                    "content": "[角色] 准备先后台连续发送 3 次 Q 键（间隔 100ms，实验）",
+                                    "content": "[角色] 准备先连续发送 3 次 Q 键（首次前台，后续后台）",
                                     "display": [
                                         "log"
                                     ]
                                 },
                                 "Node.Action.Succeeded": {
-                                    "content": "[角色] 前置 Q 后台窗口消息已连续投递 3 次",
+                                    "content": "[角色] 前置 Q 输入已连续发送 3 次",
                                     "display": [
                                         "log"
                                     ]

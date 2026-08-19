@@ -328,9 +328,9 @@ E 连续点击的每次底层按键成功后都会记录 `第 N / 总次数`，�
 
 E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKeyProxy`。
 
-只有密函驱离和普通驱离在技能开启后会显示默认关闭的“后台发送技能键（实验）”；普通扼守固定使用前台技能输入。启用驱离实验项时，任务选项把四个 E/Q 节点的自定义动作切换为 `background_skill_action`：Agent 使用 `PostMessageW` 向控制器窗口依次投递 `WM_KEYDOWN` / `WM_KEYUP`，按键保持 30ms，Q 的三次投递间隔仍为 100ms。E 的逐次日志由无输入的 `FocusGuardEBackgroundLogProxy` 产生。
+只有密函驱离和普通驱离在技能开启后会显示默认关闭的“首次前台触发，后续后台发送”；普通扼守固定使用默认前台技能输入。启用此项时，任务选项把四个 E/Q 节点的自定义动作切换为 `hybrid_skill_action`。`focus_guard_start` 为每个新 Maa 游戏任务清除混合输入就绪标记；第一次 E/Q 使用 `_ForegroundPrimingSkillAction`，先以 `_restore_window(game_hwnd)` 把游戏置于前台并等待 100ms，再通过 `FocusGuardEKeyProxy` / `FocusGuardQKeyProxy` 发送真实按键，最后完整调用 `_restore_window_and_cursor()` 恢复用户窗口与鼠标。成功后记录当前游戏窗口已经完成初始化。
 
-Unreal 窗口可能在尚未取得过前台时接受 `PostMessageW`，却不把消息交给游戏输入层。`focus_guard_start` 为每个新 Maa 游戏任务重置后台就绪状态；前台监控线程观察到游戏窗口后会标记就绪。若首次后台技能到来时仍未就绪，`_ensure_background_window_ready()` 使用现有前台恢复机制短暂激活游戏，等待 100ms，再恢复此前记录的用户窗口和鼠标并等待 100ms；同一任务后续技能不再切换。若 `PostMessageW` 明确返回失败，则清除就绪状态、重新初始化并重试一次。`PostMessageW` 成功仍只证明消息进入窗口队列，无法证明 Unreal 实际消费，因此必须保留前台输入作为默认与回退方式。
+同一任务后续 E/Q 使用 `_BackgroundSkillAction`，通过 `PostMessageW` 投递 `WM_KEYDOWN` / `WM_KEYUP`，不切换焦点；Q 的三次发送间隔仍为 100ms。若任一后台投递明确失败，`HybridSkillAction` 清除就绪标记，并让本次动作回退到上述前台真实输入与焦点恢复流程，成功后重新标记。普通点击和未启用该选项的技能仍使用 `focus_guard_action`，焦点恢复逻辑不变。后台投递成功只证明消息进入窗口队列，不能证明 Unreal 一定消费。
 
 这些代理节点虽然不一定从任务入口的静态 `next` 图可达，却是 Agent 的真实动态入口，不能作为死节点删除。普通重开链的 `NormalEndlessRestartByClick` 同样由 `round_logger.py` 动态选择。
 
