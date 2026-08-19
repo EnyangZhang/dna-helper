@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
@@ -16,6 +17,9 @@ class ProgressStateTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.original_path = progress_state._STATUS_PATH
         self.original_state = progress_state.snapshot()
+        self.original_last_stage_increment = (
+            progress_state._last_stage_increment_monotonic
+        )
         progress_state._STATUS_PATH = Path(self.temporary.name) / "status.json"
 
     def tearDown(self) -> None:
@@ -23,6 +27,9 @@ class ProgressStateTest(unittest.TestCase):
         with progress_state._lock:
             progress_state._state.clear()
             progress_state._state.update(self.original_state)
+            progress_state._last_stage_increment_monotonic = (
+                self.original_last_stage_increment
+            )
         self.temporary.cleanup()
 
     def test_tracks_logical_stage_and_completed_outer_rounds(self) -> None:
@@ -56,6 +63,17 @@ class ProgressStateTest(unittest.TestCase):
 
         self.assertEqual([index + 1 for index, hit in enumerate(milestones) if hit], [99])
         self.assertEqual(progress_state.snapshot()["stage_count"], 100)
+
+    def test_continue_stage_debounce_ignores_button_afterimage(self) -> None:
+        progress_state.start_task("普通无尽", 0, 0, task_id=104)
+        with patch.object(
+            progress_state.time, "monotonic", side_effect=[100.0, 100.854, 106.0]
+        ):
+            self.assertFalse(progress_state.increment_stage(5.0))
+            self.assertFalse(progress_state.increment_stage(5.0))
+            self.assertFalse(progress_state.increment_stage(5.0))
+
+        self.assertEqual(progress_state.snapshot()["stage_count"], 2)
 
     def test_cipher_infinite_reports_99_only_once(self) -> None:
         progress_state.start_task("密函无尽", 0, 0, task_id=102)

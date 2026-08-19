@@ -75,6 +75,7 @@ _WM_KEYDOWN = 0x0100
 _WM_KEYUP = 0x0101
 _MAPVK_VK_TO_VSC = 0
 _BACKGROUND_KEY_HOLD_SECONDS = 0.03
+_BACKGROUND_PRIME_SETTLE_SECONDS = 0.1
 _state_lock = threading.Lock()
 _fallback_hwnd = 0
 _fallback_cursor_position: tuple[int, int] | None = None
@@ -83,6 +84,8 @@ _watcher_started = False
 _restore_in_progress = False
 _e_sequence_lock = threading.Lock()
 _e_sequence_progress: dict[tuple[int, str], int] = {}
+_background_ready_lock = threading.Lock()
+_background_ready_hwnd = 0
 
 
 def _next_e_sequence_index(task_id: int, node_name: str, total: int) -> int:
@@ -146,7 +149,10 @@ def _watch_foreground_window() -> None:
     while True:
         with _state_lock:
             game_hwnd = _game_hwnd
-        _remember_window(_foreground_window(), game_hwnd)
+        foreground = _foreground_window()
+        if game_hwnd and foreground == game_hwnd:
+            _mark_background_window_ready(game_hwnd)
+        _remember_window(foreground, game_hwnd)
         time.sleep(0.1)
 
 
@@ -183,6 +189,68 @@ def _send_background_key(hwnd: int, key: int) -> bool:
         return False
     time.sleep(_BACKGROUND_KEY_HOLD_SECONDS)
     return bool(_user32.PostMessageW(hwnd, _WM_KEYUP, key, up_lparam))
+
+
+def _mark_background_window_ready(hwnd: int) -> None:
+    global _background_ready_hwnd
+    with _background_ready_lock:
+        _background_ready_hwnd = int(hwnd)
+
+
+def _reset_background_window_ready() -> None:
+    global _background_ready_hwnd
+    with _background_ready_lock:
+        _background_ready_hwnd = 0
+
+
+def _is_background_window_ready(hwnd: int) -> bool:
+    with _background_ready_lock:
+        return bool(hwnd and _background_ready_hwnd == int(hwnd))
+
+
+def _ensure_background_window_ready(
+    game_hwnd: int,
+    restore_hwnd: int,
+    restore_cursor_position: tuple[int, int] | None,
+) -> bool:
+    """Activate the game once so Unreal starts consuming background messages."""
+    if _is_background_window_ready(game_hwnd):
+        return True
+    if not game_hwnd or not _user32.IsWindow(game_hwnd):
+        return False
+    if _foreground_window() == game_hwnd:
+        _mark_background_window_ready(game_hwnd)
+        return True
+    if not _restore_window(game_hwnd):
+        return False
+
+    time.sleep(_BACKGROUND_PRIME_SETTLE_SECONDS)
+    _mark_background_window_ready(game_hwnd)
+    if restore_hwnd:
+        _restore_window_and_cursor(restore_hwnd, restore_cursor_position)
+        time.sleep(_BACKGROUND_PRIME_SETTLE_SECONDS)
+    return True
+
+
+def _send_background_key_with_recovery(
+    game_hwnd: int,
+    key: int,
+    restore_hwnd: int,
+    restore_cursor_position: tuple[int, int] | None,
+) -> bool:
+    if not _ensure_background_window_ready(
+        game_hwnd, restore_hwnd, restore_cursor_position
+    ):
+        return False
+    if _send_background_key(game_hwnd, key):
+        return True
+
+    _reset_background_window_ready()
+    if not _ensure_background_window_ready(
+        game_hwnd, restore_hwnd, restore_cursor_position
+    ):
+        return False
+    return _send_background_key(game_hwnd, key)
 
 
 def _set_restore_in_progress(value: bool) -> None:
@@ -261,6 +329,9 @@ class FocusGuardStart(CustomAction):
             int(getattr(argv.task_detail, "task_id", 0)),
         )
         if task_started:
+            _reset_background_window_ready()
+            if _foreground_window() == game_hwnd:
+                _mark_background_window_ready(game_hwnd)
             telegram_bot.notify_task_started(progress_mode)
         return CustomAction.RunResult(success=True)
 
@@ -353,7 +424,12 @@ class FocusGuardAction(CustomAction):
                     )
                     succeeded = succeeded and log_ready
                 if background_key_input:
-                    input_succeeded = _send_background_key(game_hwnd, key)
+                    input_succeeded = _send_background_key_with_recovery(
+                        game_hwnd,
+                        key,
+                        restore_hwnd,
+                        restore_cursor_position,
+                    )
                     succeeded = succeeded and input_succeeded
                     if input_succeeded and key == 69:
                         detail = context.run_action("FocusGuardEBackgroundLogProxy")
@@ -373,7 +449,9 @@ class FocusGuardAction(CustomAction):
             progress_event = params.get("progress_event")
             infinite_99_completed = False
             if progress_event == "continue_challenge":
-                infinite_99_completed = progress_state.increment_stage()
+                infinite_99_completed = progress_state.increment_stage(
+                    dedupe_window_seconds=5.0
+                )
             elif progress_event == "next_round_started":
                 progress_state.start_next_round()
             elif progress_event == "cipher_cycle_completed":

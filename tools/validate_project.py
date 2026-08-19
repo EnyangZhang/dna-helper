@@ -380,6 +380,15 @@ def main() -> None:
             "fallback": "CipherPostSkillOutsideMonitor",
             "ready_next": "CipherPostSkillInsideIdle",
         },
+        "CipherReentry": {
+            "nodes": (
+                "CipherReentryCombatHudFrame1",
+                "CipherReentryCombatHudFrame2",
+                "CipherReentryCombatHudReady",
+            ),
+            "fallback": "CipherExpelRestartMonitor",
+            "ready_next": "CipherExpelMonitor",
+        },
     }
     for chain_name, chain in state_hud_chains.items():
         frame1, frame2, ready = chain["nodes"]
@@ -437,6 +446,12 @@ def main() -> None:
             "CipherExpelAgainDetected",
             "RewardConfirmThirdPageByClick",
             "CipherPostSkillOutsideIdle",
+        ],
+        "CipherExpelRestartMonitor": [
+            "CipherReentryCombatHudFrame1",
+            "RewardConfirmThirdPageByClick",
+            "CipherExpelAgainByClick",
+            "CipherExpelRestartIdle",
         ],
     }
     for node_name, expected_next in expected_outside_monitors.items():
@@ -751,16 +766,18 @@ def main() -> None:
         "LiseSkillCastEnd",
         {"next": ["NormalHoldPostSkillIdle"]},
     )
-    for node_name in (
+    require_override(
+        "NormalMode",
+        hold_mode,
         "NormalEndlessContinueChallengeClick3",
+        {"next": ["NormalHoldContinueCooldown"]},
+    )
+    require_override(
+        "NormalMode",
+        hold_mode,
         "NormalEndlessConfirmChoiceClick3",
-    ):
-        require_override(
-            "NormalMode",
-            hold_mode,
-            node_name,
-            {"next": ["NormalEndlessIdle"]},
-        )
+        {"next": ["NormalEndlessIdle"]},
+    )
     require_override(
         "NormalMode",
         hold_mode,
@@ -815,6 +832,12 @@ def main() -> None:
     )
     if infinite_continue_params.get("progress_event") != "continue_challenge":
         raise SystemExit("NormalMode/Infinite must advance one logical in-dungeon round")
+    require_override(
+        "NormalMode",
+        infinite_mode,
+        "NormalEndlessContinueChallenge",
+        {"next": ["NormalInfiniteContinueCooldown"]},
+    )
 
     expel_mode = option_case(normal_mode, "Expel")
     require_override(
@@ -884,7 +907,7 @@ def main() -> None:
         "CipherMode",
         cipher_expel_mode,
         "RewardConfirmThirdPageClick3",
-        {"next": ["CipherExpelOutsideMonitor"]},
+        {"next": ["CipherExpelRestartMonitor"]},
     )
     require_override(
         "CipherMode",
@@ -925,6 +948,7 @@ def main() -> None:
         "CipherExpelRoundQuota": ["CipherExpelRoundLog"],
         "CipherExpelRoundLog": ["CipherExpelRoundDecision"],
         "CipherExpelRoundDecision": ["CipherExpelFinished"],
+        "CipherExpelAgainClick3": ["CipherExpelRestartMonitor"],
     }
     for node_name, expected_next in expected_cipher_round_chain.items():
         if pipeline_nodes.get(node_name, {}).get("next") != expected_next:
@@ -980,7 +1004,7 @@ def main() -> None:
             )
 
     expected_post_skill_returns = {
-        "NormalHoldPostSkillContinueChallenge": "NormalHoldPostSkillIdle",
+        "NormalHoldPostSkillContinueChallenge": "NormalHoldPostSkillContinueCooldown",
         "NormalHoldPostSkillConfirmChoice": "NormalHoldPostSkillIdle",
     }
     for node_name, target in expected_post_skill_returns.items():
@@ -1016,6 +1040,22 @@ def main() -> None:
                 f"{node_name}: unexpected post-skill click parameters"
             )
 
+    expected_continue_cooldowns = {
+        "NormalInfiniteContinueCooldown": "NormalEndlessMonitor",
+        "NormalHoldContinueCooldown": "NormalEndlessIdle",
+        "NormalHoldPostSkillContinueCooldown": "NormalHoldPostSkillIdle",
+    }
+    for node_name, target in expected_continue_cooldowns.items():
+        node = pipeline_nodes.get(node_name, {})
+        if node.get("recognition", {}).get("type") != "DirectHit":
+            raise SystemExit(f"{node_name}: continue cooldown must use DirectHit")
+        if node.get("action", {}).get("type") != "DoNothing":
+            raise SystemExit(f"{node_name}: continue cooldown must not send input")
+        if int(node.get("post_delay", 0)) < 1500:
+            raise SystemExit(f"{node_name}: continue cooldown is too short")
+        if node.get("next") != [target]:
+            raise SystemExit(f"{node_name}: invalid continue cooldown return")
+
     hold_skills = all_options.get("NormalHoldEnableSkills", {})
     hold_skills_yes = option_case(hold_skills, "Yes")
     for hud_node in ("NormalOutsideCombatHudReady", "NormalRestartCombatHudReady"):
@@ -1026,7 +1066,6 @@ def main() -> None:
             {"next": ["LiseCombatLoadDelay"]},
         )
     for node_name in (
-        "NormalEndlessContinueChallengeClick3",
         "NormalEndlessConfirmChoiceClick3",
         "NormalEndlessIdle",
     ):
@@ -1036,6 +1075,12 @@ def main() -> None:
             node_name,
             {"next": ["NormalEndlessCombatEntry"]},
         )
+    require_override(
+        "NormalHoldEnableSkills",
+        hold_skills_yes,
+        "NormalHoldContinueCooldown",
+        {"next": ["NormalEndlessCombatEntry"]},
+    )
 
     expel_skills = all_options.get("NormalExpelEnableSkills", {})
     expel_skills_yes = option_case(expel_skills, "Yes")
@@ -1063,13 +1108,18 @@ def main() -> None:
 
     cipher_skills = all_options.get("CipherEnableSkills", {})
     cipher_skills_yes = option_case(cipher_skills, "Yes")
-    for node_name in ("RewardConfirmFirstPageClick3", "CipherExpelAgainClick3"):
-        require_override(
-            "CipherEnableSkills",
-            cipher_skills_yes,
-            node_name,
-            {"next": ["CipherPostSkillOutsideMonitor"]},
-        )
+    require_override(
+        "CipherEnableSkills",
+        cipher_skills_yes,
+        "RewardConfirmFirstPageClick3",
+        {"next": ["CipherPostSkillOutsideMonitor"]},
+    )
+    require_override(
+        "CipherEnableSkills",
+        cipher_skills_yes,
+        "CipherExpelAgainClick3",
+        {"next": ["CipherExpelRestartMonitor"]},
+    )
     cipher_skills_no = option_case(cipher_skills, "No")
     require_override(
         "CipherEnableSkills",

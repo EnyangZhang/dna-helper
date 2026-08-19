@@ -15,6 +15,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _STATUS_PATH = _PROJECT_ROOT / "config" / "progress_status.json"
 _INFINITE_COMPLETION_STAGE = 99
 _lock = threading.RLock()
+_last_stage_increment_monotonic = 0.0
 _state: dict[str, Any] = {
     "task_id": 0,
     "status": "idle",
@@ -32,6 +33,7 @@ def start_task(
     mode: str, total_rounds: int, stage_total: int = 99, task_id: int = 0
 ) -> bool:
     """Reset progress when a new Maa task first enters its pipeline."""
+    global _last_stage_increment_monotonic
     now = time.time()
     with _lock:
         if task_id and int(_state.get("task_id", 0)) == task_id:
@@ -49,15 +51,27 @@ def start_task(
                 "updated_at": now,
             }
         )
+        _last_stage_increment_monotonic = 0.0
         _persist_locked()
         return True
 
 
-def increment_stage() -> bool:
+def increment_stage(dedupe_window_seconds: float = 0.0) -> bool:
     """Record one logical cycle and report the infinite-mode 99 milestone."""
+    global _last_stage_increment_monotonic
+    monotonic_now = time.monotonic()
     with _lock:
         if _state["status"] not in {"running", "waiting_next_round"}:
             return False
+        dedupe_window_seconds = max(0.0, float(dedupe_window_seconds))
+        if (
+            dedupe_window_seconds
+            and _last_stage_increment_monotonic
+            and monotonic_now - _last_stage_increment_monotonic
+            < dedupe_window_seconds
+        ):
+            return False
+        _last_stage_increment_monotonic = monotonic_now
         stage_total = int(_state["stage_total"])
         next_count = int(_state["stage_count"]) + 1
         _state["stage_count"] = min(next_count, stage_total) if stage_total else next_count
@@ -108,10 +122,12 @@ def advance_cipher_cycle() -> bool:
 
 def start_next_round() -> None:
     """Reset intra-dungeon progress after Start Challenge succeeds."""
+    global _last_stage_increment_monotonic
     with _lock:
         _state["stage_count"] = 0
         _state["status"] = "running"
         _state["updated_at"] = time.time()
+        _last_stage_increment_monotonic = 0.0
         _persist_locked()
 
 

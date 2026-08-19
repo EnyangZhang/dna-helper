@@ -58,12 +58,12 @@
                         },
                         "CipherExpelAgainClick3": {
                             "next": [
-                                "CipherExpelOutsideMonitor"
+                                "CipherExpelRestartMonitor"
                             ]
                         },
                         "RewardConfirmThirdPageClick3": {
                             "next": [
-                                "CipherExpelOutsideMonitor"
+                                "CipherExpelRestartMonitor"
                             ]
                         },
                         "LiseSkillCastEnd": {
@@ -150,7 +150,7 @@
                         },
                         "CipherExpelAgainClick3": {
                             "next": [
-                                "CipherPostSkillOutsideMonitor"
+                                "CipherExpelRestartMonitor"
                             ]
                         }
                     }

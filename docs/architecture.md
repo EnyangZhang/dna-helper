@@ -161,8 +161,11 @@ CipherExpelMonitor（局内）
 → CipherPostSkillOutsideMonitor
 
 局外监控
-├─ “再次进行”三连击 (920,640)
-├─ Space 确认三连击
+├─ 检测“再次进行”并完成轮次计数
+├─ CipherExpelRestartMonitor（重开等待，不再计数）
+│  ├─ “再次进行”仍残留 → 重试三连击 (920,640)
+│  ├─ Space 确认 → 三连击后继续等待 HUD
+│  └─ 连续 3 帧血条 → 进入下一轮 CipherExpelMonitor
 └─ 连续 3 帧血条 → 返回对应局内监控
 ```
 
@@ -176,11 +179,12 @@ CipherExpelMonitor（局内）
 → 记录“已完成第 N / 总轮数”
 → N >= 总轮数：CipherExpelFinished 停止任务
 → N < 总轮数：点击“再次进行”
+                → 进入不含计数节点的 CipherExpelRestartMonitor
                 → 点击副本外 Space 确认
-                → 进入下一轮
+                → 连续 3 帧血条确认后进入下一轮
 ```
 
-任务入口、血条确认、技能释放、第一页确认和 Space 确认都不计数。只有局外识别到“再次进行”才表示完成一轮。
+任务入口、血条确认、技能释放、第一页确认和 Space 确认都不计数。只有局外监控首次识别到“再次进行”才表示完成一轮；点击后的残留按钮由 `CipherExpelRestartMonitor` 重试，不能再次经过 `CipherExpelAgainDetected`，避免同一页面重复增加轮次。
 
 ## 普通状态机
 
@@ -219,6 +223,7 @@ NormalEndlessAgainDetected
 - `NormalOutsideMonitor` 只监控局外“再次进行”和“开始挑战”。
 - 血条门控只负责确认局内；血条缺失后的边界未知状态仍轮询“继续挑战 / 确认选择”，并只由局外专属按钮确认是否真的进入局外。
 - 技能开启时，局外到局内的三帧血条确认进入本副本唯一一次技能链。
+- “继续挑战”成功后先经过 `NormalHoldContinueCooldown`；技能已释放的路径使用 `NormalHoldPostSkillContinueCooldown`。两个节点都等待 1500ms 后才返回对应监控，避免按钮切换残影立即重新触发。
 
 未达到轮次上限时依次点击“再次进行”和“开始挑战”。技能开启后，新一轮必须重新连续确认 HUD 才能进入技能延迟；技能结束后进入 `NormalHoldPostSkillInsideGate` / `NormalHoldPostSkillMonitor`。这组节点及其边界未知空闲节点都处理局内按钮；局外专属按钮命中后才进入重开链。血条恢复只回到 post-skill 节点，因此同一副本不会再次释放。完成重开后才重新允许释放。
 
@@ -230,6 +235,7 @@ NormalEndlessAgainDetected
 
 - 只识别“继续挑战”和“确认选择”。
 - 每次由 `focus_guard_action` 一次完成三连击。
+- 三连击后先经过 `NormalInfiniteContinueCooldown` 等待 1500ms，再恢复按钮监控。
 - 不识别“再次进行”。
 - 不统计局外副本轮次，但持续累计局内逻辑轮次。
 - 不进入 HUD 或技能链。
@@ -322,7 +328,9 @@ E 连续点击的每次底层按键成功后都会记录 `第 N / 总次数`，�
 
 E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKeyProxy`。
 
-只有密函驱离和普通驱离在技能开启后会显示默认关闭的“后台发送技能键（实验）”；普通扼守固定使用前台技能输入。启用驱离实验项时，任务选项把四个 E/Q 节点的自定义动作切换为 `background_skill_action`：Agent 使用 `PostMessageW` 向控制器窗口依次投递 `WM_KEYDOWN` / `WM_KEYUP`，按键保持 30ms，Q 的三次投递间隔仍为 100ms。该路径不调用 `SetForegroundWindow`、`ClipCursor` 或 `SetCursorPos`；E 的逐次日志由无输入的 `FocusGuardEBackgroundLogProxy` 产生。`PostMessageW` 成功只证明消息已进入窗口队列，无法证明 Unreal 输入层实际消费，因此必须保留前台输入作为默认与回退方式。
+只有密函驱离和普通驱离在技能开启后会显示默认关闭的“后台发送技能键（实验）”；普通扼守固定使用前台技能输入。启用驱离实验项时，任务选项把四个 E/Q 节点的自定义动作切换为 `background_skill_action`：Agent 使用 `PostMessageW` 向控制器窗口依次投递 `WM_KEYDOWN` / `WM_KEYUP`，按键保持 30ms，Q 的三次投递间隔仍为 100ms。E 的逐次日志由无输入的 `FocusGuardEBackgroundLogProxy` 产生。
+
+Unreal 窗口可能在尚未取得过前台时接受 `PostMessageW`，却不把消息交给游戏输入层。`focus_guard_start` 为每个新 Maa 游戏任务重置后台就绪状态；前台监控线程观察到游戏窗口后会标记就绪。若首次后台技能到来时仍未就绪，`_ensure_background_window_ready()` 使用现有前台恢复机制短暂激活游戏，等待 100ms，再恢复此前记录的用户窗口和鼠标并等待 100ms；同一任务后续技能不再切换。若 `PostMessageW` 明确返回失败，则清除就绪状态、重新初始化并重试一次。`PostMessageW` 成功仍只证明消息进入窗口队列，无法证明 Unreal 实际消费，因此必须保留前台输入作为默认与回退方式。
 
 这些代理节点虽然不一定从任务入口的静态 `next` 图可达，却是 Agent 的真实动态入口，不能作为死节点删除。普通重开链的 `NormalEndlessRestartByClick` 同样由 `round_logger.py` 动态选择。
 
@@ -341,7 +349,7 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
 
 进度维度遵循 README 的业务定义：
 
-- 局内轮次由成功完成的逻辑“继续挑战”或密函无尽结算循环推进，每组三连击只记录一次。
+- 局内轮次由成功完成的逻辑“继续挑战”或密函无尽结算循环推进，每组三连击只记录一次；普通模式的 `continue_challenge` 事件使用 5 秒去重窗口，按钮动画残影导致的快速重试不会再次增加进度。
 - 局外副本轮次是“已完成副本数”，只由普通扼守、普通驱离和密函驱离原有的 `RoundLogger` 在识别到“再次进行”后写入。
 - `Start Challenge` 成功后只把状态切回运行并清零局内进度，不增加局外副本轮次。
 - 密函驱离的 Space 确认只表示已重新进入下一轮，不重复增加已完成数。

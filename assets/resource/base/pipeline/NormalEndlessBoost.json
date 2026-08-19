@@ -281,7 +281,43 @@
         "pre_delay": 0,
         "post_delay": 50,
         "next": [
+            "NormalHoldContinueCooldown"
+        ]
+    },
+    "NormalInfiniteContinueCooldown": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 1500,
+        "next": [
             "NormalEndlessMonitor"
+        ]
+    },
+    "NormalHoldContinueCooldown": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 1500,
+        "next": [
+            "NormalEndlessIdle"
+        ]
+    },
+    "NormalHoldPostSkillContinueCooldown": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "post_delay": 1500,
+        "next": [
+            "NormalHoldPostSkillIdle"
         ]
     },
     "NormalEndlessWaitStartChallenge": {
@@ -623,7 +659,7 @@
         "pre_delay": 0,
         "post_delay": 50,
         "next": [
-            "NormalHoldPostSkillIdle"
+            "NormalHoldPostSkillContinueCooldown"
         ]
     },
     "NormalHoldPostSkillConfirmChoice": {

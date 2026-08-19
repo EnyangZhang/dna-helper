@@ -16,14 +16,17 @@ class FocusRestoreTest(unittest.TestCase):
         self.original_hwnd = focus_restore._fallback_hwnd
         self.original_cursor = focus_restore._fallback_cursor_position
         self.original_restore_state = focus_restore._restore_in_progress
+        self.original_background_ready_hwnd = focus_restore._background_ready_hwnd
         focus_restore._fallback_hwnd = 0
         focus_restore._fallback_cursor_position = None
         focus_restore._restore_in_progress = False
+        focus_restore._background_ready_hwnd = 0
 
     def tearDown(self) -> None:
         focus_restore._fallback_hwnd = self.original_hwnd
         focus_restore._fallback_cursor_position = self.original_cursor
         focus_restore._restore_in_progress = self.original_restore_state
+        focus_restore._background_ready_hwnd = self.original_background_ready_hwnd
 
     def test_remembers_window_and_multimonitor_cursor_position(self) -> None:
         with (
@@ -134,6 +137,49 @@ class FocusRestoreTest(unittest.TestCase):
 
         self.assertFalse(sent)
         sleep.assert_not_called()
+
+    def test_background_input_primes_game_once_and_restores_user_window(self) -> None:
+        with (
+            patch.object(focus_restore._user32, "IsWindow", return_value=True),
+            patch.object(focus_restore, "_foreground_window", return_value=101),
+            patch.object(focus_restore, "_restore_window", return_value=True) as activate,
+            patch.object(
+                focus_restore, "_restore_window_and_cursor", return_value=True
+            ) as restore,
+            patch.object(focus_restore.time, "sleep") as sleep,
+        ):
+            self.assertTrue(
+                focus_restore._ensure_background_window_ready(
+                    202, 101, (-420, 815)
+                )
+            )
+            self.assertTrue(
+                focus_restore._ensure_background_window_ready(
+                    202, 101, (-420, 815)
+                )
+            )
+
+        activate.assert_called_once_with(202)
+        restore.assert_called_once_with(101, (-420, 815))
+        self.assertEqual(sleep.call_count, 2)
+        self.assertTrue(focus_restore._is_background_window_ready(202))
+
+    def test_background_send_retries_after_windows_rejects_message(self) -> None:
+        with (
+            patch.object(
+                focus_restore, "_ensure_background_window_ready", return_value=True
+            ) as ensure,
+            patch.object(
+                focus_restore, "_send_background_key", side_effect=[False, True]
+            ) as send,
+        ):
+            sent = focus_restore._send_background_key_with_recovery(
+                202, 69, 101, (300, 400)
+            )
+
+        self.assertTrue(sent)
+        self.assertEqual(ensure.call_count, 2)
+        self.assertEqual(send.call_count, 2)
 
     def test_background_skill_action_uses_background_input(self) -> None:
         self.assertTrue(focus_restore.BackgroundSkillAction.background_key_input)
