@@ -1,5 +1,107 @@
 {
     "option": {
+        "BackgroundSkillInput": {
+            "type": "switch",
+            "label": "后台发送技能键（实验）",
+            "description": "开启后仅将角色 E、Q 作为后台窗口消息发送，释放技能时不切换到游戏前台，也不移动鼠标。部分游戏输入层可能忽略后台消息；若技能没有实际释放，请关闭此项恢复前台输入。鼠标按钮点击不受此项影响。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "pipeline_override": {
+                        "LisePressE": {
+                            "action": {
+                                "param": {
+                                    "custom_action": "background_skill_action"
+                                }
+                            },
+                            "focus": {
+                                "Node.Action.Starting": {
+                                    "content": "[角色] 准备后台发送 E 键（实验）",
+                                    "display": [
+                                        "log"
+                                    ]
+                                },
+                                "Node.Action.Succeeded": {
+                                    "content": "[角色] E 后台窗口消息已投递",
+                                    "display": [
+                                        "log"
+                                    ]
+                                }
+                            }
+                        },
+                        "LisePressEAfterQ": {
+                            "action": {
+                                "param": {
+                                    "custom_action": "background_skill_action"
+                                }
+                            },
+                            "focus": {
+                                "Node.Action.Starting": {
+                                    "content": "[角色] 准备后台发送 E 键（实验）",
+                                    "display": [
+                                        "log"
+                                    ]
+                                },
+                                "Node.Action.Succeeded": {
+                                    "content": "[角色] E 后台窗口消息已投递",
+                                    "display": [
+                                        "log"
+                                    ]
+                                }
+                            }
+                        },
+                        "LisePressQ": {
+                            "action": {
+                                "param": {
+                                    "custom_action": "background_skill_action"
+                                }
+                            },
+                            "focus": {
+                                "Node.Action.Starting": {
+                                    "content": "[角色] 准备后台连续发送 3 次 Q 键（间隔 100ms，实验）",
+                                    "display": [
+                                        "log"
+                                    ]
+                                },
+                                "Node.Action.Succeeded": {
+                                    "content": "[角色] Q 后台窗口消息已连续投递 3 次",
+                                    "display": [
+                                        "log"
+                                    ]
+                                }
+                            }
+                        },
+                        "LisePressQBeforeE": {
+                            "action": {
+                                "param": {
+                                    "custom_action": "background_skill_action"
+                                }
+                            },
+                            "focus": {
+                                "Node.Action.Starting": {
+                                    "content": "[角色] 准备先后台连续发送 3 次 Q 键（间隔 100ms，实验）",
+                                    "display": [
+                                        "log"
+                                    ]
+                                },
+                                "Node.Action.Succeeded": {
+                                    "content": "[角色] 前置 Q 后台窗口消息已连续投递 3 次",
+                                    "display": [
+                                        "log"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭"
+                }
+            ]
+        },
         "LiseCombatStartDelay": {
             "type": "input",
             "label": "技能触发延迟（ms）",

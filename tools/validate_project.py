@@ -26,6 +26,7 @@ DYNAMIC_PIPELINE_TARGETS = {
     "NormalEndlessConfirmChoiceClick2",
     "FocusGuardEKeyProxy",
     "FocusGuardQKeyProxy",
+    "FocusGuardEBackgroundLogProxy",
     "NormalEndlessRestartByClick",
 }
 COMBAT_HUD_READY_NODES = (
@@ -40,6 +41,10 @@ SKILL_OPTION_ROOTS = {
     "CipherEnableSkills": "LiseEnableE",
     "NormalHoldEnableSkills": "NormalHoldEnableE",
     "NormalExpelEnableSkills": "LiseEnableE",
+}
+BACKGROUND_SKILL_OPTION_PARENTS = {
+    "CipherEnableSkills",
+    "NormalExpelEnableSkills",
 }
 SKILL_OPTION_BRANCHES = (
     (
@@ -559,9 +564,46 @@ def main() -> None:
             raise SystemExit(
                 f"{parent_name}: must expose {e_option_name} when skills are enabled"
             )
+        if parent_name in BACKGROUND_SKILL_OPTION_PARENTS:
+            if "BackgroundSkillInput" not in yes_options:
+                raise SystemExit(
+                    f"{parent_name}: expel skills must expose BackgroundSkillInput"
+                )
+            if yes_options[-1] != "BackgroundSkillInput":
+                raise SystemExit(
+                    f"{parent_name}: BackgroundSkillInput must be applied after nested E/Q "
+                    "options so its custom action remains authoritative"
+                )
+        elif "BackgroundSkillInput" in yes_options:
+            raise SystemExit(
+                f"{parent_name}: BackgroundSkillInput is restricted to expel modes"
+            )
         if "LiseQBeforeE" in yes_options or "NormalHoldQBeforeE" in yes_options:
             raise SystemExit(
                 f"{parent_name}: Q-before-E must be nested under both E and Q switches"
+            )
+
+    background_input = all_options.get("BackgroundSkillInput")
+    if background_input is None or background_input.get("default_case") != "No":
+        raise SystemExit("BackgroundSkillInput must exist and default to foreground input")
+    background_yes = option_case(background_input, "Yes")
+    for node_name in (
+        "LisePressE",
+        "LisePressEAfterQ",
+        "LisePressQ",
+        "LisePressQBeforeE",
+    ):
+        custom_action = (
+            background_yes.get("pipeline_override", {})
+            .get(node_name, {})
+            .get("action", {})
+            .get("param", {})
+            .get("custom_action")
+        )
+        if custom_action != "background_skill_action":
+            raise SystemExit(
+                f"BackgroundSkillInput/Yes must route {node_name} through "
+                "background_skill_action"
             )
 
     for e_name, interval_name, q_name, order_name, delay_name in SKILL_OPTION_BRANCHES:

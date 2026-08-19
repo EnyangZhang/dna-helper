@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import sys
+import threading
 
 from maa.agent.agent_server import AgentServer
 
 import focus_restore  # noqa: F401  Registers foreground-window restore actions.
+import parent_watchdog
 import progress_monitor  # noqa: F401  Registers the monitor bootstrap action.
 import round_logger  # noqa: F401  Registers the custom action.
 import telegram_bot
@@ -16,12 +18,26 @@ def main() -> int:
     if len(sys.argv) < 2:
         raise RuntimeError("缺少 MaaFramework Agent socket_id")
 
+    shutdown_lock = threading.Lock()
+    shutdown_started = False
+
+    def stop_agent_once() -> None:
+        nonlocal shutdown_started
+        with shutdown_lock:
+            if shutdown_started:
+                return
+            shutdown_started = True
+        try:
+            telegram_bot.stop()
+        finally:
+            AgentServer.shut_down()
+
     AgentServer.start_up(sys.argv[-1])
+    parent_watchdog.start_parent_watchdog(stop_agent_once)
     try:
         AgentServer.join()
     finally:
-        telegram_bot.stop()
-        AgentServer.shut_down()
+        stop_agent_once()
     return 0
 
 

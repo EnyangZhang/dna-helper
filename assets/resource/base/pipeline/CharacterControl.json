@@ -498,5 +498,24 @@
         "rate_limit": 0,
         "pre_delay": 0,
         "post_delay": 0
+    },
+    "FocusGuardEBackgroundLogProxy": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[角色] E 后台输入已发送",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
     }
 }

@@ -58,10 +58,23 @@ _user32.GetCursorPos.argtypes = [ctypes.POINTER(_POINT)]
 _user32.GetCursorPos.restype = wintypes.BOOL
 _user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
 _user32.SetCursorPos.restype = wintypes.BOOL
+_user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
+_user32.MapVirtualKeyW.restype = wintypes.UINT
+_user32.PostMessageW.argtypes = [
+    wintypes.HWND,
+    wintypes.UINT,
+    wintypes.WPARAM,
+    wintypes.LPARAM,
+]
+_user32.PostMessageW.restype = wintypes.BOOL
 _kernel32.GetCurrentThreadId.argtypes = []
 _kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
 _SW_RESTORE = 9
+_WM_KEYDOWN = 0x0100
+_WM_KEYUP = 0x0101
+_MAPVK_VK_TO_VSC = 0
+_BACKGROUND_KEY_HOLD_SECONDS = 0.03
 _state_lock = threading.Lock()
 _fallback_hwnd = 0
 _fallback_cursor_position: tuple[int, int] | None = None
@@ -159,6 +172,19 @@ def _restore_cursor(position: tuple[int, int]) -> bool:
     return bool(_user32.SetCursorPos(position[0], position[1]))
 
 
+def _send_background_key(hwnd: int, key: int) -> bool:
+    """Post one key press to the game without changing foreground focus."""
+    if not hwnd or not _user32.IsWindow(hwnd):
+        return False
+    scan_code = int(_user32.MapVirtualKeyW(key, _MAPVK_VK_TO_VSC))
+    down_lparam = 1 | (scan_code << 16)
+    up_lparam = down_lparam | (1 << 30) | (1 << 31)
+    if not _user32.PostMessageW(hwnd, _WM_KEYDOWN, key, down_lparam):
+        return False
+    time.sleep(_BACKGROUND_KEY_HOLD_SECONDS)
+    return bool(_user32.PostMessageW(hwnd, _WM_KEYUP, key, up_lparam))
+
+
 def _set_restore_in_progress(value: bool) -> None:
     global _restore_in_progress
     with _state_lock:
@@ -241,6 +267,8 @@ class FocusGuardStart(CustomAction):
 
 @AgentServer.custom_action("focus_guard_action")
 class FocusGuardAction(CustomAction):
+    background_key_input = False
+
     def run(
         self, context: Context, argv: CustomAction.RunArg
     ) -> CustomAction.RunResult:
@@ -284,6 +312,7 @@ class FocusGuardAction(CustomAction):
         else:
             return CustomAction.RunResult(success=False)
 
+        background_key_input = bool(self.background_key_input and kind == "key")
         e_sequence_index = 0
         e_sequence_total = 0
         if kind == "key" and key == 69:
@@ -302,9 +331,14 @@ class FocusGuardAction(CustomAction):
         try:
             for index in range(repeat):
                 if kind == "key" and key == 69:
+                    log_proxy = (
+                        "FocusGuardEBackgroundLogProxy"
+                        if background_key_input
+                        else "FocusGuardEKeyProxy"
+                    )
                     log_ready = context.override_pipeline(
                         {
-                            "FocusGuardEKeyProxy": {
+                            log_proxy: {
                                 "focus": {
                                     "Node.Action.Succeeded": {
                                         "content": (
@@ -318,14 +352,21 @@ class FocusGuardAction(CustomAction):
                         }
                     )
                     succeeded = succeeded and log_ready
-                detail = context.run_action(proxy_node)
-                succeeded = succeeded and detail is not None and detail.success
+                if background_key_input:
+                    input_succeeded = _send_background_key(game_hwnd, key)
+                    succeeded = succeeded and input_succeeded
+                    if input_succeeded and key == 69:
+                        detail = context.run_action("FocusGuardEBackgroundLogProxy")
+                        succeeded = succeeded and detail is not None and detail.success
+                else:
+                    detail = context.run_action(proxy_node)
+                    succeeded = succeeded and detail is not None and detail.success
                 if index + 1 < repeat and interval_ms:
                     time.sleep(interval_ms / 1000)
-            if should_restore and restore_delay_ms:
+            if should_restore and not background_key_input and restore_delay_ms:
                 time.sleep(restore_delay_ms / 1000)
         finally:
-            if should_restore:
+            if should_restore and not background_key_input:
                 _restore_window_and_cursor(restore_hwnd, restore_cursor_position)
 
         if succeeded:
@@ -341,3 +382,10 @@ class FocusGuardAction(CustomAction):
                 telegram_bot.notify_infinite_99_completed()
 
         return CustomAction.RunResult(success=succeeded)
+
+
+@AgentServer.custom_action("background_skill_action")
+class BackgroundSkillAction(FocusGuardAction):
+    """Experimental E/Q input that never activates the game window."""
+
+    background_key_input = True

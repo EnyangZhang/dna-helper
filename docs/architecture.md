@@ -97,6 +97,8 @@ ProgressMonitorEntry
 
 `agent/main.py` 只注册 Agent 动作，不在 UI 启动时自动开启 Telegram；监听生命周期由“进度监控”任务显式启动。缺少有效本机配置或启动异常时，该任务记录“已跳过”；队列引导仍成功结束且不得阻塞后续游戏任务，独立运行则保留 UI 停止能力。Token 和 Chat ID 只从环境变量或 Git 忽略的 `config/telegram.json` 读取。
 
+Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有启动它的 UI/MXU 父进程句柄，并在守护线程中通过 `WaitForSingleObject` 等待该具体进程结束。父进程正常退出、崩溃或重启后，回调只执行一次 `telegram_bot.stop()` 与 `AgentServer.shut_down()`，让阻塞中的 `AgentServer.join()` 返回；该异常退出路径不生成任务完成消息。使用进程句柄而不是反复查询 PID，可以避免父进程退出后 PID 被复用造成孤立 Agent 误判为仍受 UI 管理。
+
 ## 局内 / 局外状态边界
 
 左下角角色血条 `combat_health_bar.png` 是单向局内证据。局外或边界未知监控先检查血条；连续 3 帧命中后确认局内。血条消失不能单独确认局外，因为 Q 动画等战斗状态可能临时隐藏 HUD。局内业务监控在血条缺失后进入无超时的边界未知等待：候选顺序为“血条、该模式合法的局内按钮、局外专属按钮、空闲兜底”。合法局内按钮可以继续当前局内流程，只有局外专属按钮命中后才进入局外动作链。候选是在同一 Pipeline 轮询中的优先级列表，不是真正的多线程。
@@ -320,6 +322,8 @@ E 连续点击的每次底层按键成功后都会记录 `第 N / 总次数`，�
 
 E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKeyProxy`。
 
+只有密函驱离和普通驱离在技能开启后会显示默认关闭的“后台发送技能键（实验）”；普通扼守固定使用前台技能输入。启用驱离实验项时，任务选项把四个 E/Q 节点的自定义动作切换为 `background_skill_action`：Agent 使用 `PostMessageW` 向控制器窗口依次投递 `WM_KEYDOWN` / `WM_KEYUP`，按键保持 30ms，Q 的三次投递间隔仍为 100ms。该路径不调用 `SetForegroundWindow`、`ClipCursor` 或 `SetCursorPos`；E 的逐次日志由无输入的 `FocusGuardEBackgroundLogProxy` 产生。`PostMessageW` 成功只证明消息已进入窗口队列，无法证明 Unreal 输入层实际消费，因此必须保留前台输入作为默认与回退方式。
+
 这些代理节点虽然不一定从任务入口的静态 `next` 图可达，却是 Agent 的真实动态入口，不能作为死节点删除。普通重开链的 `NormalEndlessRestartByClick` 同样由 `round_logger.py` 动态选择。
 
 焦点恢复属于尽力执行：
@@ -346,7 +350,7 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
 
 `telegram_bot.py` 仅在 `ProgressMonitorStart` 被执行且存在有效 `config/telegram.json` 或对应环境变量时启动。打开或重启 UI 本身不会启动监听。接收轮询、消息发送和定时调度使用三个独立守护线程；定时线程第一次等待 1800 秒后把 `progress_state.format_status()` 的结果放入现有发送队列，之后每 1800 秒重复。它不直接调用网络接口也不修改进度。网络失败采用退避重试，不得阻塞 Pipeline 输入。只响应 `allowed_chat_id`，Token 与状态文件都位于已被 Git 忽略的 `config/`。
 
-`ProgressMonitorLifecycle` 通过 MaaFramework 的 `TaskerEventSink` 接收 UI 任务生命周期。独立运行时，`ProgressMonitorEntry` 收到 `Tasker.Task.Failed` 表示用户从 UI 停止任务，此时关闭监控；队列引导正常完成产生的 `Succeeded` 必须忽略，否则后续游戏任务无法使用监听。`RewardConfirmEntry` 或 `NormalEndlessEntry` 收到 `Tasker.Task.Succeeded` 时，从 `progress_state` 读取当前模式，生成包含正式任务名和模式的“任务已完成”消息，再把它作为 `telegram_bot.stop(final_message=...)` 的最终消息；`Tasker.Task.Failed`（包括 UI 停止）只调用无最终消息的停止，不得误报完成。只有停止调用确实从运行态切到停止态时才打印“监听已停止”，因此未选择监控时结束游戏任务不会产生消息或误导日志。当前运行实例的停止事件立即唤醒可中断等待并清空未发送队列；最终完成消息使用配置快照和独立的一次性守护线程发送，不依赖已停止的主发送队列，也不阻塞 Maa 生命周期回调。已经进入系统网络调用的请求允许在自身超时内返回，但停止后不再处理其结果。每次重新开始时创建新的停止事件和线程，避免快速停止后重启复用旧线程。
+`ProgressMonitorLifecycle` 通过 MaaFramework 的 `TaskerEventSink` 接收 UI 任务生命周期。独立运行时，`ProgressMonitorEntry` 收到 `Tasker.Task.Failed` 表示用户从 UI 停止任务，此时关闭监控；队列引导正常完成产生的 `Succeeded` 必须忽略，否则后续游戏任务无法使用监听。`RewardConfirmEntry` 或 `NormalEndlessEntry` 收到 `Tasker.Task.Succeeded` 时，从 `progress_state` 读取当前模式，生成包含正式任务名和模式的“任务已完成”消息，再把它作为 `telegram_bot.stop(final_message=...)` 的最终消息；`Tasker.Task.Failed`（包括 UI 停止）只调用无最终消息的停止，不得误报完成。只有停止调用确实从运行态切到停止态时才打印“监听已停止”，因此未选择监控时结束游戏任务不会产生消息或误导日志。当前运行实例的停止事件立即唤醒可中断等待并清空未发送队列；最终完成消息使用配置快照和独立的一次性守护线程发送，不依赖已停止的主发送队列，也不阻塞 Maa 生命周期回调。已经进入系统网络调用的请求允许在自身超时内返回，但停止后不再处理其结果。每次重新开始时创建新的停止事件和线程，避免快速停止后重启复用旧线程。UI/MXU 父进程退出是独立兜底信号，不依赖 Maa 是否仍能投递任务事件，因此桌面进程突然消失时也会停止 Telegram 定时状态线程和 AgentServer。
 
 ## 坐标与识别约束
 

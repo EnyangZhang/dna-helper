@@ -139,7 +139,8 @@
                     "option": [
                         "LiseCombatStartDelay",
                         "LiseHighPlatformOnly",
-                        "LiseEnableE"
+                        "LiseEnableE",
+                        "BackgroundSkillInput"
                     ],
                     "pipeline_override": {
                         "RewardConfirmFirstPageClick3": {

@@ -88,6 +88,57 @@ class FocusRestoreTest(unittest.TestCase):
         restore_cursor.assert_not_called()
         self.assertFalse(focus_restore._restore_in_progress)
 
+    def test_background_key_posts_down_and_up_without_focus_change(self) -> None:
+        posted: list[tuple[int, int, int, int]] = []
+
+        with (
+            patch.object(focus_restore._user32, "IsWindow", return_value=True),
+            patch.object(focus_restore._user32, "MapVirtualKeyW", return_value=18),
+            patch.object(
+                focus_restore._user32,
+                "PostMessageW",
+                side_effect=lambda hwnd, message, key, flags: posted.append(
+                    (hwnd, message, key, flags)
+                )
+                or True,
+            ),
+            patch.object(focus_restore.time, "sleep") as sleep,
+            patch.object(focus_restore, "_restore_window") as restore_window,
+        ):
+            sent = focus_restore._send_background_key(101, 69)
+
+        self.assertTrue(sent)
+        self.assertEqual(
+            posted,
+            [
+                (101, focus_restore._WM_KEYDOWN, 69, 1 | (18 << 16)),
+                (
+                    101,
+                    focus_restore._WM_KEYUP,
+                    69,
+                    1 | (18 << 16) | (1 << 30) | (1 << 31),
+                ),
+            ],
+        )
+        sleep.assert_called_once_with(focus_restore._BACKGROUND_KEY_HOLD_SECONDS)
+        restore_window.assert_not_called()
+
+    def test_background_key_stops_when_keydown_cannot_be_queued(self) -> None:
+        with (
+            patch.object(focus_restore._user32, "IsWindow", return_value=True),
+            patch.object(focus_restore._user32, "MapVirtualKeyW", return_value=16),
+            patch.object(focus_restore._user32, "PostMessageW", return_value=False),
+            patch.object(focus_restore.time, "sleep") as sleep,
+        ):
+            sent = focus_restore._send_background_key(101, 81)
+
+        self.assertFalse(sent)
+        sleep.assert_not_called()
+
+    def test_background_skill_action_uses_background_input(self) -> None:
+        self.assertTrue(focus_restore.BackgroundSkillAction.background_key_input)
+        self.assertFalse(focus_restore.FocusGuardAction.background_key_input)
+
 
 if __name__ == "__main__":
     unittest.main()
