@@ -99,6 +99,30 @@ ProgressMonitorEntry
 
 Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有启动它的 UI/MXU 父进程句柄，并在守护线程中通过 `WaitForSingleObject` 等待该具体进程结束。父进程正常退出、崩溃或重启后，回调只执行一次 `telegram_bot.stop()` 与 `AgentServer.shut_down()`，让阻塞中的 `AgentServer.join()` 返回；该异常退出路径不生成任务完成消息。使用进程句柄而不是反复查询 PID，可以避免父进程退出后 PID 被复用造成孤立 Agent 误判为仍受 UI 管理。
 
+## Agent 进程登记与一键关闭
+
+`agent/process_registry.py` 在 `AgentServer.start_up` 之前把当前 Agent 登记到 `<exe-root>/config/agent-processes/<pid>.json`。源码运行时 `exe-root` 是项目根，桌面包运行时是 `dist/DNAHelper`，两者都由 `agent/` 的上级目录推导。marker schema 固定为：
+
+```json
+{
+  "schema_version": 1,
+  "pid": 1234,
+  "creation_time_100ns": 133700000000000000,
+  "executable_path": "C:\\Python311\\python.exe"
+}
+```
+
+`creation_time_100ns` 是 `GetProcessTimes` 返回的 Windows FILETIME 创建时间。`executable_path` 是解析后的 `sys.executable` 绝对路径。marker 必须小于 4096 字节，先写入同目录临时文件、`fsync`，再用 `os.replace` 原子替换；现有祖先目录、登记目录或 marker 为符号链接、Windows 重解析点或非普通目标时拒绝写入。启动失败和正常退出都尽力删除 marker；强制终止留下的 marker 由下次一键清理判断是否过期。
+
+定制 MXU 注册 Tauri 命令 `terminate_all_dna_helper_processes`，返回 camelCase 的 `ProcessTerminationSummary`：`agentsTerminated`、`uiProcessesTerminated`、`staleMarkersRemoved`。该命令：
+
+- 最多读取 256 个、每个小于 4096 字节的普通 marker，拒绝符号链接、重解析点、越界路径、多余 schema 字段和异常文件名。
+- 先匹配 PID 和进程创建 FILETIME，再将 marker 路径与 `QueryFullProcessImageNameW` 得到的运行路径分别规范化后精确比较。只有三者一致才终止 Agent；PID 不存在或创建时间不同只删除过期 marker；路径不匹配或无法核验时报错且不终止、不删 marker。
+- 对 Agent 调用 `TerminateProcess` 后最多等待 2000ms 并确认退出。其他 UI 只在规范可执行路径与当前 `DNAHelper.exe` 完全相同且 PID 不是当前进程时终止；不按名称模糊匹配，因此不会关闭游戏、其他 Python 或其他路径的 MXU。
+- 后端不终止当前 UI。前端确认后调用命令，只在后端成功时调用 Tauri `exit(0)`。任何部分失败都返回错误并保留当前窗口，已成功的终止不回滚，全程不删除配置或日志。
+
+设置页的危险操作按钮使用 `ConfirmDialog`；确认文案必须明确说明会停止任务、Telegram 监听和所有 Helper 窗口，但不会关闭游戏。
+
 ## 局内 / 局外状态边界
 
 左下角角色血条 `combat_health_bar.png` 是单向局内证据。局外或边界未知监控先检查血条；连续 3 帧命中后确认局内。血条消失不能单独确认局外，因为 Q 动画等战斗状态可能临时隐藏 HUD。局内业务监控在血条缺失后进入无超时的边界未知等待：候选顺序为“血条、该模式合法的局内按钮、局外专属按钮、空闲兜底”。合法局内按钮可以继续当前局内流程，只有局外专属按钮命中后才进入局外动作链。候选是在同一 Pipeline 轮询中的优先级列表，不是真正的多线程。
@@ -409,6 +433,7 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
 - `pipeline_override` 只覆盖现有节点。
 - 从任务入口与动态目标出发不存在不可达节点。
 - TemplateMatch 引用的模板文件存在。
+- Agent marker 的 schema、原子替换、AgentServer 前登记/退出清理生命周期，以及定制 MXU 补丁中的固定命令、身份校验 API、2000ms 等待上限、中文危险按钮与五种 locale 键。
 
 校验器采用所有可选覆盖边的并集做保守可达性分析：节点只要在任一合法模式、子选项或 Agent 动态路径中可能使用，就应保留。
 
@@ -432,6 +457,7 @@ dist/DNAHelper/
   maafw/
   resource/
   agent/
+  config/agent-processes/       # 运行中 Agent marker（正常退出时删除）
 ```
 
 桌面壳基于固定的 MXU v2.1.3 提交，通过 `tools/mxu-v2.1.3-log-retention.patch` 维护项目定制。`tools/build_custom_mxu.ps1` 负责验证基线、应用补丁并生成 release 可执行文件；`build_ui.py` 不允许静默回退到没有这些定制命令的官方 MXU。

@@ -187,7 +187,7 @@ dist\DNAHelper\DNAHelper.exe
 7. 选择标题为“二重螺旋”的游戏窗口并点击“连接”。MXU 能自动匹配时，也可能直接显示“已连接”。
 8. 在任务卡片中选择模式、轮次和技能选项。
 9. 让游戏停在对应副本或可识别页面，然后点击“开始任务”，也可以按 `F10`。
-10. 需要停止时点击“停止任务”或按 `F11`。
+10. 需要停止时点击“停止任务”或按 `F11`。如果窗口已关闭但手机仍收到消息，重新打开 DNA Helper，在“设置 → 调试”使用“关闭所有 DNA Helper 进程”。
 
 两个标签页彼此独立，避免把两个长期游戏任务排进同一队列后由第一个任务永久阻塞第二个。“进度监控”会读取 MXU 已完成的本轮任务提交记录；确认后面还有游戏任务时自动作为一次性启动器，因此启动监听后立即让位给游戏任务。
 
@@ -251,6 +251,18 @@ python tools\inspect_windows.py
 “设置 → 常规 → 自动清理运行日志”下方提供红色“完全清空日志”操作项。确认后程序会安排重启，并在新日志创建前清空该目录；重启后的当前日志会保留。
 
 所有清理都会解析并核验目标，只允许操作可执行文件同级的真实 `debug` 目录。遇到符号链接、Windows 重解析点、非普通文件或越界路径时会拒绝整次操作。
+
+## 一键关闭所有 Helper 进程
+
+“设置 → 调试”的红色“关闭所有 DNA Helper 进程”用于处理窗口关闭后仍留在后台的 Agent、任务或 Telegram 监听。确认后程序会：
+
+1. 校验并关闭当前 DNA Helper 目录登记的 Python Agent。
+2. 关闭与当前 `DNAHelper.exe` 规范路径完全相同的其他 Helper 窗口。
+3. 后端全部成功返回后，再退出当前窗口。
+
+这个操作不会关闭《二重螺旋》，不会终止未登记的其他 Python 进程，也不会删除配置或日志。Agent 只在 marker 中的 PID、Windows 进程创建时间和规范可执行路径三者都与实际进程一致时才会被终止，避免 PID 复用或伪造 marker 误杀进程。
+
+如果某个目标无法核验或关闭，操作会报错并保留当前窗口；在报错前已成功关闭的进程不会回滚。过期 marker 会被安全清理。
 
 ## 任务说明
 
@@ -446,6 +458,7 @@ python tools\configure_telegram.py
 ```text
 agent/
   main.py                       # AgentServer 入口
+  process_registry.py           # Agent PID、创建时间与可执行路径安全登记
   parent_watchdog.py            # UI/MXU 父进程退出监控与孤立 Agent 清理
   focus_restore.py              # 输入代理与焦点恢复
   progress_monitor.py           # “进度监控”自动识别独立/队列运行方式
@@ -486,6 +499,7 @@ python -m unittest discover -s tests -v
 - Agent 动态调用的 Pipeline 目标。
 - 所有当前节点是否至少在一个任务、选项或 Agent 动态路径中可达。
 - 模板文件是否存在。
+- Agent 进程 marker 的固定 schema、启停生命周期，以及定制 MXU 的安全进程关闭命令、中文按钮与全部 locale 键。
 
 ## 当前已知限制
 

@@ -1,13 +1,13 @@
 diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
 new file mode 100644
-index 0000000..5ed0b5a
+index 0000000000000000000000000000000000000000..5ed0b5af0d45919f64c66edfb16a5f4512461fa1
 --- /dev/null
 +++ b/pnpm-workspace.yaml
 @@ -0,0 +1,2 @@
 +allowBuilds:
 +  esbuild: true
 diff --git a/src-tauri/src/commands/file_ops.rs b/src-tauri/src/commands/file_ops.rs
-index df32e84..28d59ed 100644
+index df32e8413357ff21461e55eac0bdf32495177714..28d59edd1cfe4adf8e3ff6351a56c2dfa9f2275d 100644
 --- a/src-tauri/src/commands/file_ops.rs
 +++ b/src-tauri/src/commands/file_ops.rs
 @@ -6,12 +6,128 @@ use log::debug;
@@ -389,8 +389,809 @@ index df32e84..28d59ed 100644
  /// 获取当前工作目录
  #[tauri::command]
  pub fn get_cwd() -> Result<String, String> {
+diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
+index e137aece822f4cce02d9393c919bd4d35ef223bf..1a1d0c510b6aa7efcded345eb6995610ff4a04e7 100644
+--- a/src-tauri/src/commands/mod.rs
++++ b/src-tauri/src/commands/mod.rs
+@@ -12,4 +12,5 @@
+ //! - `update`: 更新安装相关命令
+ //! - `download`: 下载相关命令
+ //! - `system`: 系统相关命令
++//! - `process_control`: DNA Helper 进程登记与安全终止
+ //! - `tray`: 托盘相关命令
+@@ -22,6 +23,7 @@ pub mod download;
+ pub mod file_ops;
+ pub mod maa_agent;
+ pub mod maa_core;
++pub mod process_control;
+ pub mod state;
+ pub mod system;
+ pub mod tray;
+diff --git a/src-tauri/src/commands/process_control.rs b/src-tauri/src/commands/process_control.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..14a1bfac8dedb2585c39d187f9784e3484072959
+--- /dev/null
++++ b/src-tauri/src/commands/process_control.rs
+@@ -0,0 +1,777 @@
++//! Safely terminate DNA Helper Agents and sibling UI processes.
++
++use serde::{Deserialize, Serialize};
++use std::path::{Path, PathBuf};
++
++const PROCESS_MARKER_SCHEMA_VERSION: u32 = 1;
++const MAX_PROCESS_MARKERS: usize = 256;
++const MAX_MARKER_BYTES: u64 = 4096;
++
++#[derive(Clone, Debug, Default, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct ProcessTerminationSummary {
++    pub agents_terminated: u32,
++    pub ui_processes_terminated: u32,
++    pub stale_markers_removed: u32,
++}
++
++#[derive(Clone, Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct ProcessMarker {
++    schema_version: u32,
++    pid: u32,
++    creation_time_100ns: u64,
++    executable_path: PathBuf,
++}
++
++#[derive(Clone, Debug)]
++struct ObservedProcessIdentity {
++    creation_time_100ns: u64,
++    executable_path: PathBuf,
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++enum MarkerDecision {
++    Kill,
++    Stale,
++}
++
++fn parse_process_marker(bytes: &[u8], file_pid: u32) -> Result<ProcessMarker, String> {
++    if bytes.is_empty() || bytes.len() as u64 >= MAX_MARKER_BYTES {
++        return Err(format!(
++            "Agent marker {file_pid}.json 必须为小于 {MAX_MARKER_BYTES} 字节的非空 JSON"
++        ));
++    }
++
++    let marker: ProcessMarker = serde_json::from_slice(bytes)
++        .map_err(|error| format!("Agent marker {file_pid}.json JSON 无效: {error}"))?;
++    if marker.schema_version != PROCESS_MARKER_SCHEMA_VERSION {
++        return Err(format!(
++            "Agent marker {file_pid}.json schema_version 无效: {}",
++            marker.schema_version
++        ));
++    }
++    if marker.pid == 0 || marker.pid != file_pid {
++        return Err(format!(
++            "Agent marker {file_pid}.json PID 与文件名不一致: {}",
++            marker.pid
++        ));
++    }
++    if marker.creation_time_100ns == 0 {
++        return Err(format!(
++            "Agent marker {file_pid}.json creation_time_100ns 无效"
++        ));
++    }
++    if !marker.executable_path.is_absolute() {
++        return Err(format!(
++            "Agent marker {file_pid}.json executable_path 必须为绝对路径"
++        ));
++    }
++    Ok(marker)
++}
++
++fn decide_marker_identity(
++    marker: &ProcessMarker,
++    observed: Option<&ObservedProcessIdentity>,
++) -> Result<MarkerDecision, String> {
++    let Some(observed) = observed else {
++        return Ok(MarkerDecision::Stale);
++    };
++    if marker.creation_time_100ns != observed.creation_time_100ns {
++        return Ok(MarkerDecision::Stale);
++    }
++    if marker.executable_path != observed.executable_path {
++        return Err(format!(
++            "PID {} 的可执行文件与 Agent marker 不匹配",
++            marker.pid
++        ));
++    }
++    Ok(MarkerDecision::Kill)
++}
++
++/// Terminate all registered DNA Helper Agents and all sibling DNA Helper UI
++/// processes. The current UI is deliberately left alive so the frontend can
++/// exit it only after this command returns successfully.
++#[tauri::command]
++pub fn terminate_all_dna_helper_processes() -> Result<ProcessTerminationSummary, String> {
++    #[cfg(windows)]
++    {
++        return windows_impl::terminate_all_dna_helper_processes_windows();
++    }
++
++    #[cfg(not(windows))]
++    {
++        Err("关闭所有 DNA Helper 进程仅支持 Windows".to_string())
++    }
++}
++
++#[cfg(windows)]
++mod windows_impl {
++    use super::*;
++    use std::collections::HashSet;
++    use std::ffi::c_void;
++    use std::ffi::OsString;
++    use std::fs::File;
++    use std::io::Read;
++    use std::os::windows::ffi::OsStringExt;
++    use std::os::windows::fs::MetadataExt;
++
++    type Handle = *mut c_void;
++
++    #[repr(C)]
++    struct FileTime {
++        dw_low_date_time: u32,
++        dw_high_date_time: u32,
++    }
++
++    #[repr(C)]
++    struct ProcessEntry32W {
++        dw_size: u32,
++        cnt_usage: u32,
++        th32_process_id: u32,
++        th32_default_heap_id: usize,
++        th32_module_id: u32,
++        cnt_threads: u32,
++        th32_parent_process_id: u32,
++        pc_pri_class_base: i32,
++        dw_flags: u32,
++        sz_exe_file: [u16; 260],
++    }
++
++    #[link(name = "kernel32")]
++    extern "system" {
++        fn CloseHandle(object: Handle) -> i32;
++        fn CreateToolhelp32Snapshot(flags: u32, process_id: u32) -> Handle;
++        fn Process32FirstW(snapshot: Handle, entry: *mut ProcessEntry32W) -> i32;
++        fn Process32NextW(snapshot: Handle, entry: *mut ProcessEntry32W) -> i32;
++        fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> Handle;
++        fn GetProcessTimes(
++            process: Handle,
++            creation_time: *mut FileTime,
++            exit_time: *mut FileTime,
++            kernel_time: *mut FileTime,
++            user_time: *mut FileTime,
++        ) -> i32;
++        fn QueryFullProcessImageNameW(
++            process: Handle,
++            flags: u32,
++            executable_name: *mut u16,
++            size: *mut u32,
++        ) -> i32;
++        fn TerminateProcess(process: Handle, exit_code: u32) -> i32;
++        fn WaitForSingleObject(handle: Handle, milliseconds: u32) -> u32;
++    }
++
++    const WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
++    const ERROR_NO_MORE_FILES: i32 = 18;
++    const TERMINATION_WAIT_MS: u32 = 2000;
++    const TH32CS_SNAPPROCESS: u32 = 0x0000_0002;
++    const PROCESS_TERMINATE: u32 = 0x0001;
++    const SYNCHRONIZE: u32 = 0x0010_0000;
++    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
++    const WAIT_OBJECT_0: u32 = 0x0000_0000;
++    const WAIT_TIMEOUT: u32 = 0x0000_0102;
++    const INVALID_HANDLE_VALUE: Handle = -1_isize as Handle;
++
++    struct OwnedHandle(Handle);
++
++    impl Drop for OwnedHandle {
++        fn drop(&mut self) {
++            if !self.0.is_null() && self.0 != INVALID_HANDLE_VALUE {
++                unsafe {
++                    CloseHandle(self.0);
++                }
++            }
++        }
++    }
++
++    fn metadata_is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
++        metadata.file_type().is_symlink()
++            || metadata.file_attributes() & WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT != 0
++    }
++
++    fn validate_existing_ancestor_chain(path: &Path) -> Result<(), String> {
++        let mut current = Some(path);
++        while let Some(candidate) = current {
++            match std::fs::symlink_metadata(candidate) {
++                Ok(metadata) => {
++                    if metadata_is_link_or_reparse(&metadata) {
++                        return Err(format!(
++                            "Agent marker 路径不允许符号链接或重解析点 [{}]",
++                            candidate.display()
++                        ));
++                    }
++                    if candidate != path && !metadata.is_dir() {
++                        return Err(format!(
++                            "Agent marker 路径的上级不是普通目录 [{}]",
++                            candidate.display()
++                        ));
++                    }
++                }
++                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
++                Err(error) => {
++                    return Err(format!(
++                        "检查 Agent marker 路径失败 [{}]: {error}",
++                        candidate.display()
++                    ));
++                }
++            }
++            current = candidate.parent();
++        }
++        Ok(())
++    }
++
++    fn checked_registry_dir() -> Result<Option<PathBuf>, String> {
++        let raw_executable = std::env::current_exe()
++            .map_err(|error| format!("获取 DNA Helper 程序路径失败: {error}"))?;
++        let executable_metadata = std::fs::symlink_metadata(&raw_executable).map_err(|error| {
++            format!(
++                "读取 DNA Helper 程序路径失败 [{}]: {error}",
++                raw_executable.display()
++            )
++        })?;
++        if !executable_metadata.is_file() || metadata_is_link_or_reparse(&executable_metadata) {
++            return Err(format!(
++                "拒绝使用异常 DNA Helper 程序路径 [{}]",
++                raw_executable.display()
++            ));
++        }
++
++        let executable = std::fs::canonicalize(&raw_executable).map_err(|error| {
++            format!(
++                "解析 DNA Helper 程序路径失败 [{}]: {error}",
++                raw_executable.display()
++            )
++        })?;
++        let executable_root = executable
++            .parent()
++            .ok_or_else(|| "DNA Helper 程序路径没有上级目录".to_string())?;
++        let raw_registry = executable_root.join("config").join("agent-processes");
++        validate_existing_ancestor_chain(&raw_registry)?;
++
++        let registry_metadata = match std::fs::symlink_metadata(&raw_registry) {
++            Ok(metadata) => metadata,
++            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
++            Err(error) => {
++                return Err(format!(
++                    "读取 Agent marker 目录失败 [{}]: {error}",
++                    raw_registry.display()
++                ));
++            }
++        };
++        if !registry_metadata.is_dir() || metadata_is_link_or_reparse(&registry_metadata) {
++            return Err(format!(
++                "拒绝使用异常 Agent marker 目录 [{}]",
++                raw_registry.display()
++            ));
++        }
++
++        let registry = std::fs::canonicalize(&raw_registry).map_err(|error| {
++            format!(
++                "解析 Agent marker 目录失败 [{}]: {error}",
++                raw_registry.display()
++            )
++        })?;
++        let expected_parent = executable_root.join("config");
++        let resolved_parent = std::fs::canonicalize(&expected_parent).map_err(|error| {
++            format!(
++                "解析 Agent marker 上级目录失败 [{}]: {error}",
++                expected_parent.display()
++            )
++        })?;
++        if registry.parent() != Some(resolved_parent.as_path())
++            || registry.file_name() != Some(std::ffi::OsStr::new("agent-processes"))
++        {
++            return Err(format!(
++                "拒绝越界 Agent marker 目录 [{}]",
++                registry.display()
++            ));
++        }
++        Ok(Some(registry))
++    }
++
++    fn checked_marker_paths(registry: &Path) -> Result<Vec<(u32, PathBuf)>, String> {
++        let mut paths = Vec::new();
++        for entry in std::fs::read_dir(registry)
++            .map_err(|error| format!("读取 Agent marker 目录失败: {error}"))?
++        {
++            let entry = entry.map_err(|error| format!("读取 Agent marker 目录项失败: {error}"))?;
++            if paths.len() >= MAX_PROCESS_MARKERS {
++                return Err(format!(
++                    "Agent marker 数量超过安全上限 {MAX_PROCESS_MARKERS}"
++                ));
++            }
++            let path = entry.path();
++            let metadata = std::fs::symlink_metadata(&path)
++                .map_err(|error| format!("读取 Agent marker 失败 [{}]: {error}", path.display()))?;
++            if !metadata.is_file() || metadata_is_link_or_reparse(&metadata) {
++                return Err(format!("拒绝异常 Agent marker [{}]", path.display()));
++            }
++            if metadata.len() == 0 || metadata.len() >= MAX_MARKER_BYTES {
++                return Err(format!(
++                    "Agent marker 大小无效 [{}]: {} bytes",
++                    path.display(),
++                    metadata.len()
++                ));
++            }
++
++            let file_name = path
++                .file_name()
++                .and_then(|value| value.to_str())
++                .ok_or_else(|| format!("Agent marker 文件名无效 [{}]", path.display()))?;
++            let pid_text = file_name
++                .strip_suffix(".json")
++                .ok_or_else(|| format!("Agent marker 扩展名无效 [{}]", path.display()))?;
++            if pid_text.is_empty() || !pid_text.bytes().all(|byte| byte.is_ascii_digit()) {
++                return Err(format!("Agent marker 文件名无效 [{}]", path.display()));
++            }
++            let pid = pid_text
++                .parse::<u32>()
++                .map_err(|_| format!("Agent marker PID 无效 [{}]", path.display()))?;
++            if pid == 0 || format!("{pid}.json") != file_name {
++                return Err(format!(
++                    "Agent marker 文件名不是规范 PID [{}]",
++                    path.display()
++                ));
++            }
++
++            let resolved = std::fs::canonicalize(&path)
++                .map_err(|error| format!("解析 Agent marker 失败 [{}]: {error}", path.display()))?;
++            if resolved.parent() != Some(registry) {
++                return Err(format!("拒绝越界 Agent marker [{}]", resolved.display()));
++            }
++            paths.push((pid, resolved));
++        }
++        Ok(paths)
++    }
++
++    fn read_marker(path: &Path, file_pid: u32) -> Result<ProcessMarker, String> {
++        let mut file = File::open(path)
++            .map_err(|error| format!("打开 Agent marker 失败 [{}]: {error}", path.display()))?;
++        let mut bytes = Vec::new();
++        file.by_ref()
++            .take(MAX_MARKER_BYTES)
++            .read_to_end(&mut bytes)
++            .map_err(|error| format!("读取 Agent marker 失败 [{}]: {error}", path.display()))?;
++        parse_process_marker(&bytes, file_pid)
++    }
++
++    fn remove_marker(path: &Path, registry: &Path) -> Result<(), String> {
++        let metadata = std::fs::symlink_metadata(path)
++            .map_err(|error| format!("重新检查 Agent marker 失败 [{}]: {error}", path.display()))?;
++        if !metadata.is_file() || metadata_is_link_or_reparse(&metadata) {
++            return Err(format!("拒绝删除异常 Agent marker [{}]", path.display()));
++        }
++        let resolved = std::fs::canonicalize(path)
++            .map_err(|error| format!("重新解析 Agent marker 失败 [{}]: {error}", path.display()))?;
++        if resolved.parent() != Some(registry) {
++            return Err(format!(
++                "拒绝删除越界 Agent marker [{}]",
++                resolved.display()
++            ));
++        }
++        std::fs::remove_file(&resolved)
++            .map_err(|error| format!("删除 Agent marker 失败 [{}]: {error}", resolved.display()))
++    }
++
++    fn process_ids() -> Result<HashSet<u32>, String> {
++        let raw_snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
++        if raw_snapshot == INVALID_HANDLE_VALUE {
++            return Err(format!(
++                "枚举 Windows 进程失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++        let snapshot = OwnedHandle(raw_snapshot);
++        let mut entry: ProcessEntry32W = unsafe { std::mem::zeroed() };
++        entry.dw_size = std::mem::size_of::<ProcessEntry32W>() as u32;
++        if unsafe { Process32FirstW(snapshot.0, &mut entry) } == 0 {
++            return Err(format!(
++                "读取 Windows 进程快照失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++
++        let mut pids = HashSet::new();
++        loop {
++            if entry.th32_process_id != 0 {
++                pids.insert(entry.th32_process_id);
++            }
++            if unsafe { Process32NextW(snapshot.0, &mut entry) } == 0 {
++                let error = std::io::Error::last_os_error();
++                if error.raw_os_error() != Some(ERROR_NO_MORE_FILES) {
++                    return Err(format!("继续读取 Windows 进程快照失败: {error}"));
++                }
++                break;
++            }
++        }
++        Ok(pids)
++    }
++
++    fn open_terminable_process(pid: u32) -> Result<OwnedHandle, String> {
++        let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE;
++        let raw_handle = unsafe { OpenProcess(access, 0, pid) };
++        if raw_handle.is_null() {
++            return Err(format!(
++                "打开进程 PID {pid} 失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++        Ok(OwnedHandle(raw_handle))
++    }
++
++    fn process_has_exited(handle: &OwnedHandle) -> Result<bool, String> {
++        match unsafe { WaitForSingleObject(handle.0, 0) } {
++            WAIT_OBJECT_0 => Ok(true),
++            WAIT_TIMEOUT => Ok(false),
++            value => Err(format!("检查进程状态失败: WaitForSingleObject={value:#x}")),
++        }
++    }
++
++    fn process_creation_time(handle: &OwnedHandle) -> Result<u64, String> {
++        let mut creation: FileTime = unsafe { std::mem::zeroed() };
++        let mut exit_time: FileTime = unsafe { std::mem::zeroed() };
++        let mut kernel_time: FileTime = unsafe { std::mem::zeroed() };
++        let mut user_time: FileTime = unsafe { std::mem::zeroed() };
++        if unsafe {
++            GetProcessTimes(
++                handle.0,
++                &mut creation,
++                &mut exit_time,
++                &mut kernel_time,
++                &mut user_time,
++            )
++        } == 0
++        {
++            return Err(format!(
++                "读取进程创建时间失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++        Ok((u64::from(creation.dw_high_date_time) << 32) | u64::from(creation.dw_low_date_time))
++    }
++
++    fn process_executable_path(handle: &OwnedHandle) -> Result<PathBuf, String> {
++        let mut buffer = vec![0_u16; 32_768];
++        let mut length = buffer.len() as u32;
++        if unsafe { QueryFullProcessImageNameW(handle.0, 0, buffer.as_mut_ptr(), &mut length) } == 0
++        {
++            return Err(format!(
++                "读取进程可执行文件路径失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++        buffer.truncate(length as usize);
++        Ok(PathBuf::from(OsString::from_wide(&buffer)))
++    }
++
++    fn canonical_process_path(path: &Path, pid: u32) -> Result<PathBuf, String> {
++        let metadata = std::fs::symlink_metadata(path).map_err(|error| {
++            format!(
++                "检查 PID {pid} 的可执行文件路径失败 [{}]: {error}",
++                path.display()
++            )
++        })?;
++        if !metadata.is_file() || metadata_is_link_or_reparse(&metadata) {
++            return Err(format!(
++                "拒绝 PID {pid} 的异常可执行文件路径 [{}]",
++                path.display()
++            ));
++        }
++        validate_existing_ancestor_chain(path)?;
++        std::fs::canonicalize(path).map_err(|error| {
++            format!(
++                "解析 PID {pid} 的可执行文件路径失败 [{}]: {error}",
++                path.display()
++            )
++        })
++    }
++
++    fn terminate_and_wait(handle: &OwnedHandle, pid: u32) -> Result<(), String> {
++        if process_has_exited(handle)? {
++            return Ok(());
++        }
++        if unsafe { TerminateProcess(handle.0, 1) } == 0 {
++            if process_has_exited(handle)? {
++                return Ok(());
++            }
++            return Err(format!(
++                "终止进程 PID {pid} 失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++        match unsafe { WaitForSingleObject(handle.0, TERMINATION_WAIT_MS) } {
++            WAIT_OBJECT_0 => Ok(()),
++            WAIT_TIMEOUT => Err(format!("终止进程 PID {pid} 超过 2000ms 仍未退出")),
++            value => Err(format!(
++                "等待进程 PID {pid} 退出失败: WaitForSingleObject={value:#x}"
++            )),
++        }
++    }
++
++    fn handle_agent_marker(
++        file_pid: u32,
++        path: &Path,
++        registry: &Path,
++        initial_pids: &HashSet<u32>,
++    ) -> Result<MarkerDecision, String> {
++        let marker = read_marker(path, file_pid)?;
++        if !initial_pids.contains(&marker.pid) {
++            remove_marker(path, registry)?;
++            return Ok(MarkerDecision::Stale);
++        }
++
++        let handle = match open_terminable_process(marker.pid) {
++            Ok(handle) => handle,
++            Err(open_error) => {
++                if !process_ids()?.contains(&marker.pid) {
++                    remove_marker(path, registry)?;
++                    return Ok(MarkerDecision::Stale);
++                }
++                return Err(open_error);
++            }
++        };
++        if process_has_exited(&handle)? {
++            remove_marker(path, registry)?;
++            return Ok(MarkerDecision::Stale);
++        }
++
++        let creation_time_100ns = process_creation_time(&handle)?;
++        if creation_time_100ns != marker.creation_time_100ns {
++            remove_marker(path, registry)?;
++            return Ok(MarkerDecision::Stale);
++        }
++
++        let marker_executable = canonical_process_path(&marker.executable_path, marker.pid)?;
++        let running_path = process_executable_path(&handle)?;
++        let running_executable = canonical_process_path(&running_path, marker.pid)?;
++        let observed = ObservedProcessIdentity {
++            creation_time_100ns,
++            executable_path: running_executable,
++        };
++        let checked_marker = ProcessMarker {
++            executable_path: marker_executable,
++            ..marker
++        };
++        decide_marker_identity(&checked_marker, Some(&observed))?;
++
++        terminate_and_wait(&handle, checked_marker.pid)?;
++        remove_marker(path, registry)?;
++        Ok(MarkerDecision::Kill)
++    }
++
++    fn terminate_registered_agents(
++        summary: &mut ProcessTerminationSummary,
++        errors: &mut Vec<String>,
++    ) {
++        let registry = match checked_registry_dir() {
++            Ok(Some(registry)) => registry,
++            Ok(None) => return,
++            Err(error) => {
++                errors.push(error);
++                return;
++            }
++        };
++        let markers = match checked_marker_paths(&registry) {
++            Ok(markers) => markers,
++            Err(error) => {
++                errors.push(error);
++                return;
++            }
++        };
++        let initial_pids = match process_ids() {
++            Ok(pids) => pids,
++            Err(error) => {
++                errors.push(error);
++                return;
++            }
++        };
++
++        for (file_pid, path) in markers {
++            match handle_agent_marker(file_pid, &path, &registry, &initial_pids) {
++                Ok(MarkerDecision::Kill) => {
++                    summary.agents_terminated = summary.agents_terminated.saturating_add(1);
++                }
++                Ok(MarkerDecision::Stale) => {
++                    summary.stale_markers_removed = summary.stale_markers_removed.saturating_add(1);
++                }
++                Err(error) => errors.push(error),
++            }
++        }
++    }
++
++    fn terminate_sibling_ui_processes(
++        summary: &mut ProcessTerminationSummary,
++        errors: &mut Vec<String>,
++    ) {
++        let current_pid = std::process::id();
++        let raw_current_executable = match std::env::current_exe() {
++            Ok(path) => path,
++            Err(error) => {
++                errors.push(format!("获取当前 DNA Helper 程序路径失败: {error}"));
++                return;
++            }
++        };
++        let current_executable = match canonical_process_path(&raw_current_executable, current_pid)
++        {
++            Ok(path) => path,
++            Err(error) => {
++                errors.push(error);
++                return;
++            }
++        };
++        let pids = match process_ids() {
++            Ok(pids) => pids,
++            Err(error) => {
++                errors.push(error);
++                return;
++            }
++        };
++
++        for pid in pids {
++            if pid == current_pid {
++                continue;
++            }
++            let handle = match open_terminable_process(pid) {
++                Ok(handle) => handle,
++                Err(_) => continue,
++            };
++            if process_has_exited(&handle).unwrap_or(true) {
++                continue;
++            }
++            let running_path = match process_executable_path(&handle) {
++                Ok(path) => path,
++                Err(_) => continue,
++            };
++            let running_executable = match std::fs::canonicalize(&running_path) {
++                Ok(path) => path,
++                Err(_) => continue,
++            };
++            if running_executable != current_executable {
++                continue;
++            }
++
++            match terminate_and_wait(&handle, pid) {
++                Ok(()) => {
++                    summary.ui_processes_terminated =
++                        summary.ui_processes_terminated.saturating_add(1);
++                }
++                Err(error) => errors.push(error),
++            }
++        }
++    }
++
++    pub(super) fn terminate_all_dna_helper_processes_windows(
++    ) -> Result<ProcessTerminationSummary, String> {
++        let mut summary = ProcessTerminationSummary::default();
++        let mut errors = Vec::new();
++
++        terminate_registered_agents(&mut summary, &mut errors);
++        terminate_sibling_ui_processes(&mut summary, &mut errors);
++
++        if errors.is_empty() {
++            Ok(summary)
++        } else {
++            Err(format!(
++                "部分 DNA Helper 进程未能关闭（Agent 已关闭 {}，其他窗口已关闭 {}，过期 marker 已清理 {}）：{}",
++                summary.agents_terminated,
++                summary.ui_processes_terminated,
++                summary.stale_markers_removed,
++                errors.join("；")
++            ))
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn marker() -> ProcessMarker {
++        ProcessMarker {
++            schema_version: 1,
++            pid: 1234,
++            creation_time_100ns: 133_700_000_000_000_000,
++            executable_path: PathBuf::from(r"C:\Python311\python.exe"),
++        }
++    }
++
++    #[test]
++    fn exact_pid_creation_and_path_match_is_killable() {
++        let marker = marker();
++        let observed = ObservedProcessIdentity {
++            creation_time_100ns: 133_700_000_000_000_000,
++            executable_path: PathBuf::from(r"C:\Python311\python.exe"),
++        };
++        assert_eq!(
++            decide_marker_identity(&marker, Some(&observed)).unwrap(),
++            MarkerDecision::Kill
++        );
++    }
++
++    #[test]
++    fn missing_pid_is_stale() {
++        assert_eq!(
++            decide_marker_identity(&marker(), None).unwrap(),
++            MarkerDecision::Stale
++        );
++    }
++
++    #[test]
++    fn creation_time_mismatch_is_stale_even_when_pid_exists() {
++        let observed = ObservedProcessIdentity {
++            creation_time_100ns: 133_700_000_000_000_001,
++            executable_path: PathBuf::from(r"C:\Python311\python.exe"),
++        };
++        assert_eq!(
++            decide_marker_identity(&marker(), Some(&observed)).unwrap(),
++            MarkerDecision::Stale
++        );
++    }
++
++    #[test]
++    fn executable_path_mismatch_is_an_error() {
++        let observed = ObservedProcessIdentity {
++            creation_time_100ns: 133_700_000_000_000_000,
++            executable_path: PathBuf::from(r"C:\Other\python.exe"),
++        };
++        assert!(decide_marker_identity(&marker(), Some(&observed)).is_err());
++    }
++
++    #[test]
++    fn marker_parser_rejects_unknown_fields_and_pid_mismatch() {
++        let unknown = br#"{
++            "schema_version": 1,
++            "pid": 1234,
++            "creation_time_100ns": 133700000000000000,
++            "executable_path": "C:\\Python311\\python.exe",
++            "unexpected": true
++        }"#;
++        assert!(parse_process_marker(unknown, 1234).is_err());
++
++        let wrong_pid = br#"{
++            "schema_version": 1,
++            "pid": 9999,
++            "creation_time_100ns": 133700000000000000,
++            "executable_path": "C:\\Python311\\python.exe"
++        }"#;
++        assert!(parse_process_marker(wrong_pid, 1234).is_err());
++    }
++
++    #[test]
++    fn termination_summary_serializes_with_camel_case_fields() {
++        let summary = ProcessTerminationSummary {
++            agents_terminated: 1,
++            ui_processes_terminated: 2,
++            stale_markers_removed: 3,
++        };
++        assert_eq!(
++            serde_json::to_value(summary).unwrap(),
++            serde_json::json!({
++                "agentsTerminated": 1,
++                "uiProcessesTerminated": 2,
++                "staleMarkersRemoved": 3,
++            })
++        );
++    }
++}
 diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
-index 4a76d36..302ba04 100644
+index 4a76d36e8c580d9811d8b32c64d04259c8d7f6b9..e1706419b8c8758c6b864ded2a93e0081baed214 100644
 --- a/src-tauri/src/lib.rs
 +++ b/src-tauri/src/lib.rs
 @@ -13,6 +13,11 @@ use ws_broadcast::WsBroadcast;
@@ -414,8 +1215,17 @@ index 4a76d36..302ba04 100644
              commands::file_ops::get_cwd,
              commands::file_ops::check_exe_path,
              commands::file_ops::set_executable,
+@@ -291,6 +298,8 @@ pub fn run() {
+             commands::system::get_web_server_port,
+             commands::system::get_local_lan_ip,
+             commands::system::get_webview2_dir,
++            // DNA Helper 进程清理命令
++            commands::process_control::terminate_all_dna_helper_processes,
+             // 托盘相关命令
+             commands::tray::set_minimize_to_tray,
+             commands::tray::get_minimize_to_tray,
 diff --git a/src/App.tsx b/src/App.tsx
-index 9445863..c0bde2d 100644
+index 9445863e9dd48142ef4e776380e3c1c7d8e282dd..c0bde2dded96f657313d4fb5c90761c175cf8b82 100644
 --- a/src/App.tsx
 +++ b/src/App.tsx
 @@ -66,7 +66,6 @@ import {
@@ -445,20 +1255,21 @@ index 9445863..c0bde2d 100644
            }
            clearPersistedRuntimeLogs();
 diff --git a/src/components/settings/DebugSection.tsx b/src/components/settings/DebugSection.tsx
-index 2e0ac20..43bfd85 100644
+index 2e0ac203d13ae19e38dec743453774c02b6eabc6..2b03d0795bee77ed383c42308cab2f501ba12fee 100644
 --- a/src/components/settings/DebugSection.tsx
 +++ b/src/components/settings/DebugSection.tsx
-@@ -10,7 +10,9 @@ import {
+@@ -10,7 +10,10 @@ import {
    Globe,
    ExternalLink,
    Server,
 +  Trash2,
++  Power,
  } from 'lucide-react';
 +import { toast } from 'sonner';
  
  import { useAppStore } from '@/stores/appStore';
  import { maaService } from '@/services/maaService';
-@@ -18,6 +20,7 @@ import { loggers } from '@/utils/logger';
+@@ -18,6 +21,7 @@ import { loggers } from '@/utils/logger';
  import { isTauri, getDebugDir, getConfigDir, openDirectory } from '@/utils/paths';
  import { useExportLogs } from '@/utils/useExportLogs';
  import { SwitchButton } from '@/components/FormControls';
@@ -466,12 +1277,14 @@ index 2e0ac20..43bfd85 100644
  import { ExportLogsModal } from './ExportLogsModal';
  
  export function DebugSection() {
-@@ -52,12 +55,31 @@ export function DebugSection() {
+@@ -52,12 +56,55 @@ export function DebugSection() {
    const [lanIp, setLanIp] = useState<string | null>(null);
    const [showRestartPrompt, setShowRestartPrompt] = useState(false);
    const [portInput, setPortInput] = useState(String(configuredPort));
 +  const [showClearLogsConfirm, setShowClearLogsConfirm] = useState(false);
 +  const [isSchedulingLogClear, setIsSchedulingLogClear] = useState(false);
++  const [showTerminateProcessesConfirm, setShowTerminateProcessesConfirm] = useState(false);
++  const [isTerminatingProcesses, setIsTerminatingProcesses] = useState(false);
  
    useEffect(() => {
      setPortInput(String(configuredPort));
@@ -495,10 +1308,32 @@ index 2e0ac20..43bfd85 100644
 +    }
 +  }, [isSchedulingLogClear, t]);
 +
++  const handleTerminateAllProcesses = useCallback(async () => {
++    if (!isTauri() || isTerminatingProcesses) return;
++    setIsTerminatingProcesses(true);
++    try {
++      const { invoke } = await import('@tauri-apps/api/core');
++      const summary = await invoke<{
++        agentsTerminated: number;
++        uiProcessesTerminated: number;
++        staleMarkersRemoved: number;
++      }>('terminate_all_dna_helper_processes');
++      loggers.ui.info('DNA Helper 进程清理完成:', summary);
++      toast.success(t('debug.terminateAllProcessesSucceeded'));
++      const { exit } = await import('@tauri-apps/plugin-process');
++      await exit(0);
++    } catch (error) {
++      loggers.ui.error('关闭所有 DNA Helper 进程失败:', error);
++      toast.error(t('debug.terminateAllProcessesFailed'));
++      setIsTerminatingProcesses(false);
++      setShowTerminateProcessesConfirm(false);
++    }
++  }, [isTerminatingProcesses, t]);
++
    const version = projectInterface?.version || '0.1.0';
  
    // 版本信息（用于调试展示）
-@@ -328,6 +350,16 @@ export function DebugSection() {
+@@ -328,6 +375,26 @@ export function DebugSection() {
              <Archive className="w-4 h-4" />
              {t('debug.exportLogs')}
            </button>
@@ -512,10 +1347,20 @@ index 2e0ac20..43bfd85 100644
 +            <Trash2 className="w-4 h-4" />
 +            {t('debug.clearAllLogs')}
 +          </button>
++          <button
++            type="button"
++            onClick={() => setShowTerminateProcessesConfirm(true)}
++            disabled={!isTauri() || isTerminatingProcesses}
++            className="flex items-center gap-2 px-3 py-2 text-sm bg-error/10 text-error hover:bg-error/20 rounded-lg transition-colors disabled:opacity-50"
++            title={t('debug.terminateAllProcessesHint')}
++          >
++            <Power className="w-4 h-4" />
++            {t('debug.terminateAllProcesses')}
++          </button>
          </div>
  
          {/* 开发模式 */}
-@@ -434,6 +466,19 @@ export function DebugSection() {
+@@ -434,6 +501,32 @@ export function DebugSection() {
          onClose={closeExportModal}
          onOpen={openExportedFile}
        />
@@ -532,11 +1377,24 @@ index 2e0ac20..43bfd85 100644
 +          if (!isSchedulingLogClear) setShowClearLogsConfirm(false);
 +        }}
 +      />
++      <ConfirmDialog
++        open={showTerminateProcessesConfirm}
++        title={t('debug.terminateAllProcessesConfirmTitle')}
++        message={t('debug.terminateAllProcessesConfirmMessage')}
++        confirmText={t('debug.terminateAllProcessesConfirm')}
++        cancelText={t('common.cancel')}
++        destructive
++        confirmDisabled={isTerminatingProcesses}
++        onConfirm={handleTerminateAllProcesses}
++        onCancel={() => {
++          if (!isTerminatingProcesses) setShowTerminateProcessesConfirm(false);
++        }}
++      />
      </section>
    );
  }
 diff --git a/src/components/settings/GeneralSection.tsx b/src/components/settings/GeneralSection.tsx
-index 4e2c221..e29683c 100644
+index 4e2c2217eae92da579037e0b5ab32de6379ac880..e29683c0df4160df5cb08a263994453da7175920 100644
 --- a/src/components/settings/GeneralSection.tsx
 +++ b/src/components/settings/GeneralSection.tsx
 @@ -168,7 +168,7 @@ export function GeneralSection() {
@@ -561,88 +1419,124 @@ index 4e2c221..e29683c 100644
        </div>
  
 diff --git a/src/i18n/locales/en-US.ts b/src/i18n/locales/en-US.ts
-index c6a4cb9..c06e7b7 100644
+index c6a4cb9b8effb7be80fa92b37a2080eb486e8fca..b30e25bda11e10f35b888bb490cc7513ada94433 100644
 --- a/src/i18n/locales/en-US.ts
 +++ b/src/i18n/locales/en-US.ts
-@@ -115,7 +115,7 @@ export default {
+@@ -115,7 +115,8 @@ export default {
      resetWindowLayout: 'Reset Window Layout',
      resetWindowLayoutHint: 'Restore window size to default and center the window',
      autoClearLogsOnLaunch: 'Auto-clear Runtime Logs',
 -    autoClearLogsOnLaunchHint: 'Automatically clear runtime logs and delete old log files every time the project is launched',
-+    autoClearLogsOnLaunchHint: 'Delete logs and debug files in the debug directory that are older than 14 days on launch',
++    autoClearLogsOnLaunchHint:
++      'Delete logs and debug files in the debug directory that are older than 14 days on launch',
    },
  
    // Special tasks
-@@ -522,6 +522,13 @@ export default {
+@@ -522,6 +523,23 @@ export default {
      resetWindowLayout: 'Reset Window Layout',
      openConfigDir: 'Open Config Dir',
      openLogDir: 'Open Log Dir',
 +    clearAllLogs: 'Clear All Logs',
 +    clearAllLogsHint: 'Restart and remove every log and debug file from the debug directory',
 +    clearAllLogsConfirmTitle: 'Clear all logs?',
-+    clearAllLogsConfirmMessage: 'The app will restart and clear the debug directory before creating new logs. This cannot be undone.',
++    clearAllLogsConfirmMessage:
++      'The app will restart and clear the debug directory before creating new logs. This cannot be undone.',
 +    clearAllLogsConfirm: 'Clear and Restart',
 +    clearAllLogsScheduled: 'Restarting to clear all logs',
 +    clearAllLogsFailed: 'Failed to schedule log cleanup',
++    terminateAllProcesses: 'Close All DNA Helper Processes',
++    terminateAllProcessesHint: 'Stop tasks, Telegram monitoring, and every DNA Helper window',
++    terminateAllProcessesConfirmTitle: 'Close all DNA Helper processes?',
++    terminateAllProcessesConfirmMessage:
++      'This stops running tasks, Telegram monitoring, and every DNA Helper window, but it does not close the game. The current window exits only after cleanup succeeds.',
++    terminateAllProcessesConfirm: 'Close All',
++    terminateAllProcessesSucceeded: 'All DNA Helper processes were closed',
++    terminateAllProcessesFailed:
++      'Some DNA Helper processes could not be closed; this window remains open',
      exportLogs: 'Export Logs',
      exportLogsHint:
        'Pack logs and config into a zip archive, keeping newest debug images until it reaches about 24.5 MB',
 diff --git a/src/i18n/locales/ja-JP.ts b/src/i18n/locales/ja-JP.ts
-index 5b48883..1792409 100644
+index 5b48883408bffb5359a7e48a4e05907e679c5573..e28e1c10e0ce2830277d77d7dada4b200bc57462 100644
 --- a/src/i18n/locales/ja-JP.ts
 +++ b/src/i18n/locales/ja-JP.ts
-@@ -112,7 +112,7 @@ export default {
+@@ -111,8 +111,11 @@ export default {
+     maxLogsPerInstance: 'インスタンスあたりのログ上限',
      maxLogsPerInstanceHint: '上限を超えると古いログから自動的に破棄します（推奨 500～2000）',
      resetWindowLayout: 'ウィンドウレイアウトをリセット',
-     resetWindowLayoutHint: 'ウィンドウサイズをデフォルトに戻し、中央に配置します',    autoClearLogsOnLaunch: '実行ログの自動クリア',
+-    resetWindowLayoutHint: 'ウィンドウサイズをデフォルトに戻し、中央に配置します',    autoClearLogsOnLaunch: '実行ログの自動クリア',
 -    autoClearLogsOnLaunchHint: 'プロジェクトの起動時に自動で実行ログをクリアし、古いログファイルを削除します',  },
-+    autoClearLogsOnLaunchHint: '起動時に debug フォルダー内の 14 日を超えたログとデバッグファイルを削除します',  },
++    resetWindowLayoutHint: 'ウィンドウサイズをデフォルトに戻し、中央に配置します',
++    autoClearLogsOnLaunch: '実行ログの自動クリア',
++    autoClearLogsOnLaunchHint:
++      '起動時に debug フォルダー内の 14 日を超えたログとデバッグファイルを削除します',
++  },
  
    // 特殊タスク
    specialTask: {
-@@ -515,6 +515,13 @@ export default {
+@@ -515,6 +518,23 @@ export default {
      resetWindowSize: 'ウィンドウサイズをリセット',
      openConfigDir: '設定フォルダを開く',
      openLogDir: 'ログフォルダを開く',
 +    clearAllLogs: 'ログを完全に消去',
 +    clearAllLogsHint: '再起動して debug フォルダー内のすべてのログとデバッグファイルを削除します',
 +    clearAllLogsConfirmTitle: 'すべてのログを消去しますか？',
-+    clearAllLogsConfirmMessage: 'アプリを再起動し、新しいログを作成する前に debug フォルダーを消去します。この操作は元に戻せません。',
++    clearAllLogsConfirmMessage:
++      'アプリを再起動し、新しいログを作成する前に debug フォルダーを消去します。この操作は元に戻せません。',
 +    clearAllLogsConfirm: '消去して再起動',
 +    clearAllLogsScheduled: '再起動してログを消去しています',
 +    clearAllLogsFailed: 'ログ消去を予約できませんでした',
++    terminateAllProcesses: 'すべての DNA Helper プロセスを終了',
++    terminateAllProcessesHint: 'タスク、Telegram 監視、すべての DNA Helper ウィンドウを停止します',
++    terminateAllProcessesConfirmTitle: 'すべての DNA Helper プロセスを終了しますか？',
++    terminateAllProcessesConfirmMessage:
++      '実行中のタスク、Telegram 監視、すべての DNA Helper ウィンドウを停止しますが、ゲームは終了しません。現在のウィンドウはクリーンアップ成功後にのみ終了します。',
++    terminateAllProcessesConfirm: 'すべて終了',
++    terminateAllProcessesSucceeded: 'すべての DNA Helper プロセスを終了しました',
++    terminateAllProcessesFailed:
++      '一部の DNA Helper プロセスを終了できなかったため、このウィンドウは開いたままです',
      exportLogs: 'ログをエクスポート',
      exportLogsHint: 'ログと config を zip にまとめ、約 24.5 MB まで最新のデバッグ画像を自動で保持',
      exportingLogs: 'ログをエクスポート中...',
 diff --git a/src/i18n/locales/ko-KR.ts b/src/i18n/locales/ko-KR.ts
-index 76d1c1a..139b505 100644
+index 76d1c1ae6ac97b658b1991fc20381f93d00468ce..f2bf2595029dc766b79661e03fd44235dcaca584 100644
 --- a/src/i18n/locales/ko-KR.ts
 +++ b/src/i18n/locales/ko-KR.ts
-@@ -112,7 +112,7 @@ export default {
+@@ -112,7 +112,8 @@ export default {
      resetWindowLayout: '창 레이아웃 초기화',
      resetWindowLayoutHint: '창 크기를 기본값으로 복원하고 화면 중앙에 배치합니다',
      autoClearLogsOnLaunch: '로그 자동 지우기',
 -    autoClearLogsOnLaunchHint: '프로젝트를 시작할 때 런타임 로그를 자동으로 지우고 이전 로그 파일을 삭제합니다',
-+    autoClearLogsOnLaunchHint: '시작할 때 debug 폴더에서 14일이 지난 로그와 디버그 파일을 삭제합니다',
++    autoClearLogsOnLaunchHint:
++      '시작할 때 debug 폴더에서 14일이 지난 로그와 디버그 파일을 삭제합니다',
    },
  
    // 특수 작업
-@@ -514,6 +514,13 @@ export default {
+@@ -514,6 +515,22 @@ export default {
      resetWindowSize: '창 크기 초기화',
      openConfigDir: '설정 폴더 열기',
      openLogDir: '로그 폴더 열기',
 +    clearAllLogs: '모든 로그 완전 삭제',
 +    clearAllLogsHint: '앱을 다시 시작하고 debug 폴더의 모든 로그 및 디버그 파일을 삭제합니다',
 +    clearAllLogsConfirmTitle: '모든 로그를 삭제할까요?',
-+    clearAllLogsConfirmMessage: '앱이 즉시 다시 시작되고 새 로그를 만들기 전에 debug 폴더를 비웁니다. 이 작업은 취소할 수 없습니다.',
++    clearAllLogsConfirmMessage:
++      '앱이 즉시 다시 시작되고 새 로그를 만들기 전에 debug 폴더를 비웁니다. 이 작업은 취소할 수 없습니다.',
 +    clearAllLogsConfirm: '삭제 후 다시 시작',
 +    clearAllLogsScheduled: '모든 로그를 삭제하기 위해 다시 시작합니다',
 +    clearAllLogsFailed: '로그 삭제를 예약할 수 없습니다',
++    terminateAllProcesses: '모든 DNA Helper 프로세스 종료',
++    terminateAllProcessesHint: '작업, Telegram 모니터링 및 모든 DNA Helper 창을 중지합니다',
++    terminateAllProcessesConfirmTitle: '모든 DNA Helper 프로세스를 종료할까요?',
++    terminateAllProcessesConfirmMessage:
++      '실행 중인 작업, Telegram 모니터링 및 모든 DNA Helper 창을 중지하지만 게임은 종료하지 않습니다. 현재 창은 정리가 성공한 후에만 종료됩니다.',
++    terminateAllProcessesConfirm: '모두 종료',
++    terminateAllProcessesSucceeded: '모든 DNA Helper 프로세스를 종료했습니다',
++    terminateAllProcessesFailed: '일부 DNA Helper 프로세스를 종료하지 못해 현재 창을 유지합니다',
      exportLogs: '로그 내보내기',
      exportLogsHint:
        '로그와 config를 zip으로 묶고, 약 24.5 MB까지 최신 디버그 이미지를 자동으로 유지',
 diff --git a/src/i18n/locales/zh-CN.ts b/src/i18n/locales/zh-CN.ts
-index bbbc8e2..a5a4b6c 100644
+index bbbc8e246eb87c5c58cbfcb5ced311a59de22736..fd84a292ff22db84ec0fa4dace4b2a8bc6c3da77 100644
 --- a/src/i18n/locales/zh-CN.ts
 +++ b/src/i18n/locales/zh-CN.ts
 @@ -112,7 +112,7 @@ export default {
@@ -654,7 +1548,7 @@ index bbbc8e2..a5a4b6c 100644
    },
  
    // 特殊任务
-@@ -511,6 +511,13 @@ export default {
+@@ -511,6 +511,21 @@ export default {
      resetWindowLayout: '重置窗口布局',
      openConfigDir: '打开配置目录',
      openLogDir: '打开日志目录',
@@ -665,33 +1559,54 @@ index bbbc8e2..a5a4b6c 100644
 +    clearAllLogsConfirm: '清空并重启',
 +    clearAllLogsScheduled: '正在重启并完全清空日志',
 +    clearAllLogsFailed: '无法安排日志清理',
++    terminateAllProcesses: '关闭所有 DNA Helper 进程',
++    terminateAllProcessesHint: '停止任务、Telegram 监听和所有 DNA Helper 窗口',
++    terminateAllProcessesConfirmTitle: '关闭所有 DNA Helper 进程？',
++    terminateAllProcessesConfirmMessage:
++      '这将停止正在运行的任务、Telegram 监听和所有 DNA Helper 窗口，但不会关闭游戏。当前窗口仅在清理成功后退出。',
++    terminateAllProcessesConfirm: '关闭全部',
++    terminateAllProcessesSucceeded: '所有 DNA Helper 进程已关闭',
++    terminateAllProcessesFailed: '部分 DNA Helper 进程未能关闭，当前窗口已保留',
      exportLogs: '导出日志',
      exportLogsHint: '打包日志和 config，并按压缩包 24.5 MB 上限自动保留最近调试图片',
      exportingLogs: '正在导出日志...',
 diff --git a/src/i18n/locales/zh-TW.ts b/src/i18n/locales/zh-TW.ts
-index 7371edd..f471031 100644
+index 7371edd416b2da908a83968efd8c61c6250fced1..dc337d505aa642caacebe959de586830fd2cd943 100644
 --- a/src/i18n/locales/zh-TW.ts
 +++ b/src/i18n/locales/zh-TW.ts
-@@ -110,7 +110,7 @@ export default {
+@@ -109,8 +109,10 @@ export default {
+     maxLogsPerInstance: '每個實例保留的日誌上限',
      maxLogsPerInstanceHint: '超出上限會自動丟棄最舊的日誌（建議 500～2000）',
      resetWindowLayout: '重設視窗佈局',
-     resetWindowLayoutHint: '將視窗大小恢復為預設值，並置中顯示',    autoClearLogsOnLaunch: '自動清理運行日誌',
+-    resetWindowLayoutHint: '將視窗大小恢復為預設值，並置中顯示',    autoClearLogsOnLaunch: '自動清理運行日誌',
 -    autoClearLogsOnLaunchHint: '每次啟動項目時，自動清理運行日誌並刪除舊的日誌檔案',  },
-+    autoClearLogsOnLaunchHint: '每次啟動項目時，自動刪除 debug 目錄內超過 14 天的日誌與除錯檔案',  },
++    resetWindowLayoutHint: '將視窗大小恢復為預設值，並置中顯示',
++    autoClearLogsOnLaunch: '自動清理運行日誌',
++    autoClearLogsOnLaunchHint: '每次啟動項目時，自動刪除 debug 目錄內超過 14 天的日誌與除錯檔案',
++  },
  
    // 特殊任務
    specialTask: {
-@@ -505,6 +505,13 @@ export default {
+@@ -505,6 +507,22 @@ export default {
      resetWindowSize: '重設視窗尺寸',
      openConfigDir: '開啟設定目錄',
      openLogDir: '開啟日誌目錄',
 +    clearAllLogs: '完全清空日誌',
 +    clearAllLogsHint: '重新啟動程式並清空 debug 目錄中的全部日誌與除錯檔案',
 +    clearAllLogsConfirmTitle: '完全清空日誌？',
-+    clearAllLogsConfirmMessage: '程式將立即重新啟動，並在建立新日誌前清空 debug 目錄。此操作無法復原。',
++    clearAllLogsConfirmMessage:
++      '程式將立即重新啟動，並在建立新日誌前清空 debug 目錄。此操作無法復原。',
 +    clearAllLogsConfirm: '清空並重新啟動',
 +    clearAllLogsScheduled: '正在重新啟動並完全清空日誌',
 +    clearAllLogsFailed: '無法安排日誌清理',
++    terminateAllProcesses: '關閉所有 DNA Helper 進程',
++    terminateAllProcessesHint: '停止任務、Telegram 監聽和所有 DNA Helper 視窗',
++    terminateAllProcessesConfirmTitle: '關閉所有 DNA Helper 進程？',
++    terminateAllProcessesConfirmMessage:
++      '這將停止正在執行的任務、Telegram 監聽和所有 DNA Helper 視窗，但不會關閉遊戲。目前視窗僅在清理成功後退出。',
++    terminateAllProcessesConfirm: '關閉全部',
++    terminateAllProcessesSucceeded: '所有 DNA Helper 進程已關閉',
++    terminateAllProcessesFailed: '部分 DNA Helper 進程未能關閉，目前視窗已保留',
      exportLogs: '匯出日誌',
      exportLogsHint: '打包日誌與 config，並依 24.5 MB 上限自動保留最近的除錯圖片',
      exportingLogs: '正在匯出日誌...',

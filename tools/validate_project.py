@@ -64,6 +64,80 @@ SKILL_OPTION_BRANCHES = (
 )
 
 
+def require_source_fragments(path: Path, fragments: tuple[str, ...]) -> str:
+    """Return UTF-8 source after requiring fixed integration-contract fragments."""
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"Missing required source: {path.relative_to(ROOT)}: {exc}") from exc
+    missing = [fragment for fragment in fragments if fragment not in source]
+    if missing:
+        raise SystemExit(
+            f"{path.relative_to(ROOT)}: missing process integration fragments: {missing}"
+        )
+    return source
+
+
+def validate_process_termination_contract() -> None:
+    """Keep Python Agent registration and the custom MXU kill command aligned."""
+    registry_source = require_source_fragments(
+        ROOT / "agent" / "process_registry.py",
+        (
+            "SCHEMA_VERSION = 1",
+            "MAX_MARKER_BYTES = 4096",
+            '"config" / "agent-processes"',
+            "GetProcessTimes",
+            "Path(sys.executable).resolve()",
+            "os.replace(temporary_path, marker_path)",
+        ),
+    )
+    if registry_source.index(
+        "_validate_registry_directory(_REGISTRY_DIR)"
+    ) > registry_source.index("marker_path.parent.mkdir"):
+        raise SystemExit(
+            "Agent registry must validate existing ancestors before creating directories"
+        )
+
+    main_source = require_source_fragments(
+        ROOT / "agent" / "main.py",
+        (
+            "process_registry.register_current_process()",
+            "AgentServer.start_up(sys.argv[-1])",
+            "process_registry.unregister_current_process()",
+        ),
+    )
+    if main_source.index("process_registry.register_current_process()") > main_source.index(
+        "AgentServer.start_up(sys.argv[-1])"
+    ):
+        raise SystemExit("Agent must register before AgentServer.start_up")
+    if main_source.index("process_registry.unregister_current_process()") < main_source.index(
+        "AgentServer.start_up(sys.argv[-1])"
+    ):
+        raise SystemExit("Agent marker cleanup must follow the server lifecycle")
+
+    patch_source = require_source_fragments(
+        ROOT / "tools" / "mxu-v2.1.3-log-retention.patch",
+        (
+            "pub fn terminate_all_dna_helper_processes()",
+            "ProcessTerminationSummary",
+            'serde(rename_all = "camelCase")',
+            "MAX_PROCESS_MARKERS: usize = 256",
+            "MAX_MARKER_BYTES: u64 = 4096",
+            "GetProcessTimes",
+            "QueryFullProcessImageNameW",
+            "TerminateProcess",
+            "TERMINATION_WAIT_MS: u32 = 2000",
+            "config\").join(\"agent-processes\")",
+            "terminate_all_dna_helper_processes",
+            "await exit(0)",
+            "关闭所有 DNA Helper 进程",
+            "不会关闭游戏",
+        ),
+    )
+    if patch_source.count("terminateAllProcesses:") != 5:
+        raise SystemExit("MXU process termination labels must exist in all five locales")
+
+
 def load_json(path: Path) -> dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -130,6 +204,7 @@ def require_override(
 
 
 def main() -> None:
+    validate_process_termination_contract()
     interface_path = ASSETS / "interface.json"
     interface = load_json(interface_path)
 

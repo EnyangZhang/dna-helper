@@ -11,6 +11,7 @@ import focus_restore  # noqa: F401  Registers foreground-window restore actions.
 import parent_watchdog
 import progress_monitor  # noqa: F401  Registers the monitor bootstrap action.
 import round_logger  # noqa: F401  Registers the custom action.
+import process_registry
 import telegram_bot
 
 
@@ -32,12 +33,22 @@ def main() -> int:
         finally:
             AgentServer.shut_down()
 
-    AgentServer.start_up(sys.argv[-1])
-    parent_watchdog.start_parent_watchdog(stop_agent_once)
+    server_started = False
+    process_registry.register_current_process()
     try:
+        AgentServer.start_up(sys.argv[-1])
+        server_started = True
+        parent_watchdog.start_parent_watchdog(stop_agent_once)
         AgentServer.join()
     finally:
-        stop_agent_once()
+        try:
+            if server_started:
+                stop_agent_once()
+        finally:
+            try:
+                process_registry.unregister_current_process()
+            except Exception as exc:
+                print(f"[Agent] 清理 marker 失败：{exc}", flush=True)
     return 0
 
 
