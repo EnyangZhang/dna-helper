@@ -1,13 +1,13 @@
 diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
 new file mode 100644
-index 0000000000000000000000000000000000000000..5ed0b5af0d45919f64c66edfb16a5f4512461fa1
+index 0000000..5ed0b5a
 --- /dev/null
 +++ b/pnpm-workspace.yaml
 @@ -0,0 +1,2 @@
 +allowBuilds:
 +  esbuild: true
 diff --git a/src-tauri/src/commands/file_ops.rs b/src-tauri/src/commands/file_ops.rs
-index df32e8413357ff21461e55eac0bdf32495177714..28d59edd1cfe4adf8e3ff6351a56c2dfa9f2275d 100644
+index df32e84..28d59ed 100644
 --- a/src-tauri/src/commands/file_ops.rs
 +++ b/src-tauri/src/commands/file_ops.rs
 @@ -6,12 +6,128 @@ use log::debug;
@@ -18,9 +18,9 @@ index df32e8413357ff21461e55eac0bdf32495177714..28d59edd1cfe4adf8e3ff6351a56c2df
 +
 +#[cfg(windows)]
 +use std::os::windows::fs::MetadataExt;
- 
+
  use super::utils::{get_app_data_dir, get_exe_directory, normalize_path};
- 
+
  const MAX_EXPORT_ARCHIVE_BYTES: u64 = 24_500_000;
  const ZIP_ENTRY_OVERHEAD_BYTES: u64 = 128;
  const ZIP_END_OF_CENTRAL_DIRECTORY_BYTES: u64 = 22;
@@ -136,13 +136,13 @@ index df32e8413357ff21461e55eac0bdf32495177714..28d59edd1cfe4adf8e3ff6351a56c2df
 +    visit(root, root, &mut entries)?;
 +    Ok(entries)
 +}
- 
+
  #[derive(Clone)]
  struct ExportEntry {
 @@ -295,50 +411,229 @@ pub fn get_data_dir() -> Result<String, String> {
      Ok(data_dir.to_string_lossy().to_string())
  }
- 
+
 -/// 删除 debug 目录中的 .log 文件，可选择排除一个当前正在使用的日志文件
 +/// 删除 debug 目录中的 .log 文件，可选择排除一个当前正在使用的日志文件。
 +/// 删除前会解析并验证程序目录、debug 目录及全部子项，拒绝符号链接、重解析点和越界路径。
@@ -156,7 +156,7 @@ index df32e8413357ff21461e55eac0bdf32495177714..28d59edd1cfe4adf8e3ff6351a56c2df
 -    }
 +    };
 +    let entries = collect_checked_debug_entries(&debug_dir)?;
- 
+
      let mut deleted = 0_u64;
 -    let entries = std::fs::read_dir(&debug_dir)
 -        .map_err(|e| format!("读取日志目录失败 [{}]: {}", debug_dir.display(), e))?;
@@ -171,7 +171,7 @@ index df32e8413357ff21461e55eac0bdf32495177714..28d59edd1cfe4adf8e3ff6351a56c2df
 +        if entry.is_dir || entry.path.parent() != Some(debug_dir.as_path()) {
              continue;
          }
- 
+
 -        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
 +        let Some(name) = entry.path.file_name().and_then(|name| name.to_str()) else {
              continue;
@@ -184,7 +184,7 @@ index df32e8413357ff21461e55eac0bdf32495177714..28d59edd1cfe4adf8e3ff6351a56c2df
          if exclude_file_name.as_deref() == Some(name) {
              continue;
          }
- 
+
 -        match std::fs::remove_file(&path) {
 -            Ok(()) => deleted = deleted.saturating_add(1),
 -            Err(e) => log::debug!("Failed to delete log file [{}]: {}", path.display(), e),
@@ -266,10 +266,10 @@ index df32e8413357ff21461e55eac0bdf32495177714..28d59edd1cfe4adf8e3ff6351a56c2df
 +            deleted = deleted.saturating_add(1);
          }
      }
- 
+
      Ok(deleted)
  }
- 
+
 +/// 在 debug 目录内创建一次性标记；应用下次启动、日志初始化前执行完整清理。
 +#[tauri::command]
 +pub fn schedule_full_debug_clear() -> Result<(), String> {
@@ -390,15 +390,17 @@ index df32e8413357ff21461e55eac0bdf32495177714..28d59edd1cfe4adf8e3ff6351a56c2df
  #[tauri::command]
  pub fn get_cwd() -> Result<String, String> {
 diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
-index e137aece822f4cce02d9393c919bd4d35ef223bf..1a1d0c510b6aa7efcded345eb6995610ff4a04e7 100644
+index e137aec..1a1d0c5 100644
 --- a/src-tauri/src/commands/mod.rs
 +++ b/src-tauri/src/commands/mod.rs
-@@ -12,4 +12,5 @@
+@@ -12,6 +12,7 @@
  //! - `update`: 更新安装相关命令
  //! - `download`: 下载相关命令
  //! - `system`: 系统相关命令
 +//! - `process_control`: DNA Helper 进程登记与安全终止
  //! - `tray`: 托盘相关命令
+
+ pub mod types;
 @@ -22,6 +23,7 @@ pub mod download;
  pub mod file_ops;
  pub mod maa_agent;
@@ -409,11 +411,11 @@ index e137aece822f4cce02d9393c919bd4d35ef223bf..1a1d0c510b6aa7efcded345eb6995610
  pub mod tray;
 diff --git a/src-tauri/src/commands/process_control.rs b/src-tauri/src/commands/process_control.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..14a1bfac8dedb2585c39d187f9784e3484072959
+index 0000000..97705cc
 --- /dev/null
 +++ b/src-tauri/src/commands/process_control.rs
-@@ -0,0 +1,777 @@
-+//! Safely terminate DNA Helper Agents and sibling UI processes.
+@@ -0,0 +1,710 @@
++//! Safely terminate registered DNA Helper monitoring Agents.
 +
 +use serde::{Deserialize, Serialize};
 +use std::path::{Path, PathBuf};
@@ -424,9 +426,8 @@ index 0000000000000000000000000000000000000000..14a1bfac8dedb2585c39d187f9784e34
 +
 +#[derive(Clone, Debug, Default, Serialize)]
 +#[serde(rename_all = "camelCase")]
-+pub struct ProcessTerminationSummary {
++pub struct MonitorTerminationSummary {
 +    pub agents_terminated: u32,
-+    pub ui_processes_terminated: u32,
 +    pub stale_markers_removed: u32,
 +}
 +
@@ -504,19 +505,18 @@ index 0000000000000000000000000000000000000000..14a1bfac8dedb2585c39d187f9784e34
 +    Ok(MarkerDecision::Kill)
 +}
 +
-+/// Terminate all registered DNA Helper Agents and all sibling DNA Helper UI
-+/// processes. The current UI is deliberately left alive so the frontend can
-+/// exit it only after this command returns successfully.
++/// Terminate all registered DNA Helper monitoring Agents. UI and game
++/// processes are never enumerated or terminated by this command.
 +#[tauri::command]
-+pub fn terminate_all_dna_helper_processes() -> Result<ProcessTerminationSummary, String> {
++pub fn terminate_all_dna_helper_monitors() -> Result<MonitorTerminationSummary, String> {
 +    #[cfg(windows)]
 +    {
-+        return windows_impl::terminate_all_dna_helper_processes_windows();
++        return windows_impl::terminate_all_dna_helper_monitors_windows();
 +    }
 +
 +    #[cfg(not(windows))]
 +    {
-+        Err("关闭所有 DNA Helper 进程仅支持 Windows".to_string())
++        Err("关闭所有监控进程仅支持 Windows".to_string())
 +    }
 +}
 +
@@ -976,7 +976,7 @@ index 0000000000000000000000000000000000000000..14a1bfac8dedb2585c39d187f9784e34
 +    }
 +
 +    fn terminate_registered_agents(
-+        summary: &mut ProcessTerminationSummary,
++        summary: &mut MonitorTerminationSummary,
 +        errors: &mut Vec<String>,
 +    ) {
 +        let registry = match checked_registry_dir() {
@@ -1015,82 +1015,19 @@ index 0000000000000000000000000000000000000000..14a1bfac8dedb2585c39d187f9784e34
 +        }
 +    }
 +
-+    fn terminate_sibling_ui_processes(
-+        summary: &mut ProcessTerminationSummary,
-+        errors: &mut Vec<String>,
-+    ) {
-+        let current_pid = std::process::id();
-+        let raw_current_executable = match std::env::current_exe() {
-+            Ok(path) => path,
-+            Err(error) => {
-+                errors.push(format!("获取当前 DNA Helper 程序路径失败: {error}"));
-+                return;
-+            }
-+        };
-+        let current_executable = match canonical_process_path(&raw_current_executable, current_pid)
-+        {
-+            Ok(path) => path,
-+            Err(error) => {
-+                errors.push(error);
-+                return;
-+            }
-+        };
-+        let pids = match process_ids() {
-+            Ok(pids) => pids,
-+            Err(error) => {
-+                errors.push(error);
-+                return;
-+            }
-+        };
-+
-+        for pid in pids {
-+            if pid == current_pid {
-+                continue;
-+            }
-+            let handle = match open_terminable_process(pid) {
-+                Ok(handle) => handle,
-+                Err(_) => continue,
-+            };
-+            if process_has_exited(&handle).unwrap_or(true) {
-+                continue;
-+            }
-+            let running_path = match process_executable_path(&handle) {
-+                Ok(path) => path,
-+                Err(_) => continue,
-+            };
-+            let running_executable = match std::fs::canonicalize(&running_path) {
-+                Ok(path) => path,
-+                Err(_) => continue,
-+            };
-+            if running_executable != current_executable {
-+                continue;
-+            }
-+
-+            match terminate_and_wait(&handle, pid) {
-+                Ok(()) => {
-+                    summary.ui_processes_terminated =
-+                        summary.ui_processes_terminated.saturating_add(1);
-+                }
-+                Err(error) => errors.push(error),
-+            }
-+        }
-+    }
-+
-+    pub(super) fn terminate_all_dna_helper_processes_windows(
-+    ) -> Result<ProcessTerminationSummary, String> {
-+        let mut summary = ProcessTerminationSummary::default();
++    pub(super) fn terminate_all_dna_helper_monitors_windows(
++    ) -> Result<MonitorTerminationSummary, String> {
++        let mut summary = MonitorTerminationSummary::default();
 +        let mut errors = Vec::new();
 +
 +        terminate_registered_agents(&mut summary, &mut errors);
-+        terminate_sibling_ui_processes(&mut summary, &mut errors);
 +
 +        if errors.is_empty() {
 +            Ok(summary)
 +        } else {
 +            Err(format!(
-+                "部分 DNA Helper 进程未能关闭（Agent 已关闭 {}，其他窗口已关闭 {}，过期 marker 已清理 {}）：{}",
++                "部分 DNA Helper 监控进程未能关闭（Agent 已关闭 {}，过期 marker 已清理 {}）：{}",
 +                summary.agents_terminated,
-+                summary.ui_processes_terminated,
 +                summary.stale_markers_removed,
 +                errors.join("；")
 +            ))
@@ -1175,27 +1112,25 @@ index 0000000000000000000000000000000000000000..14a1bfac8dedb2585c39d187f9784e34
 +
 +    #[test]
 +    fn termination_summary_serializes_with_camel_case_fields() {
-+        let summary = ProcessTerminationSummary {
++        let summary = MonitorTerminationSummary {
 +            agents_terminated: 1,
-+            ui_processes_terminated: 2,
 +            stale_markers_removed: 3,
 +        };
 +        assert_eq!(
 +            serde_json::to_value(summary).unwrap(),
 +            serde_json::json!({
 +                "agentsTerminated": 1,
-+                "uiProcessesTerminated": 2,
 +                "staleMarkersRemoved": 3,
 +            })
 +        );
 +    }
 +}
 diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
-index 4a76d36e8c580d9811d8b32c64d04259c8d7f6b9..e1706419b8c8758c6b864ded2a93e0081baed214 100644
+index 4a76d36..5397100 100644
 --- a/src-tauri/src/lib.rs
 +++ b/src-tauri/src/lib.rs
 @@ -13,6 +13,11 @@ use ws_broadcast::WsBroadcast;
- 
+
  #[cfg_attr(mobile, tauri::mobile_entry_point)]
  pub fn run() {
 +    // 手动“完全清空”在本次日志初始化前执行，避免 Windows 文件占用导致漏删。
@@ -1205,7 +1140,7 @@ index 4a76d36e8c580d9811d8b32c64d04259c8d7f6b9..e1706419b8c8758c6b864ded2a93e008
 +
      // 日志目录：exe 目录/debug/logs（与前端日志同目录）
      let logs_dir = commands::utils::get_logs_dir();
- 
+
 @@ -240,6 +245,8 @@ pub fn run() {
              commands::file_ops::get_exe_dir,
              commands::file_ops::get_data_dir,
@@ -1220,12 +1155,12 @@ index 4a76d36e8c580d9811d8b32c64d04259c8d7f6b9..e1706419b8c8758c6b864ded2a93e008
              commands::system::get_local_lan_ip,
              commands::system::get_webview2_dir,
 +            // DNA Helper 进程清理命令
-+            commands::process_control::terminate_all_dna_helper_processes,
++            commands::process_control::terminate_all_dna_helper_monitors,
              // 托盘相关命令
              commands::tray::set_minimize_to_tray,
              commands::tray::get_minimize_to_tray,
 diff --git a/src/App.tsx b/src/App.tsx
-index 9445863e9dd48142ef4e776380e3c1c7d8e282dd..c0bde2dded96f657313d4fb5c90761c175cf8b82 100644
+index 9445863..c0bde2d 100644
 --- a/src/App.tsx
 +++ b/src/App.tsx
 @@ -66,7 +66,6 @@ import {
@@ -1255,7 +1190,7 @@ index 9445863e9dd48142ef4e776380e3c1c7d8e282dd..c0bde2dded96f657313d4fb5c90761c1
            }
            clearPersistedRuntimeLogs();
 diff --git a/src/components/settings/DebugSection.tsx b/src/components/settings/DebugSection.tsx
-index 2e0ac203d13ae19e38dec743453774c02b6eabc6..2b03d0795bee77ed383c42308cab2f501ba12fee 100644
+index 2e0ac20..0bb800e 100644
 --- a/src/components/settings/DebugSection.tsx
 +++ b/src/components/settings/DebugSection.tsx
 @@ -10,7 +10,10 @@ import {
@@ -1266,7 +1201,7 @@ index 2e0ac203d13ae19e38dec743453774c02b6eabc6..2b03d0795bee77ed383c42308cab2f50
 +  Power,
  } from 'lucide-react';
 +import { toast } from 'sonner';
- 
+
  import { useAppStore } from '@/stores/appStore';
  import { maaService } from '@/services/maaService';
 @@ -18,6 +21,7 @@ import { loggers } from '@/utils/logger';
@@ -1275,9 +1210,9 @@ index 2e0ac203d13ae19e38dec743453774c02b6eabc6..2b03d0795bee77ed383c42308cab2f50
  import { SwitchButton } from '@/components/FormControls';
 +import { ConfirmDialog } from '@/components/ConfirmDialog';
  import { ExportLogsModal } from './ExportLogsModal';
- 
+
  export function DebugSection() {
-@@ -52,12 +56,55 @@ export function DebugSection() {
+@@ -52,12 +56,53 @@ export function DebugSection() {
    const [lanIp, setLanIp] = useState<string | null>(null);
    const [showRestartPrompt, setShowRestartPrompt] = useState(false);
    const [portInput, setPortInput] = useState(String(configuredPort));
@@ -1285,12 +1220,12 @@ index 2e0ac203d13ae19e38dec743453774c02b6eabc6..2b03d0795bee77ed383c42308cab2f50
 +  const [isSchedulingLogClear, setIsSchedulingLogClear] = useState(false);
 +  const [showTerminateProcessesConfirm, setShowTerminateProcessesConfirm] = useState(false);
 +  const [isTerminatingProcesses, setIsTerminatingProcesses] = useState(false);
- 
+
    useEffect(() => {
      setPortInput(String(configuredPort));
    }, [configuredPort]);
    const { exportModal, handleExportLogs, closeExportModal, openExportedFile } = useExportLogs();
- 
+
 +  const handleClearAllLogs = useCallback(async () => {
 +    if (!isTauri() || isSchedulingLogClear) return;
 +    setIsSchedulingLogClear(true);
@@ -1308,32 +1243,30 @@ index 2e0ac203d13ae19e38dec743453774c02b6eabc6..2b03d0795bee77ed383c42308cab2f50
 +    }
 +  }, [isSchedulingLogClear, t]);
 +
-+  const handleTerminateAllProcesses = useCallback(async () => {
++  const handleTerminateAllMonitors = useCallback(async () => {
 +    if (!isTauri() || isTerminatingProcesses) return;
 +    setIsTerminatingProcesses(true);
 +    try {
 +      const { invoke } = await import('@tauri-apps/api/core');
 +      const summary = await invoke<{
 +        agentsTerminated: number;
-+        uiProcessesTerminated: number;
 +        staleMarkersRemoved: number;
-+      }>('terminate_all_dna_helper_processes');
-+      loggers.ui.info('DNA Helper 进程清理完成:', summary);
++      }>('terminate_all_dna_helper_monitors');
++      loggers.ui.info('DNA Helper 监控进程清理完成:', summary);
 +      toast.success(t('debug.terminateAllProcessesSucceeded'));
-+      const { exit } = await import('@tauri-apps/plugin-process');
-+      await exit(0);
 +    } catch (error) {
-+      loggers.ui.error('关闭所有 DNA Helper 进程失败:', error);
++      loggers.ui.error('关闭所有 DNA Helper 监控进程失败:', error);
 +      toast.error(t('debug.terminateAllProcessesFailed'));
++    } finally {
 +      setIsTerminatingProcesses(false);
 +      setShowTerminateProcessesConfirm(false);
 +    }
 +  }, [isTerminatingProcesses, t]);
 +
    const version = projectInterface?.version || '0.1.0';
- 
+
    // 版本信息（用于调试展示）
-@@ -328,6 +375,26 @@ export function DebugSection() {
+@@ -328,6 +373,26 @@ export function DebugSection() {
              <Archive className="w-4 h-4" />
              {t('debug.exportLogs')}
            </button>
@@ -1358,9 +1291,9 @@ index 2e0ac203d13ae19e38dec743453774c02b6eabc6..2b03d0795bee77ed383c42308cab2f50
 +            {t('debug.terminateAllProcesses')}
 +          </button>
          </div>
- 
+
          {/* 开发模式 */}
-@@ -434,6 +501,32 @@ export function DebugSection() {
+@@ -434,6 +499,32 @@ export function DebugSection() {
          onClose={closeExportModal}
          onOpen={openExportedFile}
        />
@@ -1385,7 +1318,7 @@ index 2e0ac203d13ae19e38dec743453774c02b6eabc6..2b03d0795bee77ed383c42308cab2f50
 +        cancelText={t('common.cancel')}
 +        destructive
 +        confirmDisabled={isTerminatingProcesses}
-+        onConfirm={handleTerminateAllProcesses}
++        onConfirm={handleTerminateAllMonitors}
 +        onCancel={() => {
 +          if (!isTerminatingProcesses) setShowTerminateProcessesConfirm(false);
 +        }}
@@ -1394,12 +1327,12 @@ index 2e0ac203d13ae19e38dec743453774c02b6eabc6..2b03d0795bee77ed383c42308cab2f50
    );
  }
 diff --git a/src/components/settings/GeneralSection.tsx b/src/components/settings/GeneralSection.tsx
-index 4e2c2217eae92da579037e0b5ab32de6379ac880..e29683c0df4160df5cb08a263994453da7175920 100644
+index 4e2c221..e29683c 100644
 --- a/src/components/settings/GeneralSection.tsx
 +++ b/src/components/settings/GeneralSection.tsx
 @@ -168,7 +168,7 @@ export function GeneralSection() {
            )}
- 
+
            {/* ② 启动后自动执行 */}
 -          <div className={isTauri() ? "pt-4 border-t border-border" : ""}>
 +          <div className={isTauri() ? 'pt-4 border-t border-border' : ''}>
@@ -1417,9 +1350,9 @@ index 4e2c2217eae92da579037e0b5ab32de6379ac880..e29683c0df4160df5cb08a263994453d
 +          />
          </div>
        </div>
- 
+
 diff --git a/src/i18n/locales/en-US.ts b/src/i18n/locales/en-US.ts
-index c6a4cb9b8effb7be80fa92b37a2080eb486e8fca..b30e25bda11e10f35b888bb490cc7513ada94433 100644
+index c6a4cb9..b165ed9 100644
 --- a/src/i18n/locales/en-US.ts
 +++ b/src/i18n/locales/en-US.ts
 @@ -115,7 +115,8 @@ export default {
@@ -1430,9 +1363,9 @@ index c6a4cb9b8effb7be80fa92b37a2080eb486e8fca..b30e25bda11e10f35b888bb490cc7513
 +    autoClearLogsOnLaunchHint:
 +      'Delete logs and debug files in the debug directory that are older than 14 days on launch',
    },
- 
+
    // Special tasks
-@@ -522,6 +523,23 @@ export default {
+@@ -522,6 +523,22 @@ export default {
      resetWindowLayout: 'Reset Window Layout',
      openConfigDir: 'Open Config Dir',
      openLogDir: 'Open Log Dir',
@@ -1444,20 +1377,19 @@ index c6a4cb9b8effb7be80fa92b37a2080eb486e8fca..b30e25bda11e10f35b888bb490cc7513
 +    clearAllLogsConfirm: 'Clear and Restart',
 +    clearAllLogsScheduled: 'Restarting to clear all logs',
 +    clearAllLogsFailed: 'Failed to schedule log cleanup',
-+    terminateAllProcesses: 'Close All DNA Helper Processes',
-+    terminateAllProcessesHint: 'Stop tasks, Telegram monitoring, and every DNA Helper window',
-+    terminateAllProcessesConfirmTitle: 'Close all DNA Helper processes?',
++    terminateAllProcesses: 'Close All Monitoring Processes',
++    terminateAllProcessesHint: 'Stop registered background Agents and Telegram monitoring',
++    terminateAllProcessesConfirmTitle: 'Close all monitoring processes?',
 +    terminateAllProcessesConfirmMessage:
-+      'This stops running tasks, Telegram monitoring, and every DNA Helper window, but it does not close the game. The current window exits only after cleanup succeeds.',
-+    terminateAllProcessesConfirm: 'Close All',
-+    terminateAllProcessesSucceeded: 'All DNA Helper processes were closed',
-+    terminateAllProcessesFailed:
-+      'Some DNA Helper processes could not be closed; this window remains open',
++      'This stops registered background Agents, running tasks, and Telegram monitoring, but it does not close the game or any DNA Helper window.',
++    terminateAllProcessesConfirm: 'Close Monitoring',
++    terminateAllProcessesSucceeded: 'All registered monitoring processes were closed',
++    terminateAllProcessesFailed: 'Some monitoring processes could not be closed',
      exportLogs: 'Export Logs',
      exportLogsHint:
        'Pack logs and config into a zip archive, keeping newest debug images until it reaches about 24.5 MB',
 diff --git a/src/i18n/locales/ja-JP.ts b/src/i18n/locales/ja-JP.ts
-index 5b48883408bffb5359a7e48a4e05907e679c5573..e28e1c10e0ce2830277d77d7dada4b200bc57462 100644
+index 5b48883..5aed7f2 100644
 --- a/src/i18n/locales/ja-JP.ts
 +++ b/src/i18n/locales/ja-JP.ts
 @@ -111,8 +111,11 @@ export default {
@@ -1471,10 +1403,10 @@ index 5b48883408bffb5359a7e48a4e05907e679c5573..e28e1c10e0ce2830277d77d7dada4b20
 +    autoClearLogsOnLaunchHint:
 +      '起動時に debug フォルダー内の 14 日を超えたログとデバッグファイルを削除します',
 +  },
- 
+
    // 特殊タスク
    specialTask: {
-@@ -515,6 +518,23 @@ export default {
+@@ -515,6 +518,22 @@ export default {
      resetWindowSize: 'ウィンドウサイズをリセット',
      openConfigDir: '設定フォルダを開く',
      openLogDir: 'ログフォルダを開く',
@@ -1486,20 +1418,19 @@ index 5b48883408bffb5359a7e48a4e05907e679c5573..e28e1c10e0ce2830277d77d7dada4b20
 +    clearAllLogsConfirm: '消去して再起動',
 +    clearAllLogsScheduled: '再起動してログを消去しています',
 +    clearAllLogsFailed: 'ログ消去を予約できませんでした',
-+    terminateAllProcesses: 'すべての DNA Helper プロセスを終了',
-+    terminateAllProcessesHint: 'タスク、Telegram 監視、すべての DNA Helper ウィンドウを停止します',
-+    terminateAllProcessesConfirmTitle: 'すべての DNA Helper プロセスを終了しますか？',
++    terminateAllProcesses: 'すべての監視プロセスを終了',
++    terminateAllProcessesHint: '登録済みのバックグラウンド Agent と Telegram 監視を停止します',
++    terminateAllProcessesConfirmTitle: 'すべての監視プロセスを終了しますか？',
 +    terminateAllProcessesConfirmMessage:
-+      '実行中のタスク、Telegram 監視、すべての DNA Helper ウィンドウを停止しますが、ゲームは終了しません。現在のウィンドウはクリーンアップ成功後にのみ終了します。',
-+    terminateAllProcessesConfirm: 'すべて終了',
-+    terminateAllProcessesSucceeded: 'すべての DNA Helper プロセスを終了しました',
-+    terminateAllProcessesFailed:
-+      '一部の DNA Helper プロセスを終了できなかったため、このウィンドウは開いたままです',
++      '登録済みのバックグラウンド Agent、実行中のタスク、Telegram 監視を停止しますが、ゲームや DNA Helper ウィンドウは終了しません。',
++    terminateAllProcessesConfirm: '監視を終了',
++    terminateAllProcessesSucceeded: '登録済みの監視プロセスをすべて終了しました',
++    terminateAllProcessesFailed: '一部の監視プロセスを終了できませんでした',
      exportLogs: 'ログをエクスポート',
      exportLogsHint: 'ログと config を zip にまとめ、約 24.5 MB まで最新のデバッグ画像を自動で保持',
      exportingLogs: 'ログをエクスポート中...',
 diff --git a/src/i18n/locales/ko-KR.ts b/src/i18n/locales/ko-KR.ts
-index 76d1c1ae6ac97b658b1991fc20381f93d00468ce..f2bf2595029dc766b79661e03fd44235dcaca584 100644
+index 76d1c1a..2cfe985 100644
 --- a/src/i18n/locales/ko-KR.ts
 +++ b/src/i18n/locales/ko-KR.ts
 @@ -112,7 +112,8 @@ export default {
@@ -1510,7 +1441,7 @@ index 76d1c1ae6ac97b658b1991fc20381f93d00468ce..f2bf2595029dc766b79661e03fd44235
 +    autoClearLogsOnLaunchHint:
 +      '시작할 때 debug 폴더에서 14일이 지난 로그와 디버그 파일을 삭제합니다',
    },
- 
+
    // 특수 작업
 @@ -514,6 +515,22 @@ export default {
      resetWindowSize: '창 크기 초기화',
@@ -1524,19 +1455,19 @@ index 76d1c1ae6ac97b658b1991fc20381f93d00468ce..f2bf2595029dc766b79661e03fd44235
 +    clearAllLogsConfirm: '삭제 후 다시 시작',
 +    clearAllLogsScheduled: '모든 로그를 삭제하기 위해 다시 시작합니다',
 +    clearAllLogsFailed: '로그 삭제를 예약할 수 없습니다',
-+    terminateAllProcesses: '모든 DNA Helper 프로세스 종료',
-+    terminateAllProcessesHint: '작업, Telegram 모니터링 및 모든 DNA Helper 창을 중지합니다',
-+    terminateAllProcessesConfirmTitle: '모든 DNA Helper 프로세스를 종료할까요?',
++    terminateAllProcesses: '모든 모니터링 프로세스 종료',
++    terminateAllProcessesHint: '등록된 백그라운드 Agent와 Telegram 모니터링을 중지합니다',
++    terminateAllProcessesConfirmTitle: '모든 모니터링 프로세스를 종료할까요?',
 +    terminateAllProcessesConfirmMessage:
-+      '실행 중인 작업, Telegram 모니터링 및 모든 DNA Helper 창을 중지하지만 게임은 종료하지 않습니다. 현재 창은 정리가 성공한 후에만 종료됩니다.',
-+    terminateAllProcessesConfirm: '모두 종료',
-+    terminateAllProcessesSucceeded: '모든 DNA Helper 프로세스를 종료했습니다',
-+    terminateAllProcessesFailed: '일부 DNA Helper 프로세스를 종료하지 못해 현재 창을 유지합니다',
++      '등록된 백그라운드 Agent, 실행 중인 작업 및 Telegram 모니터링을 중지하지만 게임이나 DNA Helper 창은 종료하지 않습니다.',
++    terminateAllProcessesConfirm: '모니터링 종료',
++    terminateAllProcessesSucceeded: '등록된 모니터링 프로세스를 모두 종료했습니다',
++    terminateAllProcessesFailed: '일부 모니터링 프로세스를 종료하지 못했습니다',
      exportLogs: '로그 내보내기',
      exportLogsHint:
        '로그와 config를 zip으로 묶고, 약 24.5 MB까지 최신 디버그 이미지를 자동으로 유지',
 diff --git a/src/i18n/locales/zh-CN.ts b/src/i18n/locales/zh-CN.ts
-index bbbc8e246eb87c5c58cbfcb5ced311a59de22736..fd84a292ff22db84ec0fa4dace4b2a8bc6c3da77 100644
+index bbbc8e2..ca168b8 100644
 --- a/src/i18n/locales/zh-CN.ts
 +++ b/src/i18n/locales/zh-CN.ts
 @@ -112,7 +112,7 @@ export default {
@@ -1546,7 +1477,7 @@ index bbbc8e246eb87c5c58cbfcb5ced311a59de22736..fd84a292ff22db84ec0fa4dace4b2a8b
 -    autoClearLogsOnLaunchHint: '每次启动项目时，自动清理运行日志并删除旧的日志文件',
 +    autoClearLogsOnLaunchHint: '每次启动项目时，自动删除 debug 目录内超过 14 天的日志和调试文件',
    },
- 
+
    // 特殊任务
 @@ -511,6 +511,21 @@ export default {
      resetWindowLayout: '重置窗口布局',
@@ -1559,19 +1490,19 @@ index bbbc8e246eb87c5c58cbfcb5ced311a59de22736..fd84a292ff22db84ec0fa4dace4b2a8b
 +    clearAllLogsConfirm: '清空并重启',
 +    clearAllLogsScheduled: '正在重启并完全清空日志',
 +    clearAllLogsFailed: '无法安排日志清理',
-+    terminateAllProcesses: '关闭所有 DNA Helper 进程',
-+    terminateAllProcessesHint: '停止任务、Telegram 监听和所有 DNA Helper 窗口',
-+    terminateAllProcessesConfirmTitle: '关闭所有 DNA Helper 进程？',
++    terminateAllProcesses: '关闭所有监控进程',
++    terminateAllProcessesHint: '停止已登记的后台 Agent 和 Telegram 监听',
++    terminateAllProcessesConfirmTitle: '关闭所有监控进程？',
 +    terminateAllProcessesConfirmMessage:
-+      '这将停止正在运行的任务、Telegram 监听和所有 DNA Helper 窗口，但不会关闭游戏。当前窗口仅在清理成功后退出。',
-+    terminateAllProcessesConfirm: '关闭全部',
-+    terminateAllProcessesSucceeded: '所有 DNA Helper 进程已关闭',
-+    terminateAllProcessesFailed: '部分 DNA Helper 进程未能关闭，当前窗口已保留',
++      '这将停止已登记的后台 Agent、正在运行的任务和 Telegram 监听，但不会关闭游戏或任何 DNA Helper 窗口。',
++    terminateAllProcessesConfirm: '关闭监控',
++    terminateAllProcessesSucceeded: '所有已登记的监控进程已关闭',
++    terminateAllProcessesFailed: '部分监控进程未能关闭',
      exportLogs: '导出日志',
      exportLogsHint: '打包日志和 config，并按压缩包 24.5 MB 上限自动保留最近调试图片',
      exportingLogs: '正在导出日志...',
 diff --git a/src/i18n/locales/zh-TW.ts b/src/i18n/locales/zh-TW.ts
-index 7371edd416b2da908a83968efd8c61c6250fced1..dc337d505aa642caacebe959de586830fd2cd943 100644
+index 7371edd..d7f8c4d 100644
 --- a/src/i18n/locales/zh-TW.ts
 +++ b/src/i18n/locales/zh-TW.ts
 @@ -109,8 +109,10 @@ export default {
@@ -1584,7 +1515,7 @@ index 7371edd416b2da908a83968efd8c61c6250fced1..dc337d505aa642caacebe959de586830
 +    autoClearLogsOnLaunch: '自動清理運行日誌',
 +    autoClearLogsOnLaunchHint: '每次啟動項目時，自動刪除 debug 目錄內超過 14 天的日誌與除錯檔案',
 +  },
- 
+
    // 特殊任務
    specialTask: {
 @@ -505,6 +507,22 @@ export default {
@@ -1599,14 +1530,14 @@ index 7371edd416b2da908a83968efd8c61c6250fced1..dc337d505aa642caacebe959de586830
 +    clearAllLogsConfirm: '清空並重新啟動',
 +    clearAllLogsScheduled: '正在重新啟動並完全清空日誌',
 +    clearAllLogsFailed: '無法安排日誌清理',
-+    terminateAllProcesses: '關閉所有 DNA Helper 進程',
-+    terminateAllProcessesHint: '停止任務、Telegram 監聽和所有 DNA Helper 視窗',
-+    terminateAllProcessesConfirmTitle: '關閉所有 DNA Helper 進程？',
++    terminateAllProcesses: '關閉所有監控進程',
++    terminateAllProcessesHint: '停止已登記的後台 Agent 和 Telegram 監聽',
++    terminateAllProcessesConfirmTitle: '關閉所有監控進程？',
 +    terminateAllProcessesConfirmMessage:
-+      '這將停止正在執行的任務、Telegram 監聽和所有 DNA Helper 視窗，但不會關閉遊戲。目前視窗僅在清理成功後退出。',
-+    terminateAllProcessesConfirm: '關閉全部',
-+    terminateAllProcessesSucceeded: '所有 DNA Helper 進程已關閉',
-+    terminateAllProcessesFailed: '部分 DNA Helper 進程未能關閉，目前視窗已保留',
++      '這將停止已登記的後台 Agent、正在執行的任務和 Telegram 監聽，但不會關閉遊戲或任何 DNA Helper 視窗。',
++    terminateAllProcessesConfirm: '關閉監控',
++    terminateAllProcessesSucceeded: '所有已登記的監控進程已關閉',
++    terminateAllProcessesFailed: '部分監控進程未能關閉',
      exportLogs: '匯出日誌',
      exportLogsHint: '打包日誌與 config，並依 24.5 MB 上限自動保留最近的除錯圖片',
      exportingLogs: '正在匯出日誌...',

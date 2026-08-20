@@ -118,8 +118,8 @@ def validate_process_termination_contract() -> None:
     patch_source = require_source_fragments(
         ROOT / "tools" / "mxu-v2.1.3-log-retention.patch",
         (
-            "pub fn terminate_all_dna_helper_processes()",
-            "ProcessTerminationSummary",
+            "pub fn terminate_all_dna_helper_monitors()",
+            "MonitorTerminationSummary",
             'serde(rename_all = "camelCase")',
             "MAX_PROCESS_MARKERS: usize = 256",
             "MAX_MARKER_BYTES: u64 = 4096",
@@ -128,14 +128,22 @@ def validate_process_termination_contract() -> None:
             "TerminateProcess",
             "TERMINATION_WAIT_MS: u32 = 2000",
             "config\").join(\"agent-processes\")",
-            "terminate_all_dna_helper_processes",
-            "await exit(0)",
-            "关闭所有 DNA Helper 进程",
+            "terminate_all_dna_helper_monitors",
+            "关闭所有监控进程",
+            "不会关闭游戏或任何 DNA Helper 窗口",
             "不会关闭游戏",
         ),
     )
     if patch_source.count("terminateAllProcesses:") != 5:
         raise SystemExit("MXU process termination labels must exist in all five locales")
+    forbidden_fragments = (
+        "uiProcessesTerminated",
+        "terminate_sibling_ui_processes",
+        "await exit(0)",
+    )
+    present = [fragment for fragment in forbidden_fragments if fragment in patch_source]
+    if present:
+        raise SystemExit(f"MXU monitor cleanup must not terminate or exit UI processes: {present}")
 
 
 def load_json(path: Path) -> dict:

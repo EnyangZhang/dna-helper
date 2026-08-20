@@ -114,14 +114,14 @@ Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有
 
 `creation_time_100ns` 是 `GetProcessTimes` 返回的 Windows FILETIME 创建时间。`executable_path` 是解析后的 `sys.executable` 绝对路径。marker 必须小于 4096 字节，先写入同目录临时文件、`fsync`，再用 `os.replace` 原子替换；现有祖先目录、登记目录或 marker 为符号链接、Windows 重解析点或非普通目标时拒绝写入。启动失败和正常退出都尽力删除 marker；强制终止留下的 marker 由下次一键清理判断是否过期。
 
-定制 MXU 注册 Tauri 命令 `terminate_all_dna_helper_processes`，返回 camelCase 的 `ProcessTerminationSummary`：`agentsTerminated`、`uiProcessesTerminated`、`staleMarkersRemoved`。该命令：
+定制 MXU 注册 Tauri 命令 `terminate_all_dna_helper_monitors`，返回 camelCase 的 `MonitorTerminationSummary`：`agentsTerminated`、`staleMarkersRemoved`。该命令：
 
 - 最多读取 256 个、每个小于 4096 字节的普通 marker，拒绝符号链接、重解析点、越界路径、多余 schema 字段和异常文件名。
 - 先匹配 PID 和进程创建 FILETIME，再将 marker 路径与 `QueryFullProcessImageNameW` 得到的运行路径分别规范化后精确比较。只有三者一致才终止 Agent；PID 不存在或创建时间不同只删除过期 marker；路径不匹配或无法核验时报错且不终止、不删 marker。
-- 对 Agent 调用 `TerminateProcess` 后最多等待 2000ms 并确认退出。其他 UI 只在规范可执行路径与当前 `DNAHelper.exe` 完全相同且 PID 不是当前进程时终止；不按名称模糊匹配，因此不会关闭游戏、其他 Python 或其他路径的 MXU。
-- 后端不终止当前 UI。前端确认后调用命令，只在后端成功时调用 Tauri `exit(0)`。任何部分失败都返回错误并保留当前窗口，已成功的终止不回滚，全程不删除配置或日志。
+- 对 Agent 调用 `TerminateProcess` 后最多等待 2000ms 并确认退出。命令不枚举、不终止任何 UI 或游戏进程，也不关闭未登记的其他 Python。
+- 前端确认后调用命令，成功或失败后当前 DNA Helper 窗口都保持打开。任何部分失败都返回错误，已成功的终止不回滚，全程不删除配置或日志。
 
-设置页的危险操作按钮使用 `ConfirmDialog`；确认文案必须明确说明会停止任务、Telegram 监听和所有 Helper 窗口，但不会关闭游戏。
+设置页的危险操作按钮使用 `ConfirmDialog`；确认文案必须明确说明会停止已登记的 Agent、任务和 Telegram 监听，但不会关闭游戏或 Helper 窗口。
 
 ## 局内 / 局外状态边界
 
@@ -433,7 +433,7 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
 - `pipeline_override` 只覆盖现有节点。
 - 从任务入口与动态目标出发不存在不可达节点。
 - TemplateMatch 引用的模板文件存在。
-- Agent marker 的 schema、原子替换、AgentServer 前登记/退出清理生命周期，以及定制 MXU 补丁中的固定命令、身份校验 API、2000ms 等待上限、中文危险按钮与五种 locale 键。
+- Agent marker 的 schema、原子替换、AgentServer 前登记/退出清理生命周期，以及定制 MXU 补丁中的监控终止命令、身份校验 API、2000ms 等待上限、禁止终止 UI 的约束、中文危险按钮与五种 locale 键。
 
 校验器采用所有可选覆盖边的并集做保守可达性分析：节点只要在任一合法模式、子选项或 Agent 动态路径中可能使用，就应保留。
 
