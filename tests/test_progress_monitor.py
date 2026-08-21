@@ -50,11 +50,30 @@ class ProgressMonitorTest(unittest.TestCase):
                     progress_monitor._has_queued_game_task_from_log(200000004)
                 )
 
+    def test_queue_detection_accepts_coin_afk_entry(self) -> None:
+        content = (
+            b"Calling post_task: entry=ProgressMonitorEntry, override=[]\n"
+            b"post_task returned task_id: 200000010\n"
+            b"Calling post_task: entry=CoinAFKEntry, override=[]\n"
+            b"post_task returned task_id: 200000011\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "mxu-tauri.log"
+            log_path.write_bytes(content)
+            with (
+                patch("progress_monitor._MXU_LOG_PATH", log_path),
+                patch("progress_monitor._QUEUE_LOG_WAIT_SECONDS", 0),
+            ):
+                self.assertTrue(
+                    progress_monitor._has_queued_game_task_from_log(200000010)
+                )
+
     @patch("progress_monitor._has_queued_game_task_from_log", return_value=False)
     @patch("progress_monitor.telegram_bot.notify_monitor_started")
     @patch("progress_monitor.telegram_bot.start", return_value=True)
+    @patch("progress_monitor.progress_state.reset")
     def test_standalone_monitor_starts_and_notifies_phone(
-        self, start, notify, has_game
+        self, reset_state, start, notify, has_game
     ) -> None:
         context = FakeContext(override_result=False)
         result = progress_monitor.ProgressMonitorStart().run(context, make_argv())
@@ -62,6 +81,7 @@ class ProgressMonitorTest(unittest.TestCase):
         start.assert_called_once_with()
         notify.assert_called_once_with()
         has_game.assert_called_once_with(100)
+        reset_state.assert_called_once_with()
         content = context.override["ProgressMonitorLog"]["focus"][
             "Node.Action.Succeeded"
         ]["content"]
@@ -86,13 +106,15 @@ class ProgressMonitorTest(unittest.TestCase):
     @patch("progress_monitor._has_queued_game_task_from_log", return_value=True)
     @patch("progress_monitor.telegram_bot.notify_monitor_started")
     @patch("progress_monitor.telegram_bot.start", return_value=True)
+    @patch("progress_monitor.progress_state.reset")
     def test_queued_game_task_does_not_send_idle_notification(
-        self, start, notify, has_game
+        self, reset_state, start, notify, has_game
     ) -> None:
         context = FakeContext()
         result = progress_monitor.ProgressMonitorStart().run(context, make_argv())
         self.assertTrue(result.success)
         notify.assert_not_called()
+        reset_state.assert_called_once_with()
         self.assertEqual(context.override["ProgressMonitorLog"]["next"], [])
         has_game.assert_called_once_with(100)
 

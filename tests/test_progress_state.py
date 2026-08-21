@@ -118,6 +118,19 @@ class ProgressStateTest(unittest.TestCase):
         self.assertIn(f"已运行：{expected}", message)
         self.assertIn("局外副本轮次（已完成）：1 / 1", message)
 
+    def test_reset_returns_to_idle_without_task_context(self) -> None:
+        progress_state.start_task("普通扼守", 4, 99)
+        progress_state.increment_stage()
+        progress_state.complete_round(1, 4)
+        progress_state.reset()
+        state = progress_state.snapshot()
+        self.assertEqual(state["status"], "idle")
+        self.assertEqual(state["mode"], "普通副本")
+        self.assertEqual(state["completed_rounds"], 0)
+        self.assertEqual(state["total_rounds"], 0)
+        self.assertEqual(state["stage_count"], 0)
+        self.assertIsNone(state["started_at"])
+
 
 if __name__ == "__main__":
     unittest.main()

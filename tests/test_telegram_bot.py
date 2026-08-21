@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,6 +16,7 @@ class TelegramBotTest(unittest.TestCase):
     def tearDown(self) -> None:
         telegram_bot._config = None
         telegram_bot._stop_event.clear()
+        telegram_bot._owner_id = None
 
     @patch("telegram_bot._send_message")
     @patch("telegram_bot.progress_state.format_status", return_value="当前状态")
@@ -76,6 +78,14 @@ class TelegramBotTest(unittest.TestCase):
         )
         snapshot.assert_called_once_with()
 
+    @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "皎皎币挂机"})
+    def test_coin_afk_completion_uses_formal_task_label(self, snapshot) -> None:
+        self.assertEqual(
+            telegram_bot.format_task_completed_message(),
+            "DNA Helper 任务已完成\n任务：皎皎币挂机\n模式：自动循环",
+        )
+        snapshot.assert_called_once_with()
+
     @patch.object(telegram_bot._outbound, "put")
     def test_standalone_monitor_start_notification_is_queued(self, put) -> None:
         telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
@@ -109,6 +119,13 @@ class TelegramBotTest(unittest.TestCase):
             "任务完成消息",
         )
 
+    @patch("telegram_bot.progress_state.reset")
+    def test_stop_clears_progress_state(self, reset_state) -> None:
+        telegram_bot._stop_event.clear()
+        telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
+        telegram_bot.stop()
+        reset_state.assert_called_once_with()
+
     @patch("telegram_bot._send_message", side_effect=OSError("offline"))
     def test_final_message_network_failure_is_non_blocking(self, send_message) -> None:
         telegram_bot._send_final_message(
@@ -117,10 +134,11 @@ class TelegramBotTest(unittest.TestCase):
         )
         send_message.assert_called_once_with("token", 123, "任务完成消息")
 
+    @patch("telegram_bot._is_owner", return_value=True)
     @patch.object(telegram_bot._outbound, "put")
     @patch("telegram_bot.progress_state.format_status", return_value="当前状态")
     def test_auto_status_is_queued_every_thirty_minutes(
-        self, format_status, put
+        self, format_status, put, is_owner
     ) -> None:
         class StopAfterSecondWait:
             def __init__(self) -> None:
@@ -132,7 +150,7 @@ class TelegramBotTest(unittest.TestCase):
                 return self.wait_count >= 2
 
         stop_event = StopAfterSecondWait()
-        telegram_bot._auto_status_loop(stop_event)
+        telegram_bot._auto_status_loop(stop_event, "owner-a")
 
         self.assertEqual(
             stop_event.assert_interval, telegram_bot._AUTO_STATUS_INTERVAL_SECONDS
@@ -141,6 +159,34 @@ class TelegramBotTest(unittest.TestCase):
         format_status.assert_called_once_with()
         put.assert_called_once_with("当前状态")
 
+    def test_single_instance_lock_prevents_non_owner_send(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "telegram-owner.json"
+            with patch.object(telegram_bot, "_LOCK_PATH", lock_path):
+                self.assertFalse(telegram_bot._is_owner("owner-a"))
+                self.assertTrue(telegram_bot._acquire_ownership("owner-a"))
+                self.assertTrue(telegram_bot._is_owner("owner-a"))
+                self.assertFalse(telegram_bot._is_owner("owner-b"))
+                self.assertTrue(telegram_bot._acquire_ownership("owner-b"))
+                self.assertFalse(telegram_bot._is_owner("owner-a"))
+                self.assertTrue(telegram_bot._is_owner("owner-b"))
+                telegram_bot._release_ownership("owner-a")
+                self.assertTrue(telegram_bot._is_owner("owner-b"))
+                telegram_bot._release_ownership("owner-b")
+                self.assertFalse(lock_path.exists())
+
+    def test_lock_refresh_failure_when_expired(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "telegram-owner.json"
+            with patch.object(telegram_bot, "_LOCK_PATH", lock_path):
+                with patch.object(telegram_bot.time, "time", return_value=1000):
+                    self.assertTrue(telegram_bot._acquire_ownership("owner-a"))
+                self.assertTrue(telegram_bot._is_owner("owner-a", now=1000))
+                self.assertFalse(telegram_bot._is_owner("owner-a", now=1000 + 100))
+                self.assertTrue(telegram_bot._acquire_ownership("owner-b"))
+                self.assertTrue(telegram_bot._is_owner("owner-b"))
+                self.assertFalse(telegram_bot._is_owner("owner-a"))
+                self.assertTrue(lock_path.exists())
 
 if __name__ == "__main__":
     unittest.main()

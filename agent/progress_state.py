@@ -56,6 +56,28 @@ def start_task(
         return True
 
 
+def reset() -> None:
+    """Clear progress state for monitor-only or manual reset scenarios."""
+    global _last_stage_increment_monotonic
+    now = time.time()
+    with _lock:
+        _state.update(
+            {
+                "task_id": 0,
+                "status": "idle",
+                "mode": "普通副本",
+                "completed_rounds": 0,
+                "total_rounds": 0,
+                "stage_count": 0,
+                "stage_total": 99,
+                "started_at": None,
+                "updated_at": now,
+            }
+        )
+        _last_stage_increment_monotonic = 0.0
+        _persist_locked()
+
+
 def increment_stage(dedupe_window_seconds: float = 0.0) -> bool:
     """Record one logical cycle and report the infinite-mode 99 milestone."""
     global _last_stage_increment_monotonic

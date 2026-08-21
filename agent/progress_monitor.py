@@ -13,9 +13,10 @@ from maa.event_sink import NotificationType
 from maa.tasker import Tasker, TaskerEventSink
 
 import telegram_bot
+import progress_state
 
 
-_GAME_TASK_ENTRIES = {"RewardConfirmEntry", "NormalEndlessEntry"}
+_GAME_TASK_ENTRIES = {"RewardConfirmEntry", "NormalEndlessEntry", "CoinAFKEntry"}
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _MXU_LOG_PATH = _PROJECT_ROOT / "debug" / "mxu-tauri.log"
 _QUEUE_LOG_WAIT_SECONDS = 0.5
@@ -100,6 +101,7 @@ class ProgressMonitorStart(CustomAction):
     def run(
         self, context: Context, argv: CustomAction.RunArg
     ) -> CustomAction.RunResult:
+        progress_state.reset()
         try:
             enabled = telegram_bot.start()
         except (OSError, RuntimeError, TypeError, ValueError):
