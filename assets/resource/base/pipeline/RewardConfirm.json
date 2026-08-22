@@ -72,29 +72,47 @@
             "RewardConfirmThirdPageClick3"
         ]
     },
-    "RewardConfirmThirdPageClick3": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "Custom",
-            "param": {
-                "custom_action": "focus_guard_action",
-                "custom_action_param": {
-                    "kind": "click",
-                    "target": [920, 480],
-                    "repeat": 1,
-                    "progress_event": "cipher_cycle_completed"
-                }
-            }
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 50,
-        "next": [
-            "RewardConfirmEntry"
-        ]
+"RewardConfirmThirdPageClick3": {
+    "recognition": {
+        "type": "DirectHit"
     },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                920,
+                480
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "RewardConfirmThirdPageClick3Finalize"
+    ]
+},
+"RewardConfirmThirdPageClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100,
+                "progress_event": "cipher_cycle_completed"
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "RewardConfirmEntry"
+    ]
+},
     "RewardConfirmByClick": {
         "recognition": {
             "type": "TemplateMatch",
@@ -145,29 +163,47 @@
             "RewardConfirmFirstPageClick3"
         ]
     },
-    "RewardConfirmFirstPageClick3": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "Custom",
-            "param": {
-                "custom_action": "focus_guard_action",
-                "custom_action_param": {
-                    "kind": "click",
-                    "target": [620, 607],
-                    "repeat": 1
-                }
-            }
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 50,
-        "next": [
-            "RewardConfirmContinueChallenge",
-            "RewardConfirmWaitContinue"
-        ]
+"RewardConfirmFirstPageClick3": {
+    "recognition": {
+        "type": "DirectHit"
     },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                620,
+                607
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "RewardConfirmFirstPageClick3Finalize"
+    ]
+},
+"RewardConfirmFirstPageClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "RewardConfirmContinueChallenge",
+        "RewardConfirmWaitContinue"
+    ]
+},
     "RewardConfirmContinueChallenge": {
         "recognition": {
             "type": "TemplateMatch",
@@ -218,29 +254,47 @@
             "RewardConfirmContinueChallengeClick3"
         ]
     },
-    "RewardConfirmContinueChallengeClick3": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "Custom",
-            "param": {
-                "custom_action": "focus_guard_action",
-                "custom_action_param": {
-                    "kind": "click",
-                    "target": [900, 500],
-                    "repeat": 1
-                }
-            }
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 50,
-        "next": [
-            "RewardConfirmThirdPageByClick",
-            "RewardConfirmWaitThird"
-        ]
+"RewardConfirmContinueChallengeClick3": {
+    "recognition": {
+        "type": "DirectHit"
     },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                900,
+                500
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "RewardConfirmContinueChallengeClick3Finalize"
+    ]
+},
+"RewardConfirmContinueChallengeClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "RewardConfirmThirdPageByClick",
+        "RewardConfirmWaitThird"
+    ]
+},
     "RewardConfirmWaitContinue": {
         "recognition": {
             "type": "DirectHit"
@@ -311,6 +365,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "next": [
             "CipherOutsideCombatHudFrame1",
             "RewardConfirmByClick",
@@ -326,6 +383,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
@@ -339,6 +398,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "next": [
             "CipherOutsideCombatHudFrame1",
             "CipherExpelAgainDetected",
@@ -353,6 +415,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
@@ -371,6 +435,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "timeout": 120,
         "next": [
@@ -392,6 +458,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "timeout": 120,
         "next": [
@@ -413,6 +481,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "focus": {
             "Node.Recognition.Succeeded": {
                 "content": "[密函驱离] 局外监控已连续确认 3 帧战斗 HUD，切换到局内监控",
@@ -458,6 +529,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "next": [
             "CipherExpelInsideIdle"
         ],
@@ -472,6 +546,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
@@ -509,6 +585,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "next": [
             "CipherExpelSettlementIdle"
         ],
@@ -523,6 +602,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
@@ -536,6 +617,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "next": [
             "CipherPostSkillCombatHudFrame1",
             "CipherExpelAgainDetected",
@@ -550,6 +634,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
@@ -568,6 +654,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "timeout": 120,
         "next": [
@@ -589,6 +677,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "timeout": 120,
         "next": [
@@ -610,6 +700,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "next": [
             "CipherPostSkillInsideIdle"
         ],
@@ -629,6 +722,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "next": [
             "CipherPostSkillInsideIdle"
         ],
@@ -643,6 +739,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "max_hit": 10000000,
         "next": [
@@ -657,6 +755,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "next": [
             "CipherReentryCombatHudFrame1",
             "RewardConfirmThirdPageByClick",
@@ -671,6 +772,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "max_hit": 1000000000,
         "next": [
@@ -689,6 +792,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "timeout": 120,
         "next": [
@@ -710,6 +815,8 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
         "post_delay": 50,
         "timeout": 120,
         "next": [
@@ -731,6 +838,9 @@
         "action": {
             "type": "DoNothing"
         },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
         "focus": {
             "Node.Recognition.Succeeded": {
                 "content": "[密函驱离] 重开后已连续确认 3 帧战斗 HUD，进入下一轮局内监控",
@@ -794,28 +904,46 @@
             "CipherExpelAgainClick3"
         ]
     },
-    "CipherExpelAgainClick3": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "Custom",
-            "param": {
-                "custom_action": "focus_guard_action",
-                "custom_action_param": {
-                    "kind": "click",
-                    "target": [920, 640],
-                    "repeat": 1
-                }
-            }
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 50,
-        "next": [
-            "CipherExpelRestartMonitor"
-        ]
+"CipherExpelAgainClick3": {
+    "recognition": {
+        "type": "DirectHit"
     },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                920,
+                640
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CipherExpelAgainClick3Finalize"
+    ]
+},
+"CipherExpelAgainClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CipherExpelRestartMonitor"
+    ]
+},
     "CipherExpelAgainDetected": {
         "recognition": {
             "type": "TemplateMatch",

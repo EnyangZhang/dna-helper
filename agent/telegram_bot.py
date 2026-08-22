@@ -33,6 +33,7 @@ _owner_id: str | None = None
 _LOCK_PATH = _PROJECT_ROOT / "config" / "agent-processes" / ".telegram-owner.json"
 _LOCK_TTL_SECONDS = 18
 _OWNERSHIP_WATCHDOG_SECONDS = 2
+_OWNERSHIP_FAILURE_LIMIT = 3
 _AUTO_STATUS_INTERVAL_SECONDS = 30 * 60
 _TASK_LABELS = {
     "密函无尽": ("密函无尽加速", "无尽"),
@@ -158,6 +159,27 @@ def notify_infinite_99_completed() -> bool:
     return True
 
 
+def notify_early_completion(
+    current: int, total: int, stage_count: int, stage_total: int
+) -> bool:
+    """Send one reliable alert when a finite dungeon settles before stage 99."""
+
+    if _config is None or _stop_event.is_set():
+        return False
+    final_config = dict(_config)
+    outcome = (
+        "已计入完成并继续下一次。"
+        if current < total
+        else "已计入完成并达到设定次数。"
+    )
+    message = (
+        f"第 {current} / {total} 次副本提前结束，实际局内进度 "
+        f"{stage_count} / {stage_total}，{outcome}"
+    )
+    _send_final_message_async(final_config, message)
+    return True
+
+
 def format_task_completed_message() -> str:
     """Build the natural-completion notification from the shared task state."""
 
@@ -182,7 +204,7 @@ def _send_final_message(config: dict[str, Any], message: str) -> None:
         _send_message(config["bot_token"], config["allowed_chat_id"], message)
     except (KeyError, OSError, ValueError, urllib.error.URLError) as exc:
         print(
-            f"[进度监控] 终止消息发送失败：{type(exc).__name__} {exc}",
+            f"[进度监控] 终止消息发送失败：{_network_error_summary(exc)}",
             flush=True,
         )
         return
@@ -198,11 +220,12 @@ def _validate_owner_path() -> None:
 
 def _read_owner_record() -> dict[str, Any] | None:
     try:
+        _validate_owner_path()
         if _LOCK_PATH.exists():
             loaded = json.loads(_LOCK_PATH.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 return loaded
-    except (OSError, json.JSONDecodeError, ValueError):
+    except (OSError, json.JSONDecodeError, ValueError, process_registry.ProcessRegistryError):
         return None
     return None
 
@@ -294,8 +317,14 @@ def _refresh_ownership(owner_id: str | None, *, now: float | None = None) -> boo
 
 
 def _ownership_watchdog(stop_event: threading.Event, owner_id: str) -> None:
+    consecutive_failures = 0
     while not stop_event.wait(_OWNERSHIP_WATCHDOG_SECONDS):
-        if not _refresh_ownership(owner_id):
+        if _refresh_ownership(owner_id):
+            consecutive_failures = 0
+            continue
+        consecutive_failures += 1
+        if consecutive_failures >= _OWNERSHIP_FAILURE_LIMIT:
+            print("[进度监控] 连续失去监听权，已停止当前 Telegram 监听", flush=True)
             stop_event.set()
             break
 
@@ -328,7 +357,7 @@ def _load_config() -> dict[str, Any] | None:
     }
 
 
-def _poll_loop(config: dict[str, Any], stop_event: threading.Event, owner_id: str) -> None:
+def _poll_loop(config: dict[str, Any], stop_event: threading.Event, _owner_id: str) -> None:
     token = config["bot_token"]
     allowed_chat_id = config["allowed_chat_id"]
     poll_timeout = config["poll_timeout_seconds"]
@@ -336,10 +365,6 @@ def _poll_loop(config: dict[str, Any], stop_event: threading.Event, owner_id: st
     failure_delay = 1
 
     while not stop_event.is_set():
-        if not _is_owner(owner_id):
-            break
-        if not _refresh_ownership(owner_id):
-            break
         params: dict[str, Any] = {
             "timeout": poll_timeout,
             "allowed_updates": json.dumps(["message"]),
@@ -362,7 +387,7 @@ def _poll_loop(config: dict[str, Any], stop_event: threading.Event, owner_id: st
                     offset = update_id + 1
         except (OSError, ValueError, urllib.error.URLError) as exc:
             print(
-                f"[进度监控] 监听接口异常：{type(exc).__name__} {exc}",
+                f"[进度监控] 监听接口异常：{_network_error_summary(exc)}",
                 flush=True,
             )
             stop_event.wait(failure_delay)
@@ -370,13 +395,11 @@ def _poll_loop(config: dict[str, Any], stop_event: threading.Event, owner_id: st
 
 
 def _send_loop(
-    config: dict[str, Any], stop_event: threading.Event, owner_id: str
+    config: dict[str, Any], stop_event: threading.Event, _owner_id: str
 ) -> None:
     token = config["bot_token"]
     chat_id = config["allowed_chat_id"]
     while not stop_event.is_set():
-        if not _is_owner(owner_id):
-            break
         try:
             message = _outbound.get(timeout=0.5)
         except queue.Empty:
@@ -389,22 +412,18 @@ def _send_loop(
                     break
                 except (OSError, ValueError, urllib.error.URLError) as exc:
                     print(
-                        f"[进度监控] 状态消息发送失败：{type(exc).__name__} {exc}",
+                        f"[进度监控] 状态消息发送失败：{_network_error_summary(exc)}",
                         flush=True,
                     )
-                    if not _refresh_ownership(owner_id):
-                        break
                     stop_event.wait(delay)
                     delay = min(30, delay * 2)
         finally:
             _outbound.task_done()
 
 
-def _auto_status_loop(stop_event: threading.Event, owner_id: str) -> None:
+def _auto_status_loop(stop_event: threading.Event, _owner_id: str) -> None:
     """Queue the current status every 30 minutes without blocking game work."""
     while not stop_event.wait(_AUTO_STATUS_INTERVAL_SECONDS):
-        if not _is_owner(owner_id):
-            break
         _outbound.put(progress_state.format_status())
 
 
@@ -431,6 +450,15 @@ def _handle_update(token: str, allowed_chat_id: int, update: dict[str, Any]) -> 
 
 def _send_message(token: str, chat_id: int, text: str) -> None:
     _api_call(token, "sendMessage", {"chat_id": chat_id, "text": text}, timeout=5)
+
+
+def _network_error_summary(exc: BaseException) -> str:
+    """Return a safe network error summary that never includes exception text."""
+
+    status = getattr(exc, "code", None)
+    if isinstance(status, int):
+        return f"{type(exc).__name__} HTTP {status}"
+    return type(exc).__name__
 
 
 def _api_call(

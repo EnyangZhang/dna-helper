@@ -1,0 +1,73 @@
+{
+    "task": [
+        {
+            "name": "CoinAFK",
+            "label": "皎皎币挂机",
+            "description": "仅从委托页面右下角“开始挑战”启动。进入副本后识别指定小地图，命中则执行固定角色操作序列并自动完成 99 局循环；未命中则放弃并重新挑战。副本轮次只统计正常完成的 99 局副本。",
+            "entry": "CoinAFKEntry",
+            "option": [
+                "CoinAFKRestartCount"
+            ],
+            "group": [
+                "DailyAFK"
+            ],
+            "controller": [
+                "Win32-Foreground"
+            ]
+        }
+    ],
+    "option": {
+        "CoinAFKRestartCount": {
+            "type": "input",
+            "label": "副本轮次",
+            "description": "设置需要正常完成多少个 99 局副本，范围 1–999。小地图不匹配而主动放弃的副本不会计数。",
+            "inputs": [
+                {
+                    "name": "count",
+                    "label": "轮次",
+                    "default": "1",
+                    "pipeline_type": "int",
+                    "verify": "^[1-9]\\d{0,2}$"
+                }
+            ],
+            "pipeline_override": {
+                "CoinAFKEntry": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "focus_guard_start",
+                            "custom_action_param": {
+                                "progress_mode": "皎皎币挂机",
+                                "progress_total": "{count}",
+                                "progress_stage_total": 99
+                            }
+                        }
+                    }
+                },
+                "CoinAFKRoundQuota": {
+                    "max_hit": "{count}",
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "coin_afk_log_round",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                },
+                "CoinAFKRoundDecision": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "coin_afk_decide_restart",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -76,6 +76,7 @@ _WM_KEYDOWN = 0x0100
 _WM_KEYUP = 0x0101
 _MAPVK_VK_TO_VSC = 0
 _BACKGROUND_KEY_HOLD_SECONDS = 0.03
+_MAX_KEY_HOLD_MS = 10000
 _state_lock = threading.Lock()
 _fallback_hwnd = 0
 _fallback_cursor_position: tuple[int, int] | None = None
@@ -274,6 +275,21 @@ def _parse_params(raw: object) -> dict:
     return {}
 
 
+def _apply_progress_event(params: dict) -> None:
+    progress_event = params.get("progress_event")
+    infinite_99_completed = False
+    if progress_event == "continue_challenge":
+        infinite_99_completed = progress_state.increment_stage(
+            dedupe_window_seconds=5.0
+        )
+    elif progress_event == "next_round_started":
+        progress_state.start_next_round()
+    elif progress_event == "cipher_cycle_completed":
+        infinite_99_completed = progress_state.advance_cipher_cycle()
+    if infinite_99_completed:
+        telegram_bot.notify_infinite_99_completed()
+
+
 @AgentServer.custom_action("focus_guard_start")
 class FocusGuardStart(CustomAction):
     def run(
@@ -296,6 +312,38 @@ class FocusGuardStart(CustomAction):
         return CustomAction.RunResult(success=True)
 
 
+@AgentServer.custom_action("progress_dungeon_entered")
+class ProgressDungeonEntered(CustomAction):
+    """Mark stage 1 only after the in-dungeon combat HUD is confirmed."""
+
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        return CustomAction.RunResult(success=progress_state.mark_dungeon_entered())
+
+
+@AgentServer.custom_action("focus_guard_finalize")
+class FocusGuardFinalize(CustomAction):
+    """Restore focus and record progress after native mouse clicks."""
+
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
+        restore_delay_ms = min(
+            1000, max(0, int(params.get("restore_delay_ms", 100)))
+        )
+        game_hwnd = _controller_hwnd(context)
+        restore_hwnd, restore_cursor_position = _remember_restore_target(
+            _foreground_window(), game_hwnd
+        )
+        if restore_delay_ms:
+            time.sleep(restore_delay_ms / 1000)
+        _restore_window_and_cursor(restore_hwnd, restore_cursor_position)
+        _apply_progress_event(params)
+        return CustomAction.RunResult(success=True)
+
+
 @AgentServer.custom_action("focus_guard_action")
 class FocusGuardAction(CustomAction):
     background_key_input = False
@@ -315,34 +363,58 @@ class FocusGuardAction(CustomAction):
         force_game_foreground = bool(self.force_game_foreground and kind == "key")
         should_restore = bool(params.get("restore", True)) and not background_key_input
 
-        if kind == "click":
-            target = params.get("target", [])
-            if not (
-                isinstance(target, list)
-                and len(target) == 2
-                and all(isinstance(value, int) for value in target)
-            ):
-                return CustomAction.RunResult(success=False)
-            proxy_node = {
-                (920, 480): "RewardConfirmThirdPageClick2",
-                (620, 607): "RewardConfirmFirstPageClick2",
-                (900, 500): "RewardConfirmContinueChallengeClick2",
-                (920, 640): "CipherExpelAgainClick2",
-                (770, 490): "NormalEndlessStartChallengeClick2",
-                (640, 505): "NormalEndlessConfirmChoiceClick2",
-            }.get(tuple(target))
-            if not proxy_node:
-                return CustomAction.RunResult(success=False)
-        elif kind == "key":
+        if kind == "key":
             key = params.get("key")
             if not isinstance(key, int):
                 return CustomAction.RunResult(success=False)
             proxy_node = {
                 69: "FocusGuardEKeyProxy",
                 81: "FocusGuardQKeyProxy",
+                27: "CoinAFKEscapeProxy",
             }.get(key)
             if not proxy_node:
                 return CustomAction.RunResult(success=False)
+        elif kind == "key_hold":
+            key = params.get("key")
+            hold_ms = min(_MAX_KEY_HOLD_MS, max(1, int(params.get("hold_ms", 1000))))
+            if not isinstance(key, int):
+                return CustomAction.RunResult(success=False)
+            proxy_node = None
+        elif kind == "key_sequence":
+            raw_steps = params.get("steps")
+            if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= 20:
+                return CustomAction.RunResult(success=False)
+            key_sequence = []
+            for step in raw_steps:
+                if not isinstance(step, dict):
+                    return CustomAction.RunResult(success=False)
+                if "delay_ms" in step:
+                    delay_ms = step.get("delay_ms")
+                    if not isinstance(delay_ms, int) or not 0 <= delay_ms <= 5000:
+                        return CustomAction.RunResult(success=False)
+                    key_sequence.append(("delay", delay_ms, None))
+                    continue
+                step_key = step.get("key")
+                if not isinstance(step_key, int):
+                    return CustomAction.RunResult(success=False)
+                if "hold_ms" in step:
+                    step_hold_ms = step.get("hold_ms")
+                    if (
+                        not isinstance(step_hold_ms, int)
+                        or not 1 <= step_hold_ms <= _MAX_KEY_HOLD_MS
+                    ):
+                        return CustomAction.RunResult(success=False)
+                    key_sequence.append(("hold", step_key, step_hold_ms))
+                    continue
+                step_proxy = {
+                    69: "FocusGuardEKeyProxy",
+                    81: "FocusGuardQKeyProxy",
+                    27: "CoinAFKEscapeProxy",
+                }.get(step_key)
+                if not step_proxy:
+                    return CustomAction.RunResult(success=False)
+                key_sequence.append(("key", step_key, step_proxy))
+            proxy_node = None
         else:
             return CustomAction.RunResult(success=False)
 
@@ -364,7 +436,36 @@ class FocusGuardAction(CustomAction):
         succeeded = True
 
         try:
-            for index in range(repeat):
+            if kind == "key_hold":
+                controller = context.tasker.controller
+                key_down = controller.post_key_down(key).wait().succeeded
+                succeeded = succeeded and key_down
+                try:
+                    if key_down:
+                        time.sleep(hold_ms / 1000)
+                finally:
+                    key_up = controller.post_key_up(key).wait().succeeded
+                    succeeded = succeeded and key_up
+            elif kind == "key_sequence":
+                controller = context.tasker.controller
+                for operation, value, detail_value in key_sequence:
+                    if operation == "delay":
+                        if value:
+                            time.sleep(value / 1000)
+                        continue
+                    if operation == "hold":
+                        key_down = controller.post_key_down(value).wait().succeeded
+                        succeeded = succeeded and key_down
+                        try:
+                            if key_down:
+                                time.sleep(detail_value / 1000)
+                        finally:
+                            key_up = controller.post_key_up(value).wait().succeeded
+                            succeeded = succeeded and key_up
+                        continue
+                    detail = context.run_action(detail_value)
+                    succeeded = succeeded and detail is not None and detail.success
+            for index in range(repeat if kind not in {"key_hold", "key_sequence"} else 0):
                 if kind == "key" and key == 69:
                     log_proxy = (
                         "FocusGuardEBackgroundLogProxy"
@@ -405,18 +506,7 @@ class FocusGuardAction(CustomAction):
                 _restore_window_and_cursor(restore_hwnd, restore_cursor_position)
 
         if succeeded:
-            progress_event = params.get("progress_event")
-            infinite_99_completed = False
-            if progress_event == "continue_challenge":
-                infinite_99_completed = progress_state.increment_stage(
-                    dedupe_window_seconds=5.0
-                )
-            elif progress_event == "next_round_started":
-                progress_state.start_next_round()
-            elif progress_event == "cipher_cycle_completed":
-                infinite_99_completed = progress_state.advance_cipher_cycle()
-            if infinite_99_completed:
-                telegram_bot.notify_infinite_99_completed()
+            _apply_progress_event(params)
 
         return CustomAction.RunResult(success=succeeded)
 

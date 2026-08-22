@@ -1,0 +1,983 @@
+{
+    "CoinAFKEntry": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_start",
+                "custom_action_param": {
+                    "progress_mode": "皎皎币挂机",
+                    "progress_total": 1,
+                    "progress_stage_total": 99
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[皎皎币挂机] 任务已启动，仅等待委托页面右下角的开始挑战",
+                "display": ["log"]
+            }
+        },
+        "next": ["CoinAFKInitialLobbyMonitor"]
+    },
+    "CoinAFKInitialLobbyMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": ["CoinAFKLobbyStart", "CoinAFKInitialLobbyMonitor"]
+    },
+    "CoinAFKLobbyStart": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CoinAFK/lobby_start_challenge.png",
+                "roi": [1060, 570, 220, 100],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [1150, 640]}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKLobbyStartClick2"]
+    },
+    "CoinAFKLobbyStartClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [1150, 640]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKLobbyStartClick3"]
+    },
+"CoinAFKLobbyStartClick3": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                1150,
+                640
+            ]
+        }
+    },
+    "focus": {
+        "Node.Action.Succeeded": {
+            "content": "[皎皎币挂机] 已点击委托页面开始挑战，等待 Space 开始挑战",
+            "display": [
+                "log"
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKLobbyStartClick3Finalize"
+    ]
+},
+"CoinAFKLobbyStartClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKWaitSpaceStart"
+    ]
+},
+    "CoinAFKWaitSpaceStart": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": ["CoinAFKSpaceStart", "CoinAFKLobbyStart", "CoinAFKWaitSpaceStart"]
+    },
+    "CoinAFKSpaceStart": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CoinAFK/space_start_challenge.png",
+                "roi": [650, 430, 300, 100],
+                "threshold": 0.75
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [770, 520]}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKSpaceStartClick2"]
+    },
+    "CoinAFKSpaceStartClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [770, 520]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKSpaceStartClick3"]
+    },
+"CoinAFKSpaceStartClick3": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                770,
+                520
+            ]
+        }
+    },
+    "focus": {
+        "Node.Action.Succeeded": {
+            "content": "[皎皎币挂机] 已点击 Space 开始挑战，等待战斗 HUD",
+            "display": [
+                "log"
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKSpaceStartClick3Finalize"
+    ]
+},
+"CoinAFKSpaceStartClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100,
+                "progress_event": "next_round_started"
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKWaitCombatHud"
+    ]
+},
+    "CoinAFKWaitCombatHud": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "CoinAFKCombatHudFrame1",
+            "CoinAFKSpaceStart",
+            "CoinAFKLobbyStart",
+            "CoinAFKWaitCombatHud"
+        ]
+    },
+    "CoinAFKCombatHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["CoinAFKCombatHudFrame2"],
+        "on_error": ["CoinAFKWaitCombatHud"]
+    },
+    "CoinAFKCombatHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["CoinAFKCombatHudReady"],
+        "on_error": ["CoinAFKWaitCombatHud"]
+    },
+    "CoinAFKCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {"custom_action": "progress_dungeon_entered"}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[皎皎币挂机] 已连续确认 3 帧战斗 HUD，开始检查目标小地图",
+                "display": ["log"]
+            }
+        },
+        "next": ["CoinAFKMapCheckWindow"],
+        "on_error": ["CoinAFKWaitCombatHud"]
+    },
+    "CoinAFKMapCheckWindow": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 50,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "timeout": 1500,
+        "next": ["CoinAFKTargetMapDetected"],
+        "on_error": ["CoinAFKAbortEscape"]
+    },
+    "CoinAFKTargetMapDetected": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CoinAFK/target_minimap.png",
+                "roi": [55, 70, 145, 125],
+                "threshold": 0.72
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[皎皎币挂机] 目标小地图识别成功，执行正式角色操作序列",
+                "display": ["log"]
+            }
+        },
+        "next": ["CoinAFKMoveBackward"]
+    },
+    "CoinAFKMoveBackward": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key_sequence",
+                    "steps": [
+                        {"delay_ms": 2000},
+                        {"key": 69},
+                        {"delay_ms": 300},
+                        {"key": 69},
+                        {"delay_ms": 300},
+                        {"key": 83, "hold_ms": 600},
+                        {"key": 81},
+                        {"delay_ms": 3500},
+                        {"key": 83, "hold_ms": 5000}
+                    ],
+                    "restore_delay_ms": 100
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[皎皎币挂机] 开始角色操作：2000ms → E → 300ms → E → 300ms → S 600ms → Q → 3500ms → S 5000ms",
+                "display": ["log"]
+            },
+            "Node.Action.Succeeded": {
+                "content": "[皎皎币挂机] 角色操作完成，进入局内 99 轮加速",
+                "display": ["log"]
+            }
+        },
+        "next": ["CoinAFKInsideMonitor"]
+    },
+    "CoinAFKInsideMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["CoinAFKContinueChallenge", "CoinAFKConfirmChoice", "CoinAFKInsideIdle"]
+    },
+    "CoinAFKContinueChallenge": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "NormalEndlessBoost/hold_continue_challenge.png",
+                "roi": [760, 450, 260, 120],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [900, 500]}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKContinueChallengeClick2"]
+    },
+    "CoinAFKContinueChallengeClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [900, 500]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKContinueChallengeClick3"]
+    },
+"CoinAFKContinueChallengeClick3": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                900,
+                500
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKContinueChallengeClick3Finalize"
+    ]
+},
+"CoinAFKContinueChallengeClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100,
+                "progress_event": "continue_challenge"
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKContinueTransition"
+    ]
+},
+    "CoinAFKContinueTransition": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["CoinAFKConfirmChoice", "CoinAFKInsideMonitor"]
+    },
+    "CoinAFKConfirmChoice": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "NormalEndlessBoost/hold_confirm_choice.png",
+                "roi": [500, 450, 320, 120],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [640, 505]}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKConfirmChoiceClick2"]
+    },
+    "CoinAFKConfirmChoiceClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [640, 505]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKConfirmChoiceClick3"]
+    },
+"CoinAFKConfirmChoiceClick3": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                640,
+                505
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKConfirmChoiceClick3Finalize"
+    ]
+},
+"CoinAFKConfirmChoiceClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKInsideMonitor"
+    ]
+},
+    "CoinAFKInsideIdle": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "CoinAFKInsideGate",
+            "CoinAFKContinueChallenge",
+            "CoinAFKConfirmChoice",
+            "CoinAFKCompletedAgain",
+            "CoinAFKInsideIdle"
+        ]
+    },
+    "CoinAFKInsideGate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["CoinAFKInsideMonitor"],
+        "on_error": ["CoinAFKInsideIdle"]
+    },
+    "CoinAFKCompletedAgain": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [800, 560, 300, 130],
+                "threshold": 0.8
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["CoinAFKRoundQuota"]
+    },
+    "CoinAFKRoundQuota": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "coin_afk_log_round",
+                "custom_action_param": {"total": 1}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "max_hit": 1,
+        "next": ["CoinAFKRoundLog"]
+    },
+    "CoinAFKRoundLog": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["CoinAFKRoundDecision"]
+    },
+    "CoinAFKRoundDecision": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "coin_afk_decide_restart",
+                "custom_action_param": {"total": 1}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["CoinAFKFinished"]
+    },
+    "CoinAFKRestartAgain": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [800, 560, 300, 130],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [920, 640]}
+        },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[皎皎币挂机] 已点击再次进行，等待委托页面开始挑战",
+                "display": ["log"]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKAgainClick2"]
+    },
+    "CoinAFKRestartLobbyMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "CoinAFKRestartAgainRetry",
+            "CoinAFKSpaceStart",
+            "CoinAFKCommissionCard",
+            "CoinAFKLobbyStart",
+            "CoinAFKRestartLobbyMonitor"
+        ]
+    },
+    "CoinAFKRestartAgainRetry": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [800, 560, 300, 130],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [920, 640]}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKAgainClick2"]
+    },
+    "CoinAFKAgainClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [920, 640]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKAgainClick3"]
+    },
+"CoinAFKAgainClick3": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                920,
+                640
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKAgainClick3Finalize"
+    ]
+},
+"CoinAFKAgainClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKRestartLobbyMonitor"
+    ]
+},
+    "CoinAFKCommissionCard": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CoinAFK/commission_guard_endless.png",
+                "roi": [450, 480, 230, 120],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [570, 400]}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKCommissionCardClick2"]
+    },
+    "CoinAFKCommissionCardClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [570, 400]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKCommissionCardClick3"]
+    },
+"CoinAFKCommissionCardClick3": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                570,
+                400
+            ]
+        }
+    },
+    "focus": {
+        "Node.Action.Succeeded": {
+            "content": "[皎皎币挂机] 已选择扼守/无尽委托，等待委托页面开始挑战",
+            "display": [
+                "log"
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKCommissionCardClick3Finalize"
+    ]
+},
+"CoinAFKCommissionCardClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKRestartLobbyMonitor"
+    ]
+},
+    "CoinAFKAbortEscape": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key",
+                    "key": 27,
+                    "repeat": 1,
+                    "restore_delay_ms": 100
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[皎皎币挂机] 未识别到目标小地图，发送 Esc 并准备放弃本次挑战",
+                "display": ["log"]
+            }
+        },
+        "next": ["CoinAFKWaitAbandon"]
+    },
+    "CoinAFKWaitAbandon": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 50,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 5000,
+        "next": ["CoinAFKAbandon"],
+        "on_error": ["CoinAFKAbortEscape"]
+    },
+    "CoinAFKAbandon": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CoinAFK/abandon_challenge.png",
+                "roi": [1080, 570, 200, 120],
+                "threshold": 0.7
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [1185, 634]}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKAbandonClick2"]
+    },
+    "CoinAFKAbandonClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [1185, 634]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKAbandonClick3"]
+    },
+"CoinAFKAbandonClick3": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                1185,
+                634
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKAbandonClick3Finalize"
+    ]
+},
+"CoinAFKAbandonClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKWaitAbandonConfirm"
+    ]
+},
+    "CoinAFKWaitAbandonConfirm": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": ["CoinAFKAbandonConfirm", "CoinAFKWaitAbandonConfirm"]
+    },
+    "CoinAFKAbandonConfirm": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CoinAFK/abandon_confirm.png",
+                "roi": [650, 380, 260, 120],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [770, 432]}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKAbandonConfirmClick2"]
+    },
+    "CoinAFKAbandonConfirmClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [770, 432]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKAbandonConfirmClick3"]
+    },
+"CoinAFKAbandonConfirmClick3": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Click",
+        "param": {
+            "target": [
+                770,
+                432
+            ]
+        }
+    },
+    "focus": {
+        "Node.Action.Succeeded": {
+            "content": "[皎皎币挂机] 已确认放弃，本次副本不计入完成轮次",
+            "display": [
+                "log"
+            ]
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKAbandonConfirmClick3Finalize"
+    ]
+},
+"CoinAFKAbandonConfirmClick3Finalize": {
+    "recognition": {
+        "type": "DirectHit"
+    },
+    "action": {
+        "type": "Custom",
+        "param": {
+            "custom_action": "focus_guard_finalize",
+            "custom_action_param": {
+                "restore_delay_ms": 100
+            }
+        }
+    },
+    "rate_limit": 0,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "next": [
+        "CoinAFKAbortOutsideMonitor"
+    ]
+},
+    "CoinAFKAbortOutsideMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": ["CoinAFKAbortAgain", "CoinAFKAbortOutsideMonitor"]
+    },
+    "CoinAFKAbortAgain": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [800, 560, 300, 130],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Click",
+            "param": {"target": [920, 640]}
+        },
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[皎皎币挂机] 已从放弃结算页点击再次进行，重新选择副本",
+                "display": ["log"]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CoinAFKAgainClick2"]
+    },
+    "CoinAFKFinished": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "StopTask"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[皎皎币挂机] 已完成设定的副本轮次，任务结束",
+                "display": ["log", "toast"]
+            }
+        }
+    },
+    "CoinAFKEscapeProxy": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "ClickKey", "param": {"key": 27}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    }
+}

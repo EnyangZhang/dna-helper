@@ -6,6 +6,7 @@ import json
 import os
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,9 +25,23 @@ _state: dict[str, Any] = {
     "total_rounds": 0,
     "stage_count": 0,
     "stage_total": 99,
+    "stage_tracking_active": False,
     "started_at": None,
     "updated_at": time.time(),
 }
+
+
+@dataclass(frozen=True)
+class RoundCompletion:
+    """Outcome of recording one out-of-dungeon completion page."""
+
+    current: int
+    total: int
+    stage_count: int
+    stage_total: int
+    stage_tracking_active: bool
+    early: bool
+    should_notify_early: bool
 
 
 def start_task(
@@ -38,6 +53,7 @@ def start_task(
     with _lock:
         if task_id and int(_state.get("task_id", 0)) == task_id:
             return False
+        initial_stage = 1 if mode == "普通无尽" else 0
         _state.update(
             {
                 "task_id": task_id,
@@ -45,8 +61,9 @@ def start_task(
                 "mode": mode or "普通副本",
                 "completed_rounds": 0,
                 "total_rounds": max(0, int(total_rounds)),
-                "stage_count": 0,
+                "stage_count": initial_stage,
                 "stage_total": max(0, int(stage_total)),
+                "stage_tracking_active": mode == "普通无尽",
                 "started_at": now,
                 "updated_at": now,
             }
@@ -70,6 +87,7 @@ def reset() -> None:
                 "total_rounds": 0,
                 "stage_count": 0,
                 "stage_total": 99,
+                "stage_tracking_active": False,
                 "started_at": None,
                 "updated_at": now,
             }
@@ -95,6 +113,9 @@ def increment_stage(dedupe_window_seconds: float = 0.0) -> bool:
             return False
         _last_stage_increment_monotonic = monotonic_now
         stage_total = int(_state["stage_total"])
+        if stage_total and not bool(_state.get("stage_tracking_active", False)):
+            _state["stage_count"] = 1
+            _state["stage_tracking_active"] = True
         next_count = int(_state["stage_count"]) + 1
         _state["stage_count"] = min(next_count, stage_total) if stage_total else next_count
         _state["updated_at"] = time.time()
@@ -105,22 +126,54 @@ def increment_stage(dedupe_window_seconds: float = 0.0) -> bool:
         )
 
 
-def complete_round(current: int, total: int, mode: str | None = None) -> None:
+def mark_dungeon_entered() -> bool:
+    """Record the first in-dungeon stage once, after combat HUD is confirmed."""
+
+    with _lock:
+        if _state["status"] not in {"running", "waiting_next_round"}:
+            return False
+        if not int(_state["stage_total"]):
+            return True
+        if bool(_state.get("stage_tracking_active", False)):
+            return True
+        _state["stage_count"] = 1
+        _state["stage_tracking_active"] = True
+        _state["status"] = "running"
+        _state["updated_at"] = time.time()
+        _persist_locked()
+        return True
+
+
+def complete_round(
+    current: int, total: int, mode: str | None = None
+) -> RoundCompletion:
     """Record one completed out-of-dungeon round after Again is detected."""
     current = max(1, int(current))
     total = max(1, int(total))
     with _lock:
+        previous_completed = int(_state.get("completed_rounds", 0))
         if mode:
             _state["mode"] = mode
         if not _state.get("started_at"):
             _state["started_at"] = time.time()
         _state["completed_rounds"] = current
         _state["total_rounds"] = total
-        if _state["stage_total"]:
-            _state["stage_count"] = int(_state["stage_total"])
+        stage_count = int(_state["stage_count"])
+        stage_total = int(_state["stage_total"])
+        tracking_active = bool(_state.get("stage_tracking_active", False))
+        early = tracking_active and stage_total > 0 and stage_count < stage_total
         _state["status"] = "completed" if current >= total else "waiting_next_round"
         _state["updated_at"] = time.time()
         _persist_locked()
+        return RoundCompletion(
+            current=current,
+            total=total,
+            stage_count=stage_count,
+            stage_total=stage_total,
+            stage_tracking_active=tracking_active,
+            early=early,
+            should_notify_early=early and current > previous_completed,
+        )
 
 
 def advance_cipher_cycle() -> bool:
@@ -134,6 +187,7 @@ def advance_cipher_cycle() -> bool:
         elif _state["mode"] == "密函驱离" and _state["status"] == "waiting_next_round":
             _state["status"] = "running"
             _state["stage_count"] = 0
+            _state["stage_tracking_active"] = False
             milestone_reached = False
         else:
             return False
@@ -147,6 +201,7 @@ def start_next_round() -> None:
     global _last_stage_increment_monotonic
     with _lock:
         _state["stage_count"] = 0
+        _state["stage_tracking_active"] = False
         _state["status"] = "running"
         _state["updated_at"] = time.time()
         _last_stage_increment_monotonic = 0.0

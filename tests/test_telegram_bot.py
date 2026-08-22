@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+import io
 from pathlib import Path
 from unittest.mock import patch
 
@@ -70,6 +71,36 @@ class TelegramBotTest(unittest.TestCase):
         snapshot.assert_called_once_with()
         put.assert_not_called()
 
+    @patch("telegram_bot._send_final_message_async")
+    def test_early_completion_uses_reliable_one_shot_sender(self, send_final) -> None:
+        telegram_bot._config = {
+            "bot_token": "token",
+            "allowed_chat_id": 123,
+            "poll_timeout_seconds": 25,
+        }
+
+        self.assertTrue(telegram_bot.notify_early_completion(3, 10, 15, 99))
+
+        send_final.assert_called_once_with(
+            {
+                "bot_token": "token",
+                "allowed_chat_id": 123,
+                "poll_timeout_seconds": 25,
+            },
+            "第 3 / 10 次副本提前结束，实际局内进度 15 / 99，已计入完成并继续下一次。",
+        )
+
+    @patch("telegram_bot._send_final_message_async")
+    def test_early_completion_at_limit_does_not_claim_restart(self, send_final) -> None:
+        telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
+
+        self.assertTrue(telegram_bot.notify_early_completion(10, 10, 15, 99))
+
+        send_final.assert_called_once_with(
+            {"bot_token": "token", "allowed_chat_id": 123},
+            "第 10 / 10 次副本提前结束，实际局内进度 15 / 99，已计入完成并达到设定次数。",
+        )
+
     @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "普通驱离"})
     def test_task_completion_message_uses_current_mode(self, snapshot) -> None:
         self.assertEqual(
@@ -126,19 +157,51 @@ class TelegramBotTest(unittest.TestCase):
         telegram_bot.stop()
         reset_state.assert_called_once_with()
 
-    @patch("telegram_bot._send_message", side_effect=OSError("offline"))
+    @patch("telegram_bot._send_message", side_effect=OSError("https://api.telegram.org/botbotSECRET/sendMessage"))
     def test_final_message_network_failure_is_non_blocking(self, send_message) -> None:
-        telegram_bot._send_final_message(
-            {"bot_token": "token", "allowed_chat_id": 123},
-            "任务完成消息",
-        )
+        with patch("sys.stdout", new_callable=io.StringIO) as output:
+            telegram_bot._send_final_message(
+                {"bot_token": "token", "allowed_chat_id": 123},
+                "任务完成消息",
+            )
         send_message.assert_called_once_with("token", 123, "任务完成消息")
+        self.assertNotIn("botSECRET", output.getvalue())
 
-    @patch("telegram_bot._is_owner", return_value=True)
+    @patch("telegram_bot._api_call", side_effect=OSError("botSECRET leaked"))
+    def test_poll_network_failure_log_excludes_exception_text(self, api_call) -> None:
+        class StopAfterFailure:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def is_set(self) -> bool:
+                return self.calls > 0
+
+            def wait(self, _seconds: int) -> bool:
+                self.calls += 1
+                return True
+
+        stop_event = StopAfterFailure()
+        with patch("sys.stdout", new_callable=io.StringIO) as output:
+            telegram_bot._poll_loop(
+                {"bot_token": "token", "allowed_chat_id": 123, "poll_timeout_seconds": 5},
+                stop_event,
+                "owner-a",
+            )
+        api_call.assert_called_once()
+        self.assertNotIn("botSECRET", output.getvalue())
+
+    def test_owner_record_rejects_non_normal_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "telegram-owner.json"
+            with patch.object(telegram_bot, "_LOCK_PATH", lock_path), patch.object(
+                telegram_bot.process_registry, "_is_normal_file_target", return_value=False
+            ):
+                self.assertIsNone(telegram_bot._read_owner_record())
+
     @patch.object(telegram_bot._outbound, "put")
     @patch("telegram_bot.progress_state.format_status", return_value="当前状态")
     def test_auto_status_is_queued_every_thirty_minutes(
-        self, format_status, put, is_owner
+        self, format_status, put
     ) -> None:
         class StopAfterSecondWait:
             def __init__(self) -> None:
@@ -158,6 +221,83 @@ class TelegramBotTest(unittest.TestCase):
         self.assertEqual(telegram_bot._AUTO_STATUS_INTERVAL_SECONDS, 1800)
         format_status.assert_called_once_with()
         put.assert_called_once_with("当前状态")
+
+    @patch("telegram_bot._refresh_ownership", side_effect=[False, False, True, False, False, False])
+    def test_ownership_watchdog_tolerates_transient_failures(self, refresh) -> None:
+        class ImmediateWait:
+            def __init__(self) -> None:
+                self.stopped = False
+
+            def wait(self, seconds: int) -> bool:
+                self.assert_interval = seconds
+                return self.stopped
+
+            def set(self) -> None:
+                self.stopped = True
+
+        stop_event = ImmediateWait()
+        with patch("sys.stdout", new_callable=io.StringIO) as output:
+            telegram_bot._ownership_watchdog(stop_event, "owner-a")
+
+        self.assertTrue(stop_event.stopped)
+        self.assertEqual(stop_event.assert_interval, telegram_bot._OWNERSHIP_WATCHDOG_SECONDS)
+        self.assertEqual(refresh.call_count, 6)
+        self.assertIn("连续失去监听权", output.getvalue())
+
+    @patch("telegram_bot._is_owner", side_effect=AssertionError("worker must not read owner file"))
+    @patch("telegram_bot._refresh_ownership", side_effect=AssertionError("worker must not refresh owner file"))
+    @patch.object(telegram_bot._outbound, "put")
+    @patch("telegram_bot.progress_state.format_status", return_value="当前状态")
+    def test_auto_status_worker_does_not_touch_owner_file(
+        self, format_status, put, refresh, is_owner
+    ) -> None:
+        class StopAfterSecondWait:
+            def __init__(self) -> None:
+                self.wait_count = 0
+
+            def wait(self, _seconds: int) -> bool:
+                self.wait_count += 1
+                return self.wait_count >= 2
+
+        telegram_bot._auto_status_loop(StopAfterSecondWait(), "owner-a")
+
+        format_status.assert_called_once_with()
+        put.assert_called_once_with("当前状态")
+        refresh.assert_not_called()
+        is_owner.assert_not_called()
+
+    @patch("telegram_bot._is_owner", side_effect=AssertionError("worker must not read owner file"))
+    @patch("telegram_bot._refresh_ownership", side_effect=AssertionError("worker must not refresh owner file"))
+    @patch.object(telegram_bot._outbound, "task_done")
+    @patch.object(telegram_bot._outbound, "get", return_value="当前状态")
+    @patch("telegram_bot._send_message")
+    def test_sender_does_not_touch_owner_file(
+        self, send_message, get, task_done, refresh, is_owner
+    ) -> None:
+        class StopAfterSend:
+            def __init__(self) -> None:
+                self.stopped = False
+
+            def is_set(self) -> bool:
+                return self.stopped
+
+            def wait(self, _seconds: int) -> bool:
+                return self.stopped
+
+        stop_event = StopAfterSend()
+        send_message.side_effect = lambda *_args: setattr(stop_event, "stopped", True)
+
+        telegram_bot._send_loop(
+            {"bot_token": "token", "allowed_chat_id": 123},
+            stop_event,
+            "owner-a",
+        )
+
+        get.assert_called_once_with(timeout=0.5)
+        send_message.assert_called_once_with("token", 123, "当前状态")
+        task_done.assert_called_once_with()
+        refresh.assert_not_called()
+        is_owner.assert_not_called()
 
     def test_single_instance_lock_prevents_non_owner_send(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

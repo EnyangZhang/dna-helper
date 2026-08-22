@@ -43,12 +43,12 @@
                                 "NormalEndlessIdle"
                             ]
                         },
-                        "NormalEndlessContinueChallengeClick3": {
+                        "NormalEndlessContinueChallengeClick3Finalize": {
                             "next": [
                                 "NormalContinueTransition"
                             ]
                         },
-                        "NormalEndlessConfirmChoiceClick3": {
+                        "NormalEndlessConfirmChoiceClick3Finalize": {
                             "next": [
                                 "NormalEndlessIdle"
                             ]
@@ -110,52 +110,9 @@
                                 "NormalEndlessIdle"
                             ]
                         },
-                        "NormalEndlessContinueChallenge": {
-                            "action": {
-                                "type": "Custom",
-                                "param": {
-                                    "custom_action": "focus_guard_action",
-                                    "custom_action_param": {
-                                        "kind": "click",
-                                        "target": [
-                                            900,
-                                            500
-                                        ],
-                                        "repeat": 3,
-                                        "interval_ms": 50,
-                                        "restore_delay_ms": 100,
-                                        "progress_event": "continue_challenge"
-                                    }
-                                }
-                            },
-                            "next": [
-                                "NormalContinueTransition"
-                            ]
-                        },
                         "NormalContinueTransition": {
                             "next": [
                                 "NormalEndlessConfirmChoice",
-                                "NormalEndlessMonitor"
-                            ]
-                        },
-                        "NormalEndlessConfirmChoice": {
-                            "action": {
-                                "type": "Custom",
-                                "param": {
-                                    "custom_action": "focus_guard_action",
-                                    "custom_action_param": {
-                                        "kind": "click",
-                                        "target": [
-                                            640,
-                                            505
-                                        ],
-                                        "repeat": 3,
-                                        "interval_ms": 50,
-                                        "restore_delay_ms": 100
-                                    }
-                                }
-                            },
-                            "next": [
                                 "NormalEndlessMonitor"
                             ]
                         },
@@ -202,7 +159,9 @@
                                         "log"
                                     ]
                                 }
-                            },
+                            }
+                        },
+                        "NormalEndlessStartChallengeClick3Finalize": {
                             "next": [
                                 "NormalEndlessWaitStartChallenge"
                             ]
@@ -266,7 +225,7 @@
                                 "NormalEndlessCombatEntry"
                             ]
                         },
-                        "NormalEndlessConfirmChoiceClick3": {
+                        "NormalEndlessConfirmChoiceClick3Finalize": {
                             "next": [
                                 "NormalEndlessCombatEntry"
                             ]

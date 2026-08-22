@@ -11,23 +11,21 @@ ASSETS = ROOT / "assets"
 TASK_GROUP_REQUIREMENTS = {
     "CipherEndlessBoost": "DailyAFK",
     "NormalEndlessBoost": "DailyAFK",
+    "CoinAFK": "DailyAFK",
     "ProgressMonitor": "Monitor",
 }
 PIPELINE_EDGE_FIELDS = ("next", "on_error")
+PIPELINE_TIMING_FIELDS = ("rate_limit", "pre_delay", "post_delay")
 # Agent custom actions invoke these nodes by name through Context.run_action or
 # install them as runtime next targets through Context.override_pipeline.
 DYNAMIC_PIPELINE_TARGETS = {
-    "RewardConfirmThirdPageClick2",
-    "RewardConfirmFirstPageClick2",
-    "RewardConfirmContinueChallengeClick2",
-    "CipherExpelAgainClick2",
     "CipherExpelAgainByClick",
-    "NormalEndlessStartChallengeClick2",
-    "NormalEndlessConfirmChoiceClick2",
     "FocusGuardEKeyProxy",
     "FocusGuardQKeyProxy",
     "FocusGuardEBackgroundLogProxy",
     "NormalEndlessRestartByClick",
+    "CoinAFKEscapeProxy",
+    "CoinAFKRestartAgain",
 }
 COMBAT_HUD_READY_NODES = (
     "LiseCombatHudReadyFrame1",
@@ -144,6 +142,18 @@ def validate_process_termination_contract() -> None:
     present = [fragment for fragment in forbidden_fragments if fragment in patch_source]
     if present:
         raise SystemExit(f"MXU monitor cleanup must not terminate or exit UI processes: {present}")
+
+    build_script_source = require_source_fragments(
+        ROOT / "tools" / "build_custom_mxu.ps1",
+        (
+            "353c674b6aea4e7da617e4cb882effa744c1e05e",
+            "git apply --unidiff-zero --check $patchFile",
+            "git apply --unidiff-zero $patchFile",
+            "git apply --unidiff-zero --reverse --check $patchFile",
+        ),
+    )
+    if build_script_source.count("git apply --unidiff-zero") != 3:
+        raise SystemExit("MXU zero-context patch must use --unidiff-zero in all apply paths")
 
 
 def load_json(path: Path) -> dict:
@@ -369,9 +379,307 @@ def main() -> None:
             if isinstance(template, str):
                 template_paths.add(template)
 
+    for node_name, node in pipeline_nodes.items():
+        missing_timing = [
+            field for field in PIPELINE_TIMING_FIELDS if field not in node
+        ]
+        if missing_timing:
+            raise SystemExit(
+                f"{pipeline_owners[node_name]}: {node_name} must explicitly declare "
+                f"pipeline timing fields: {missing_timing}"
+            )
+        invalid_timing = {
+            field: node[field]
+            for field in PIPELINE_TIMING_FIELDS
+            if isinstance(node[field], bool)
+            or not isinstance(node[field], (int, float))
+            or node[field] < 0
+        }
+        if invalid_timing:
+            raise SystemExit(
+                f"{pipeline_owners[node_name]}: {node_name} has invalid pipeline "
+                f"timing values: {invalid_timing}"
+            )
+
     missing_entries = task_entries - set(pipeline_nodes)
     if missing_entries:
         raise SystemExit(f"Missing task entry pipeline nodes: {sorted(missing_entries)}")
+
+    coin_entry = pipeline_nodes.get("CoinAFKEntry", {})
+    if coin_entry.get("next") != ["CoinAFKInitialLobbyMonitor"]:
+        raise SystemExit("CoinAFKEntry must only enter the commission-page start monitor")
+    if pipeline_nodes.get("CoinAFKMoveBackward", {}).get("next") != [
+        "CoinAFKInsideMonitor"
+    ]:
+        raise SystemExit("CoinAFK key sequence must continue into inside monitoring")
+    expected_dungeon_entry_action = {
+        "type": "Custom",
+        "param": {"custom_action": "progress_dungeon_entered"},
+    }
+    if pipeline_nodes.get("CoinAFKCombatHudReady", {}).get("action") != (
+        expected_dungeon_entry_action
+    ):
+        raise SystemExit("CoinAFKCombatHudReady must record stage 1 after HUD confirmation")
+    coin_initial_next = pipeline_nodes.get("CoinAFKInitialLobbyMonitor", {}).get(
+        "next", []
+    )
+    if not coin_initial_next or coin_initial_next[0] != "CoinAFKLobbyStart":
+        raise SystemExit("CoinAFK initial monitor must start from the lobby button")
+    coin_restart_next = pipeline_nodes.get("CoinAFKRestartLobbyMonitor", {}).get(
+        "next", []
+    )
+    if (
+        "CoinAFKSpaceStart" not in coin_restart_next
+        or "CoinAFKCommissionCard" not in coin_restart_next
+        or "CoinAFKLobbyStart" not in coin_restart_next
+    ):
+        raise SystemExit(
+            "CoinAFK restart monitor must handle Space start and commission-page recovery"
+        )
+    established_fast_click_chains = (
+        (
+            "RewardConfirmThirdPageByClick",
+            "RewardConfirmThirdPageClick2",
+            "RewardConfirmThirdPageClick3",
+            [920, 480],
+            ["RewardConfirmEntry"],
+        ),
+        (
+            "RewardConfirmByClick",
+            "RewardConfirmFirstPageClick2",
+            "RewardConfirmFirstPageClick3",
+            [620, 607],
+            ["RewardConfirmContinueChallenge", "RewardConfirmWaitContinue"],
+        ),
+        (
+            "RewardConfirmContinueChallenge",
+            "RewardConfirmContinueChallengeClick2",
+            "RewardConfirmContinueChallengeClick3",
+            [900, 500],
+            ["RewardConfirmThirdPageByClick", "RewardConfirmWaitThird"],
+        ),
+        (
+            "CipherExpelAgainByClick",
+            "CipherExpelAgainClick2",
+            "CipherExpelAgainClick3",
+            [920, 640],
+            ["CipherExpelRestartMonitor"],
+        ),
+        (
+            "NormalEndlessContinueChallenge",
+            "NormalEndlessContinueChallengeClick2",
+            "NormalEndlessContinueChallengeClick3",
+            [900, 500],
+            ["NormalContinueTransition"],
+        ),
+        (
+            "NormalEndlessStartChallengeByClick",
+            "NormalEndlessStartChallengeClick2",
+            "NormalEndlessStartChallengeClick3",
+            [770, 490],
+            ["NormalEndlessWaitStartChallenge"],
+        ),
+        (
+            "NormalEndlessConfirmChoice",
+            "NormalEndlessConfirmChoiceClick2",
+            "NormalEndlessConfirmChoiceClick3",
+            [640, 505],
+            ["NormalEndlessMonitor"],
+        ),
+        (
+            "NormalEndlessRestartByClick",
+            "NormalEndlessRestartClick2",
+            "NormalEndlessRestartClick3",
+            [920, 640],
+            ["NormalEndlessWaitStartChallenge"],
+        ),
+        (
+            "NormalHoldPostSkillContinueChallenge",
+            "NormalHoldPostSkillContinueChallengeClick2",
+            "NormalHoldPostSkillContinueChallengeClick3",
+            [900, 500],
+            ["NormalHoldPostSkillContinueTransition"],
+        ),
+        (
+            "NormalHoldPostSkillConfirmChoice",
+            "NormalHoldPostSkillConfirmChoiceClick2",
+            "NormalHoldPostSkillConfirmChoiceClick3",
+            [640, 505],
+            ["NormalHoldPostSkillIdle"],
+        ),
+    )
+    coin_fast_click_chains = (
+        (
+            "CoinAFKLobbyStart",
+            "CoinAFKLobbyStartClick2",
+            "CoinAFKLobbyStartClick3",
+            [1150, 640],
+            ["CoinAFKWaitSpaceStart"],
+        ),
+        (
+            "CoinAFKSpaceStart",
+            "CoinAFKSpaceStartClick2",
+            "CoinAFKSpaceStartClick3",
+            [770, 520],
+            ["CoinAFKWaitCombatHud"],
+        ),
+        (
+            "CoinAFKContinueChallenge",
+            "CoinAFKContinueChallengeClick2",
+            "CoinAFKContinueChallengeClick3",
+            [900, 500],
+            ["CoinAFKContinueTransition"],
+        ),
+        (
+            "CoinAFKConfirmChoice",
+            "CoinAFKConfirmChoiceClick2",
+            "CoinAFKConfirmChoiceClick3",
+            [640, 505],
+            ["CoinAFKInsideMonitor"],
+        ),
+        (
+            "CoinAFKCommissionCard",
+            "CoinAFKCommissionCardClick2",
+            "CoinAFKCommissionCardClick3",
+            [570, 400],
+            ["CoinAFKRestartLobbyMonitor"],
+        ),
+        (
+            "CoinAFKAbandon",
+            "CoinAFKAbandonClick2",
+            "CoinAFKAbandonClick3",
+            [1185, 634],
+            ["CoinAFKWaitAbandonConfirm"],
+        ),
+        (
+            "CoinAFKAbandonConfirm",
+            "CoinAFKAbandonConfirmClick2",
+            "CoinAFKAbandonConfirmClick3",
+            [770, 432],
+            ["CoinAFKAbortOutsideMonitor"],
+        ),
+    )
+    fast_click_chains = established_fast_click_chains + coin_fast_click_chains
+    for first, second, third, target, final_next in fast_click_chains:
+        for node_name, next_name in ((first, second), (second, third)):
+            node = pipeline_nodes.get(node_name, {})
+            if (
+                node.get("action", {}).get("type") != "Click"
+                or node.get("action", {}).get("param", {}).get("target") != target
+                or node.get("post_delay") != 50
+                or node.get("next") != [next_name]
+                or (
+                    node_name == second
+                    and node.get("recognition", {}).get("type") != "DirectHit"
+                )
+            ):
+                raise SystemExit(f"{node_name} must remain a native 50ms fast-click node")
+        third_node = pipeline_nodes.get(third, {})
+        finalize_name = f"{third}Finalize"
+        finalize_node = pipeline_nodes.get(finalize_name, {})
+        finalize_param = finalize_node.get("action", {}).get("param", {})
+        if (
+            third_node.get("action", {}).get("type") != "Click"
+            or third_node.get("recognition", {}).get("type") != "DirectHit"
+            or third_node.get("action", {}).get("param", {}).get("target") != target
+            or third_node.get("post_delay") != 0
+            or third_node.get("next") != [finalize_name]
+        ):
+            raise SystemExit(f"{third} must remain the third native mouse click")
+        if (
+            finalize_node.get("recognition", {}).get("type") != "DirectHit"
+            or finalize_node.get("action", {}).get("type") != "Custom"
+            or finalize_param.get("custom_action") != "focus_guard_finalize"
+            or finalize_param.get("custom_action_param", {}).get("restore_delay_ms")
+            != 100
+            or finalize_node.get("rate_limit") != 0
+            or finalize_node.get("pre_delay") != 0
+            or finalize_node.get("post_delay") != 0
+            or finalize_node.get("next") != final_next
+        ):
+            raise SystemExit(f"{finalize_name} must restore focus without mouse input")
+    for node_name, node in pipeline_nodes.items():
+        custom_param = (
+            node.get("action", {})
+            .get("param", {})
+            .get("custom_action_param", {})
+        )
+        if custom_param.get("kind") == "click":
+            raise SystemExit(f"{node_name}: Agent actions must never send mouse clicks")
+    for relative, override in pipeline_overrides:
+        for node_name, node_override in override.items():
+            custom_param = (
+                node_override.get("action", {})
+                .get("param", {})
+                .get("custom_action_param", {})
+            )
+            if custom_param.get("kind") == "click":
+                raise SystemExit(
+                    f"{relative}: {node_name} override must not send Agent mouse clicks"
+                )
+    for first in (
+        "CoinAFKRestartAgain",
+        "CoinAFKRestartAgainRetry",
+        "CoinAFKAbortAgain",
+    ):
+        first_node = pipeline_nodes.get(first, {})
+        if (
+            first_node.get("action", {}).get("type") != "Click"
+            or first_node.get("action", {}).get("param", {}).get("target")
+            != [920, 640]
+            or first_node.get("post_delay") != 50
+            or first_node.get("next") != ["CoinAFKAgainClick2"]
+        ):
+            raise SystemExit(f"{first} must enter the shared native again-click chain")
+    again_second = pipeline_nodes.get("CoinAFKAgainClick2", {})
+    again_third = pipeline_nodes.get("CoinAFKAgainClick3", {})
+    again_finalize = pipeline_nodes.get("CoinAFKAgainClick3Finalize", {})
+    again_finalize_param = again_finalize.get("action", {}).get("param", {})
+    if (
+        again_second.get("action", {}).get("type") != "Click"
+        or again_second.get("action", {}).get("param", {}).get("target")
+        != [920, 640]
+        or again_second.get("post_delay") != 50
+        or again_second.get("next") != ["CoinAFKAgainClick3"]
+        or again_third.get("action", {}).get("type") != "Click"
+        or again_third.get("action", {}).get("param", {}).get("target") != [920, 640]
+        or again_third.get("post_delay") != 0
+        or again_third.get("next") != ["CoinAFKAgainClick3Finalize"]
+        or again_finalize_param.get("custom_action") != "focus_guard_finalize"
+        or again_finalize.get("next") != ["CoinAFKRestartLobbyMonitor"]
+    ):
+        raise SystemExit("CoinAFK again buttons must share the 50ms fast-click chain")
+    coin_move = (
+        pipeline_nodes.get("CoinAFKMoveBackward", {})
+        .get("action", {})
+        .get("param", {})
+    )
+    expected_coin_move = {
+        "kind": "key_sequence",
+        "steps": [
+            {"delay_ms": 2000},
+            {"key": 69},
+            {"delay_ms": 300},
+            {"key": 69},
+            {"delay_ms": 300},
+            {"key": 83, "hold_ms": 600},
+            {"key": 81},
+            {"delay_ms": 3500},
+            {"key": 83, "hold_ms": 5000},
+        ],
+        "restore_delay_ms": 100,
+    }
+    if coin_move.get("custom_action") != "focus_guard_action" or coin_move.get(
+        "custom_action_param"
+    ) != expected_coin_move:
+        raise SystemExit("CoinAFK must preserve the formal combat key sequence")
+    if pipeline_nodes.get("CoinAFKAbandonConfirmClick3Finalize", {}).get("next") != [
+        "CoinAFKAbortOutsideMonitor"
+    ]:
+        raise SystemExit("CoinAFK wrong-map abandon path must bypass round counting")
+    coin_inputs = all_options.get("CoinAFKRestartCount", {}).get("inputs", [])
+    if len(coin_inputs) != 1 or coin_inputs[0].get("verify") != "^[1-9]\\d{0,2}$":
+        raise SystemExit("CoinAFK round count must remain in the 1-999 range")
 
     monitor_action = (
         pipeline_nodes.get("ProgressMonitorEntry", {}).get("action", {}).get("param", {})
@@ -809,9 +1117,12 @@ def main() -> None:
         raise SystemExit("NormalEndlessEntry must initialize normal hold progress")
 
     expected_progress_events = {
-        "RewardConfirmThirdPageClick3": "cipher_cycle_completed",
-        "NormalEndlessContinueChallengeClick3": "continue_challenge",
-        "NormalEndlessStartChallengeClick3": "next_round_started",
+        "RewardConfirmThirdPageClick3Finalize": "cipher_cycle_completed",
+        "NormalEndlessContinueChallengeClick3Finalize": "continue_challenge",
+        "NormalHoldPostSkillContinueChallengeClick3Finalize": "continue_challenge",
+        "NormalEndlessStartChallengeClick3Finalize": "next_round_started",
+        "CoinAFKContinueChallengeClick3Finalize": "continue_challenge",
+        "CoinAFKSpaceStartClick3Finalize": "next_round_started",
     }
     for node_name, expected_event in expected_progress_events.items():
         params = (
@@ -822,6 +1133,20 @@ def main() -> None:
         )
         if params.get("progress_event") != expected_event:
             raise SystemExit(f"{node_name}: must emit progress event {expected_event}")
+
+    expected_dungeon_entry_action = {
+        "type": "Custom",
+        "param": {"custom_action": "progress_dungeon_entered"},
+    }
+    for node_name in (
+        "NormalOutsideCombatHudReady",
+        "NormalRestartCombatHudReady",
+        "NormalPostSkillCombatHudReady",
+    ):
+        if pipeline_nodes.get(node_name, {}).get("action") != (
+            expected_dungeon_entry_action
+        ):
+            raise SystemExit(f"{node_name}: must record stage 1 after HUD confirmation")
 
     normal_mode = all_options.get("NormalMode", {})
     hold_mode = option_case(normal_mode, "Endless")
@@ -852,13 +1177,13 @@ def main() -> None:
     require_override(
         "NormalMode",
         hold_mode,
-        "NormalEndlessContinueChallengeClick3",
+        "NormalEndlessContinueChallengeClick3Finalize",
         {"next": ["NormalContinueTransition"]},
     )
     require_override(
         "NormalMode",
         hold_mode,
-        "NormalEndlessConfirmChoiceClick3",
+        "NormalEndlessConfirmChoiceClick3Finalize",
         {"next": ["NormalEndlessIdle"]},
     )
     require_override(
@@ -905,22 +1230,15 @@ def main() -> None:
         "NormalEndlessIdle",
         {"next": ["NormalEndlessMonitor"]},
     )
-    infinite_continue_action = (
-        infinite_mode.get("pipeline_override", {})
-        .get("NormalEndlessContinueChallenge", {})
-        .get("action", {})
-    )
-    infinite_continue_params = (
-        infinite_continue_action.get("param", {}).get("custom_action_param", {})
-    )
-    if infinite_continue_params.get("progress_event") != "continue_challenge":
-        raise SystemExit("NormalMode/Infinite must advance one logical in-dungeon round")
-    require_override(
-        "NormalMode",
-        infinite_mode,
+    infinite_override = infinite_mode.get("pipeline_override", {})
+    for inherited_click_node in (
         "NormalEndlessContinueChallenge",
-        {"next": ["NormalContinueTransition"]},
-    )
+        "NormalEndlessConfirmChoice",
+    ):
+        if inherited_click_node in infinite_override:
+            raise SystemExit(
+                "NormalMode/Infinite must inherit the native three-click chain"
+            )
     require_override(
         "NormalMode",
         infinite_mode,
@@ -995,7 +1313,7 @@ def main() -> None:
     require_override(
         "CipherMode",
         cipher_expel_mode,
-        "RewardConfirmThirdPageClick3",
+        "RewardConfirmThirdPageClick3Finalize",
         {"next": ["CipherExpelRestartMonitor"]},
     )
     require_override(
@@ -1037,7 +1355,7 @@ def main() -> None:
         "CipherExpelRoundQuota": ["CipherExpelRoundLog"],
         "CipherExpelRoundLog": ["CipherExpelRoundDecision"],
         "CipherExpelRoundDecision": ["CipherExpelFinished"],
-        "CipherExpelAgainClick3": ["CipherExpelRestartMonitor"],
+        "CipherExpelAgainClick3Finalize": ["CipherExpelRestartMonitor"],
     }
     for node_name, expected_next in expected_cipher_round_chain.items():
         if pipeline_nodes.get(node_name, {}).get("next") != expected_next:
@@ -1093,37 +1411,29 @@ def main() -> None:
             )
 
     expected_post_skill_returns = {
-        "NormalHoldPostSkillContinueChallenge": "NormalHoldPostSkillContinueTransition",
-        "NormalHoldPostSkillConfirmChoice": "NormalHoldPostSkillIdle",
+        "NormalHoldPostSkillContinueChallengeClick3Finalize": "NormalHoldPostSkillContinueTransition",
+        "NormalHoldPostSkillConfirmChoiceClick3Finalize": "NormalHoldPostSkillIdle",
     }
     for node_name, target in expected_post_skill_returns.items():
         if pipeline_nodes.get(node_name, {}).get("next") != [target]:
             raise SystemExit(f"{node_name}: must stay in the post-skill inside state")
 
-    expected_post_skill_clicks = {
-        "NormalHoldPostSkillContinueChallenge": {
-            "kind": "click",
-            "target": [900, 500],
-            "repeat": 3,
-            "interval_ms": 50,
+    expected_post_skill_finalizers = {
+        "NormalHoldPostSkillContinueChallengeClick3Finalize": {
             "restore_delay_ms": 100,
             "progress_event": "continue_challenge",
         },
-        "NormalHoldPostSkillConfirmChoice": {
-            "kind": "click",
-            "target": [640, 505],
-            "repeat": 3,
-            "interval_ms": 50,
+        "NormalHoldPostSkillConfirmChoiceClick3Finalize": {
             "restore_delay_ms": 100,
         },
     }
-    for node_name, expected_params in expected_post_skill_clicks.items():
+    for node_name, expected_params in expected_post_skill_finalizers.items():
         action = pipeline_nodes[node_name].get("action", {})
         params = action.get("param", {})
         if action.get("type") != "Custom":
-            raise SystemExit(f"{node_name}: post-skill click must restore focus")
-        if params.get("custom_action") != "focus_guard_action":
-            raise SystemExit(f"{node_name}: must use focus_guard_action")
+            raise SystemExit(f"{node_name}: post-skill finalizer must restore focus")
+        if params.get("custom_action") != "focus_guard_finalize":
+            raise SystemExit(f"{node_name}: must use focus_guard_finalize")
         if params.get("custom_action_param") != expected_params:
             raise SystemExit(
                 f"{node_name}: unexpected post-skill click parameters"
@@ -1160,7 +1470,7 @@ def main() -> None:
             {"next": ["LiseCombatLoadDelay"]},
         )
     for node_name in (
-        "NormalEndlessConfirmChoiceClick3",
+        "NormalEndlessConfirmChoiceClick3Finalize",
         "NormalEndlessIdle",
     ):
         require_override(
@@ -1205,13 +1515,13 @@ def main() -> None:
     require_override(
         "CipherEnableSkills",
         cipher_skills_yes,
-        "RewardConfirmFirstPageClick3",
+        "RewardConfirmFirstPageClick3Finalize",
         {"next": ["CipherPostSkillOutsideMonitor"]},
     )
     require_override(
         "CipherEnableSkills",
         cipher_skills_yes,
-        "CipherExpelAgainClick3",
+        "CipherExpelAgainClick3Finalize",
         {"next": ["CipherExpelRestartMonitor"]},
     )
     cipher_skills_no = option_case(cipher_skills, "No")

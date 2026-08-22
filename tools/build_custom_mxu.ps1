@@ -25,15 +25,18 @@ try {
     }
 
     $ErrorActionPreference = 'SilentlyContinue'
-    git apply --check $patchFile 2>$null
+    # The project patch is generated with zero context against the exact,
+    # hash-verified MXU baseline above. --unidiff-zero keeps the patch free of
+    # whitespace-only context lines while the fixed HEAD check preserves safety.
+    git apply --unidiff-zero --check $patchFile 2>$null
     $canApply = $LASTEXITCODE -eq 0
     $ErrorActionPreference = 'Stop'
     if ($canApply) {
-        git apply $patchFile
+        git apply --unidiff-zero $patchFile
         if ($LASTEXITCODE -ne 0) { throw 'Failed to apply MXU log-retention patch' }
     } else {
         $ErrorActionPreference = 'SilentlyContinue'
-        git apply --reverse --check $patchFile 2>$null
+        git apply --unidiff-zero --reverse --check $patchFile 2>$null
         $alreadyApplied = $LASTEXITCODE -eq 0
         $ErrorActionPreference = 'Stop'
         if (-not $alreadyApplied) {

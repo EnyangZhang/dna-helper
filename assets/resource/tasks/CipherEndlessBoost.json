@@ -51,17 +51,17 @@
                                 "CipherExpelEntryMonitor"
                             ]
                         },
-                        "RewardConfirmFirstPageClick3": {
+                        "RewardConfirmFirstPageClick3Finalize": {
                             "next": [
                                 "CipherExpelOutsideMonitor"
                             ]
                         },
-                        "CipherExpelAgainClick3": {
+                        "CipherExpelAgainClick3Finalize": {
                             "next": [
                                 "CipherExpelRestartMonitor"
                             ]
                         },
-                        "RewardConfirmThirdPageClick3": {
+                        "RewardConfirmThirdPageClick3Finalize": {
                             "next": [
                                 "CipherExpelRestartMonitor"
                             ]
@@ -143,12 +143,12 @@
                         "BackgroundSkillInput"
                     ],
                     "pipeline_override": {
-                        "RewardConfirmFirstPageClick3": {
+                        "RewardConfirmFirstPageClick3Finalize": {
                             "next": [
                                 "CipherPostSkillOutsideMonitor"
                             ]
                         },
-                        "CipherExpelAgainClick3": {
+                        "CipherExpelAgainClick3Finalize": {
                             "next": [
                                 "CipherExpelRestartMonitor"
                             ]

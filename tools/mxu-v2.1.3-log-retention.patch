@@ -10,20 +10,12 @@ diff --git a/src-tauri/src/commands/file_ops.rs b/src-tauri/src/commands/file_op
 index df32e84..28d59ed 100644
 --- a/src-tauri/src/commands/file_ops.rs
 +++ b/src-tauri/src/commands/file_ops.rs
-@@ -6,12 +6,128 @@ use log::debug;
- use std::io::{self, Seek, SeekFrom, Write};
- use std::path::{Path, PathBuf};
- use std::sync::{Arc, Mutex};
+@@ -8,0 +9,4 @@ use std::sync::{Arc, Mutex};
 +use std::time::{Duration, SystemTime};
 +
 +#[cfg(windows)]
 +use std::os::windows::fs::MetadataExt;
-
- use super::utils::{get_app_data_dir, get_exe_directory, normalize_path};
-
- const MAX_EXPORT_ARCHIVE_BYTES: u64 = 24_500_000;
- const ZIP_ENTRY_OVERHEAD_BYTES: u64 = 128;
- const ZIP_END_OF_CENTRAL_DIRECTORY_BYTES: u64 = 22;
+@@ -14,0 +19,112 @@ const ZIP_END_OF_CENTRAL_DIRECTORY_BYTES: u64 = 22;
 +const DEBUG_CLEAR_MARKER: &str = ".clear-all-on-next-start";
 +const WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 +
@@ -136,32 +128,24 @@ index df32e84..28d59ed 100644
 +    visit(root, root, &mut entries)?;
 +    Ok(entries)
 +}
-
- #[derive(Clone)]
- struct ExportEntry {
-@@ -295,50 +411,229 @@ pub fn get_data_dir() -> Result<String, String> {
-     Ok(data_dir.to_string_lossy().to_string())
- }
-
+@@ -298 +414,2 @@ pub fn get_data_dir() -> Result<String, String> {
 -/// 删除 debug 目录中的 .log 文件，可选择排除一个当前正在使用的日志文件
 +/// 删除 debug 目录中的 .log 文件，可选择排除一个当前正在使用的日志文件。
 +/// 删除前会解析并验证程序目录、debug 目录及全部子项，拒绝符号链接、重解析点和越界路径。
- #[tauri::command]
- pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String> {
+@@ -301,3 +418 @@ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String>
 -    let debug_dir = get_app_data_dir()?.join("debug");
 -
 -    if !debug_dir.exists() {
 +    let Some(debug_dir) = checked_debug_dir(false)? else {
-         return Ok(0);
+@@ -305 +420,2 @@ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String>
 -    }
 +    };
 +    let entries = collect_checked_debug_entries(&debug_dir)?;
-
-     let mut deleted = 0_u64;
+@@ -308,3 +423,0 @@ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String>
 -    let entries = std::fs::read_dir(&debug_dir)
 -        .map_err(|e| format!("读取日志目录失败 [{}]: {}", debug_dir.display(), e))?;
 -
-     for entry in entries {
+@@ -312,6 +425 @@ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String>
 -        let entry = match entry {
 -            Ok(entry) => entry,
 -            Err(_) => continue,
@@ -169,22 +153,14 @@ index df32e84..28d59ed 100644
 -        let path = entry.path();
 -        if !path.is_file() {
 +        if entry.is_dir || entry.path.parent() != Some(debug_dir.as_path()) {
-             continue;
-         }
-
+@@ -321 +429 @@ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String>
 -        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
 +        let Some(name) = entry.path.file_name().and_then(|name| name.to_str()) else {
-             continue;
-         };
+@@ -324 +431,0 @@ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String>
 -
-         if !name.ends_with(".log") {
-             continue;
-         }
+@@ -328 +434,0 @@ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String>
 -
-         if exclude_file_name.as_deref() == Some(name) {
-             continue;
-         }
-
+@@ -333,3 +439,76 @@ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String>
 -        match std::fs::remove_file(&path) {
 -            Ok(()) => deleted = deleted.saturating_add(1),
 -            Err(e) => log::debug!("Failed to delete log file [{}]: {}", path.display(), e),
@@ -264,12 +240,7 @@ index df32e84..28d59ed 100644
 +            std::fs::remove_file(&entry.path)
 +                .map_err(|e| format!("删除日志文件失败 [{}]: {}", entry.path.display(), e))?;
 +            deleted = deleted.saturating_add(1);
-         }
-     }
-
-     Ok(deleted)
- }
-
+@@ -341,0 +521,116 @@ pub fn clear_log_files(exclude_file_name: Option<String>) -> Result<u64, String>
 +/// 在 debug 目录内创建一次性标记；应用下次启动、日志初始化前执行完整清理。
 +#[tauri::command]
 +pub fn schedule_full_debug_clear() -> Result<(), String> {
@@ -386,29 +357,14 @@ index df32e84..28d59ed 100644
 +    }
 +}
 +
- /// 获取当前工作目录
- #[tauri::command]
- pub fn get_cwd() -> Result<String, String> {
 diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
 index e137aec..1a1d0c5 100644
 --- a/src-tauri/src/commands/mod.rs
 +++ b/src-tauri/src/commands/mod.rs
-@@ -12,6 +12,7 @@
- //! - `update`: 更新安装相关命令
- //! - `download`: 下载相关命令
- //! - `system`: 系统相关命令
+@@ -14,0 +15 @@
 +//! - `process_control`: DNA Helper 进程登记与安全终止
- //! - `tray`: 托盘相关命令
-
- pub mod types;
-@@ -22,6 +23,7 @@ pub mod download;
- pub mod file_ops;
- pub mod maa_agent;
- pub mod maa_core;
+@@ -24,0 +26 @@ pub mod maa_core;
 +pub mod process_control;
- pub mod state;
- pub mod system;
- pub mod tray;
 diff --git a/src-tauri/src/commands/process_control.rs b/src-tauri/src/commands/process_control.rs
 new file mode 100644
 index 0000000..97705cc
@@ -1129,103 +1085,53 @@ diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
 index 4a76d36..5397100 100644
 --- a/src-tauri/src/lib.rs
 +++ b/src-tauri/src/lib.rs
-@@ -13,6 +13,11 @@ use ws_broadcast::WsBroadcast;
-
- #[cfg_attr(mobile, tauri::mobile_entry_point)]
- pub fn run() {
+@@ -15,0 +16,5 @@ pub fn run() {
 +    // 手动“完全清空”在本次日志初始化前执行，避免 Windows 文件占用导致漏删。
 +    if let Err(error) = commands::file_ops::clear_debug_directory_if_requested() {
 +        eprintln!("拒绝或无法清空日志目录: {}", error);
 +    }
 +
-     // 日志目录：exe 目录/debug/logs（与前端日志同目录）
-     let logs_dir = commands::utils::get_logs_dir();
-
-@@ -240,6 +245,8 @@ pub fn run() {
-             commands::file_ops::get_exe_dir,
-             commands::file_ops::get_data_dir,
-             commands::file_ops::clear_log_files,
+@@ -242,0 +248,2 @@ pub fn run() {
 +            commands::file_ops::cleanup_old_debug_entries,
 +            commands::file_ops::schedule_full_debug_clear,
-             commands::file_ops::get_cwd,
-             commands::file_ops::check_exe_path,
-             commands::file_ops::set_executable,
-@@ -291,6 +298,8 @@ pub fn run() {
-             commands::system::get_web_server_port,
-             commands::system::get_local_lan_ip,
-             commands::system::get_webview2_dir,
+@@ -293,0 +301,2 @@ pub fn run() {
 +            // DNA Helper 进程清理命令
 +            commands::process_control::terminate_all_dna_helper_monitors,
-             // 托盘相关命令
-             commands::tray::set_minimize_to_tray,
-             commands::tray::get_minimize_to_tray,
 diff --git a/src/App.tsx b/src/App.tsx
 index 9445863..c0bde2d 100644
 --- a/src/App.tsx
 +++ b/src/App.tsx
-@@ -66,7 +66,6 @@ import {
-   mergeRuntimeLogs,
-   persistRuntimeLogs,
- } from '@/utils/runtimeLogPersistence';
+@@ -69 +68,0 @@ import {
 -import { getCurrentLogFileName } from '@/utils/logger';
- import {
-   isTauri,
-   isValidWindowSize,
-@@ -677,12 +676,12 @@ function App() {
-         if (store.autoClearLogsOnLaunch) {
-           if (isTauri()) {
-             try {
+@@ -680,2 +679,2 @@ function App() {
 -              const deleted = await invoke<number>('clear_log_files', {
 -                excludeFileName: getCurrentLogFileName(),
 +              const deleted = await invoke<number>('cleanup_old_debug_entries', {
 +                retentionDays: 14,
-               });
+@@ -683,3 +682,3 @@ function App() {
 -              log.info('Auto-cleared log files on launch:', deleted);
 -            } catch {
 -              // ignore cleanup errors
 +              log.info('Auto-cleaned debug entries older than 14 days:', deleted);
 +            } catch (error) {
 +              log.warn('Auto-cleanup refused or failed:', error);
-             }
-           }
-           clearPersistedRuntimeLogs();
 diff --git a/src/components/settings/DebugSection.tsx b/src/components/settings/DebugSection.tsx
 index 2e0ac20..0bb800e 100644
 --- a/src/components/settings/DebugSection.tsx
 +++ b/src/components/settings/DebugSection.tsx
-@@ -10,7 +10,10 @@ import {
-   Globe,
-   ExternalLink,
-   Server,
+@@ -12,0 +13,2 @@ import {
 +  Trash2,
 +  Power,
- } from 'lucide-react';
+@@ -13,0 +16 @@ import {
 +import { toast } from 'sonner';
-
- import { useAppStore } from '@/stores/appStore';
- import { maaService } from '@/services/maaService';
-@@ -18,6 +21,7 @@ import { loggers } from '@/utils/logger';
- import { isTauri, getDebugDir, getConfigDir, openDirectory } from '@/utils/paths';
- import { useExportLogs } from '@/utils/useExportLogs';
- import { SwitchButton } from '@/components/FormControls';
+@@ -20,0 +24 @@ import { SwitchButton } from '@/components/FormControls';
 +import { ConfirmDialog } from '@/components/ConfirmDialog';
- import { ExportLogsModal } from './ExportLogsModal';
-
- export function DebugSection() {
-@@ -52,12 +56,53 @@ export function DebugSection() {
-   const [lanIp, setLanIp] = useState<string | null>(null);
-   const [showRestartPrompt, setShowRestartPrompt] = useState(false);
-   const [portInput, setPortInput] = useState(String(configuredPort));
+@@ -54,0 +59,4 @@ export function DebugSection() {
 +  const [showClearLogsConfirm, setShowClearLogsConfirm] = useState(false);
 +  const [isSchedulingLogClear, setIsSchedulingLogClear] = useState(false);
 +  const [showTerminateProcessesConfirm, setShowTerminateProcessesConfirm] = useState(false);
 +  const [isTerminatingProcesses, setIsTerminatingProcesses] = useState(false);
-
-   useEffect(() => {
-     setPortInput(String(configuredPort));
-   }, [configuredPort]);
-   const { exportModal, handleExportLogs, closeExportModal, openExportedFile } = useExportLogs();
-
+@@ -60,0 +69,37 @@ export function DebugSection() {
 +  const handleClearAllLogs = useCallback(async () => {
 +    if (!isTauri() || isSchedulingLogClear) return;
 +    setIsSchedulingLogClear(true);
@@ -1263,13 +1169,7 @@ index 2e0ac20..0bb800e 100644
 +    }
 +  }, [isTerminatingProcesses, t]);
 +
-   const version = projectInterface?.version || '0.1.0';
-
-   // 版本信息（用于调试展示）
-@@ -328,6 +373,26 @@ export function DebugSection() {
-             <Archive className="w-4 h-4" />
-             {t('debug.exportLogs')}
-           </button>
+@@ -330,0 +376,20 @@ export function DebugSection() {
 +          <button
 +            type="button"
 +            onClick={() => setShowClearLogsConfirm(true)}
@@ -1290,13 +1190,7 @@ index 2e0ac20..0bb800e 100644
 +            <Power className="w-4 h-4" />
 +            {t('debug.terminateAllProcesses')}
 +          </button>
-         </div>
-
-         {/* 开发模式 */}
-@@ -434,6 +499,32 @@ export function DebugSection() {
-         onClose={closeExportModal}
-         onOpen={openExportedFile}
-       />
+@@ -436,0 +502,26 @@ export function DebugSection() {
 +      <ConfirmDialog
 +        open={showClearLogsConfirm}
 +        title={t('debug.clearAllLogsConfirmTitle')}
@@ -1323,52 +1217,28 @@ index 2e0ac20..0bb800e 100644
 +          if (!isTerminatingProcesses) setShowTerminateProcessesConfirm(false);
 +        }}
 +      />
-     </section>
-   );
- }
 diff --git a/src/components/settings/GeneralSection.tsx b/src/components/settings/GeneralSection.tsx
 index 4e2c221..e29683c 100644
 --- a/src/components/settings/GeneralSection.tsx
 +++ b/src/components/settings/GeneralSection.tsx
-@@ -168,7 +168,7 @@ export function GeneralSection() {
-           )}
-
-           {/* ② 启动后自动执行 */}
+@@ -171 +171 @@ export function GeneralSection() {
 -          <div className={isTauri() ? "pt-4 border-t border-border" : ""}>
 +          <div className={isTauri() ? 'pt-4 border-t border-border' : ''}>
-             <div className="flex items-center gap-3 mb-3">
-               <Play className="w-5 h-5 text-accent" />
-               <div>
-@@ -321,7 +321,10 @@ export function GeneralSection() {
-               </p>
-             </div>
-           </div>
+@@ -324 +324,4 @@ export function GeneralSection() {
 -          <SwitchButton value={autoClearLogsOnLaunch} onChange={(v) => setAutoClearLogsOnLaunch(v)} />
 +          <SwitchButton
 +            value={autoClearLogsOnLaunch}
 +            onChange={(v) => setAutoClearLogsOnLaunch(v)}
 +          />
-         </div>
-       </div>
-
 diff --git a/src/i18n/locales/en-US.ts b/src/i18n/locales/en-US.ts
 index c6a4cb9..b165ed9 100644
 --- a/src/i18n/locales/en-US.ts
 +++ b/src/i18n/locales/en-US.ts
-@@ -115,7 +115,8 @@ export default {
-     resetWindowLayout: 'Reset Window Layout',
-     resetWindowLayoutHint: 'Restore window size to default and center the window',
-     autoClearLogsOnLaunch: 'Auto-clear Runtime Logs',
+@@ -118 +118,2 @@ export default {
 -    autoClearLogsOnLaunchHint: 'Automatically clear runtime logs and delete old log files every time the project is launched',
 +    autoClearLogsOnLaunchHint:
 +      'Delete logs and debug files in the debug directory that are older than 14 days on launch',
-   },
-
-   // Special tasks
-@@ -522,6 +523,22 @@ export default {
-     resetWindowLayout: 'Reset Window Layout',
-     openConfigDir: 'Open Config Dir',
-     openLogDir: 'Open Log Dir',
+@@ -524,0 +526,16 @@ export default {
 +    clearAllLogs: 'Clear All Logs',
 +    clearAllLogsHint: 'Restart and remove every log and debug file from the debug directory',
 +    clearAllLogsConfirmTitle: 'Clear all logs?',
@@ -1385,17 +1255,11 @@ index c6a4cb9..b165ed9 100644
 +    terminateAllProcessesConfirm: 'Close Monitoring',
 +    terminateAllProcessesSucceeded: 'All registered monitoring processes were closed',
 +    terminateAllProcessesFailed: 'Some monitoring processes could not be closed',
-     exportLogs: 'Export Logs',
-     exportLogsHint:
-       'Pack logs and config into a zip archive, keeping newest debug images until it reaches about 24.5 MB',
 diff --git a/src/i18n/locales/ja-JP.ts b/src/i18n/locales/ja-JP.ts
 index 5b48883..5aed7f2 100644
 --- a/src/i18n/locales/ja-JP.ts
 +++ b/src/i18n/locales/ja-JP.ts
-@@ -111,8 +111,11 @@ export default {
-     maxLogsPerInstance: 'インスタンスあたりのログ上限',
-     maxLogsPerInstanceHint: '上限を超えると古いログから自動的に破棄します（推奨 500～2000）',
-     resetWindowLayout: 'ウィンドウレイアウトをリセット',
+@@ -114,2 +114,5 @@ export default {
 -    resetWindowLayoutHint: 'ウィンドウサイズをデフォルトに戻し、中央に配置します',    autoClearLogsOnLaunch: '実行ログの自動クリア',
 -    autoClearLogsOnLaunchHint: 'プロジェクトの起動時に自動で実行ログをクリアし、古いログファイルを削除します',  },
 +    resetWindowLayoutHint: 'ウィンドウサイズをデフォルトに戻し、中央に配置します',
@@ -1403,13 +1267,7 @@ index 5b48883..5aed7f2 100644
 +    autoClearLogsOnLaunchHint:
 +      '起動時に debug フォルダー内の 14 日を超えたログとデバッグファイルを削除します',
 +  },
-
-   // 特殊タスク
-   specialTask: {
-@@ -515,6 +518,22 @@ export default {
-     resetWindowSize: 'ウィンドウサイズをリセット',
-     openConfigDir: '設定フォルダを開く',
-     openLogDir: 'ログフォルダを開く',
+@@ -517,0 +521,16 @@ export default {
 +    clearAllLogs: 'ログを完全に消去',
 +    clearAllLogsHint: '再起動して debug フォルダー内のすべてのログとデバッグファイルを削除します',
 +    clearAllLogsConfirmTitle: 'すべてのログを消去しますか？',
@@ -1426,27 +1284,15 @@ index 5b48883..5aed7f2 100644
 +    terminateAllProcessesConfirm: '監視を終了',
 +    terminateAllProcessesSucceeded: '登録済みの監視プロセスをすべて終了しました',
 +    terminateAllProcessesFailed: '一部の監視プロセスを終了できませんでした',
-     exportLogs: 'ログをエクスポート',
-     exportLogsHint: 'ログと config を zip にまとめ、約 24.5 MB まで最新のデバッグ画像を自動で保持',
-     exportingLogs: 'ログをエクスポート中...',
 diff --git a/src/i18n/locales/ko-KR.ts b/src/i18n/locales/ko-KR.ts
 index 76d1c1a..2cfe985 100644
 --- a/src/i18n/locales/ko-KR.ts
 +++ b/src/i18n/locales/ko-KR.ts
-@@ -112,7 +112,8 @@ export default {
-     resetWindowLayout: '창 레이아웃 초기화',
-     resetWindowLayoutHint: '창 크기를 기본값으로 복원하고 화면 중앙에 배치합니다',
-     autoClearLogsOnLaunch: '로그 자동 지우기',
+@@ -115 +115,2 @@ export default {
 -    autoClearLogsOnLaunchHint: '프로젝트를 시작할 때 런타임 로그를 자동으로 지우고 이전 로그 파일을 삭제합니다',
 +    autoClearLogsOnLaunchHint:
 +      '시작할 때 debug 폴더에서 14일이 지난 로그와 디버그 파일을 삭제합니다',
-   },
-
-   // 특수 작업
-@@ -514,6 +515,22 @@ export default {
-     resetWindowSize: '창 크기 초기화',
-     openConfigDir: '설정 폴더 열기',
-     openLogDir: '로그 폴더 열기',
+@@ -516,0 +518,16 @@ export default {
 +    clearAllLogs: '모든 로그 완전 삭제',
 +    clearAllLogsHint: '앱을 다시 시작하고 debug 폴더의 모든 로그 및 디버그 파일을 삭제합니다',
 +    clearAllLogsConfirmTitle: '모든 로그를 삭제할까요?',
@@ -1463,26 +1309,14 @@ index 76d1c1a..2cfe985 100644
 +    terminateAllProcessesConfirm: '모니터링 종료',
 +    terminateAllProcessesSucceeded: '등록된 모니터링 프로세스를 모두 종료했습니다',
 +    terminateAllProcessesFailed: '일부 모니터링 프로세스를 종료하지 못했습니다',
-     exportLogs: '로그 내보내기',
-     exportLogsHint:
-       '로그와 config를 zip으로 묶고, 약 24.5 MB까지 최신 디버그 이미지를 자동으로 유지',
 diff --git a/src/i18n/locales/zh-CN.ts b/src/i18n/locales/zh-CN.ts
 index bbbc8e2..ca168b8 100644
 --- a/src/i18n/locales/zh-CN.ts
 +++ b/src/i18n/locales/zh-CN.ts
-@@ -112,7 +112,7 @@ export default {
-     resetWindowLayout: '重置窗口布局',
-     resetWindowLayoutHint: '将窗口大小恢复为默认值，并居中显示',
-     autoClearLogsOnLaunch: '自动清理运行日志',
+@@ -115 +115 @@ export default {
 -    autoClearLogsOnLaunchHint: '每次启动项目时，自动清理运行日志并删除旧的日志文件',
 +    autoClearLogsOnLaunchHint: '每次启动项目时，自动删除 debug 目录内超过 14 天的日志和调试文件',
-   },
-
-   // 特殊任务
-@@ -511,6 +511,21 @@ export default {
-     resetWindowLayout: '重置窗口布局',
-     openConfigDir: '打开配置目录',
-     openLogDir: '打开日志目录',
+@@ -513,0 +514,15 @@ export default {
 +    clearAllLogs: '完全清空日志',
 +    clearAllLogsHint: '重启程序并清空 debug 目录中的全部日志和调试文件',
 +    clearAllLogsConfirmTitle: '完全清空日志？',
@@ -1498,30 +1332,18 @@ index bbbc8e2..ca168b8 100644
 +    terminateAllProcessesConfirm: '关闭监控',
 +    terminateAllProcessesSucceeded: '所有已登记的监控进程已关闭',
 +    terminateAllProcessesFailed: '部分监控进程未能关闭',
-     exportLogs: '导出日志',
-     exportLogsHint: '打包日志和 config，并按压缩包 24.5 MB 上限自动保留最近调试图片',
-     exportingLogs: '正在导出日志...',
 diff --git a/src/i18n/locales/zh-TW.ts b/src/i18n/locales/zh-TW.ts
 index 7371edd..d7f8c4d 100644
 --- a/src/i18n/locales/zh-TW.ts
 +++ b/src/i18n/locales/zh-TW.ts
-@@ -109,8 +109,10 @@ export default {
-     maxLogsPerInstance: '每個實例保留的日誌上限',
-     maxLogsPerInstanceHint: '超出上限會自動丟棄最舊的日誌（建議 500～2000）',
-     resetWindowLayout: '重設視窗佈局',
+@@ -112,2 +112,4 @@ export default {
 -    resetWindowLayoutHint: '將視窗大小恢復為預設值，並置中顯示',    autoClearLogsOnLaunch: '自動清理運行日誌',
 -    autoClearLogsOnLaunchHint: '每次啟動項目時，自動清理運行日誌並刪除舊的日誌檔案',  },
 +    resetWindowLayoutHint: '將視窗大小恢復為預設值，並置中顯示',
 +    autoClearLogsOnLaunch: '自動清理運行日誌',
 +    autoClearLogsOnLaunchHint: '每次啟動項目時，自動刪除 debug 目錄內超過 14 天的日誌與除錯檔案',
 +  },
-
-   // 特殊任務
-   specialTask: {
-@@ -505,6 +507,22 @@ export default {
-     resetWindowSize: '重設視窗尺寸',
-     openConfigDir: '開啟設定目錄',
-     openLogDir: '開啟日誌目錄',
+@@ -507,0 +510,16 @@ export default {
 +    clearAllLogs: '完全清空日誌',
 +    clearAllLogsHint: '重新啟動程式並清空 debug 目錄中的全部日誌與除錯檔案',
 +    clearAllLogsConfirmTitle: '完全清空日誌？',
@@ -1538,6 +1360,3 @@ index 7371edd..d7f8c4d 100644
 +    terminateAllProcessesConfirm: '關閉監控',
 +    terminateAllProcessesSucceeded: '所有已登記的監控進程已關閉',
 +    terminateAllProcessesFailed: '部分監控進程未能關閉',
-     exportLogs: '匯出日誌',
-     exportLogsHint: '打包日誌與 config，並依 24.5 MB 上限自動保留最近的除錯圖片',
-     exportingLogs: '正在匯出日誌...',
