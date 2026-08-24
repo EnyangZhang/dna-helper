@@ -55,6 +55,7 @@
         "resource/tasks/CipherEndlessBoost.json",
         "resource/tasks/NormalEndlessBoost.json",
         "resource/tasks/CoinAFK.json",
+        "resource/tasks/Fishing.json",
         "resource/tasks/ProgressMonitor.json",
         "resource/tasks/LiseExpelSkillCast.json",
         "resource/tasks/preset/AFK.json"

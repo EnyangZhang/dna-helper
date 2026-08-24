@@ -16,7 +16,12 @@ import telegram_bot
 import progress_state
 
 
-_GAME_TASK_ENTRIES = {"RewardConfirmEntry", "NormalEndlessEntry", "CoinAFKEntry"}
+_GAME_TASK_ENTRIES = {
+    "RewardConfirmEntry",
+    "NormalEndlessEntry",
+    "CoinAFKEntry",
+    "FishingEntry",
+}
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _MXU_LOG_PATH = _PROJECT_ROOT / "debug" / "mxu-tauri.log"
 _QUEUE_LOG_WAIT_SECONDS = 0.5

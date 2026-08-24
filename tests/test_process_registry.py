@@ -165,6 +165,80 @@ class ProcessRegistryTest(unittest.TestCase):
             )
         )
 
+    def test_monitor_disconnect_signal_is_atomic_and_round_trips(self) -> None:
+        with patch.object(
+            process_registry.os,
+            "replace",
+            wraps=process_registry.os.replace,
+        ) as replace:
+            generation = process_registry.publish_monitor_disconnect("telegram")
+
+        signal_path = self._registry_dir / ".monitor-disconnect.json"
+        self.assertTrue(signal_path.is_file())
+        self.assertEqual(
+            process_registry.read_monitor_disconnect_generation(), generation
+        )
+        self.assertEqual(replace.call_count, 1)
+        self.assertEqual(Path(replace.call_args[0][1]), signal_path)
+        payload = json.loads(signal_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(payload),
+            {"schema_version", "generation", "created_at_unix_ms", "source"},
+        )
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["source"], "telegram")
+        self.assertGreater(payload["created_at_unix_ms"], 0)
+
+    def test_monitor_disconnect_signal_rejects_symlink_target(self) -> None:
+        self._registry_dir.mkdir(parents=True)
+        signal_path = self._registry_dir / ".monitor-disconnect.json"
+        with patch.object(
+            process_registry,
+            "_is_normal_file_target",
+            side_effect=lambda path: path != signal_path,
+        ):
+            with self.assertRaises(process_registry.ProcessRegistryError):
+                process_registry.publish_monitor_disconnect("telegram")
+
+    def test_monitor_disconnect_signal_rejects_unknown_schema_fields(self) -> None:
+        self._registry_dir.mkdir(parents=True)
+        signal_path = self._registry_dir / ".monitor-disconnect.json"
+        signal_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "generation": "test",
+                    "created_at_unix_ms": 1,
+                    "source": "settings",
+                    "unexpected": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(process_registry.ProcessRegistryError):
+            process_registry.read_monitor_disconnect_generation()
+
+    def test_reads_settings_generated_monitor_disconnect_schema(self) -> None:
+        self._registry_dir.mkdir(parents=True)
+        signal_path = self._registry_dir / ".monitor-disconnect.json"
+        signal_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "generation": "settings-1234-5678-0",
+                    "created_at_unix_ms": 1787500000000,
+                    "source": "settings",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            process_registry.read_monitor_disconnect_generation(),
+            "settings-1234-5678-0",
+        )
+
 
 class MainLifecycleTest(unittest.TestCase):
     def test_main_unregisters_if_start_up_fails(self) -> None:
@@ -197,6 +271,7 @@ class MainLifecycleTest(unittest.TestCase):
 
     def test_main_unregisters_after_stop_called(self) -> None:
         events: list[str] = []
+        timer = Mock()
 
         with (
             patch.object(main.AgentServer, "start_up"),
@@ -204,6 +279,7 @@ class MainLifecycleTest(unittest.TestCase):
             patch.object(main.AgentServer, "shut_down", side_effect=lambda: events.append("shutdown")),
             patch.object(main.parent_watchdog, "start_parent_watchdog"),
             patch.object(main.telegram_bot, "stop", side_effect=lambda: events.append("bot-stop")),
+            patch.object(main.threading, "Timer", return_value=timer),
             patch.object(main.process_registry, "register_current_process"),
             patch.object(
                 main.process_registry,
@@ -223,6 +299,40 @@ class MainLifecycleTest(unittest.TestCase):
         self.assertIn("shutdown", events)
         self.assertIn("unregister", events)
         self.assertLess(events.index("shutdown"), events.index("unregister"))
+        timer.start.assert_called_once_with()
+        timer.cancel.assert_called_once_with()
+
+    def test_main_only_registers_parent_exit_for_full_agent_shutdown(self) -> None:
+        callbacks: list[object] = []
+        timer = Mock()
+        shut_down = Mock()
+
+        with (
+            patch.object(main.AgentServer, "start_up"),
+            patch.object(main.AgentServer, "join"),
+            patch.object(main.AgentServer, "shut_down", shut_down),
+            patch.object(
+                main.parent_watchdog,
+                "start_parent_watchdog",
+                side_effect=lambda callback: callbacks.append(callback),
+            ),
+            patch.object(main.telegram_bot, "stop"),
+            patch.object(main.threading, "Timer", return_value=timer),
+            patch.object(main.process_registry, "register_current_process"),
+            patch.object(main.process_registry, "unregister_current_process"),
+        ):
+            original_argv = sys.argv
+            sys.argv = ["agent/main.py", "socket"]
+            try:
+                self.assertEqual(main.main(), 0)
+            finally:
+                sys.argv = original_argv
+
+        self.assertEqual(len(callbacks), 1)
+        self.assertTrue(callable(callbacks[0]))
+        shut_down.assert_called_once_with()
+        timer.start.assert_called_once_with()
+        timer.cancel.assert_called_once_with()
 
     def test_main_unregisters_even_if_shutdown_fails(self) -> None:
         events: list[str] = []

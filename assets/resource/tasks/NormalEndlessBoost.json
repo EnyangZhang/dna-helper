@@ -144,7 +144,7 @@
                         "NormalEndlessRestartClick3": {
                             "focus": {
                                 "Node.Action.Succeeded": {
-                                    "content": "[普通驱离] 已点击再次进行，等待开始挑战",
+                                    "content": "[普通驱离] “再次进行”已点击",
                                     "display": [
                                         "log"
                                     ]
@@ -154,7 +154,7 @@
                         "NormalEndlessStartChallengeClick3": {
                             "focus": {
                                 "Node.Action.Succeeded": {
-                                    "content": "[普通驱离] 已点击开始挑战，进入下一轮副本",
+                                    "content": "[普通驱离] “开始挑战”已点击",
                                     "display": [
                                         "log"
                                     ]
@@ -400,7 +400,7 @@
                 {
                     "name": "delay_ms",
                     "label": "等待时间（ms）",
-                    "default": "2000",
+                    "default": "3000",
                     "pipeline_type": "int",
                     "verify": "^(?:[2-9]\\d{3}|[1-9]\\d{4,})$"
                 }
@@ -566,7 +566,7 @@
                 {
                     "name": "delay_ms",
                     "label": "等待时间（ms）",
-                    "default": "2000",
+                    "default": "3000",
                     "pipeline_type": "int",
                     "verify": "^\\d+$"
                 }
@@ -590,6 +590,16 @@
                         "LiseCombatLoadDelay": {
                             "enabled": false
                         },
+                        "NormalOutsideCombatHudReady": {
+                            "next": [
+                                "NormalExpelCombatEntry"
+                            ]
+                        },
+                        "NormalRestartCombatHudReady": {
+                            "next": [
+                                "NormalExpelCombatEntry"
+                            ]
+                        },
                         "NormalExpelCombatEntry": {
                             "next": [
                                 "NormalEndlessAgainDetected",
@@ -604,6 +614,16 @@
                     "pipeline_override": {
                         "LiseCombatLoadDelay": {
                             "enabled": true
+                        },
+                        "NormalOutsideCombatHudReady": {
+                            "next": [
+                                "LiseCombatLoadDelay"
+                            ]
+                        },
+                        "NormalRestartCombatHudReady": {
+                            "next": [
+                                "LiseCombatLoadDelay"
+                            ]
                         },
                         "NormalExpelCombatEntry": {
                             "next": [

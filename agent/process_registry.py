@@ -11,10 +11,14 @@ import json
 import os
 import sys
 import tempfile
+import time
+import uuid
 
 
 SCHEMA_VERSION = 1
 MAX_MARKER_BYTES = 4096
+MONITOR_DISCONNECT_SCHEMA_VERSION = 1
+MAX_MONITOR_DISCONNECT_BYTES = 4096
 
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
 _WINAPI_ERROR_FILE_NOT_FOUND = 0xFFFFFFFF
@@ -92,6 +96,114 @@ def _validate_registry_directory(directory: Path) -> None:
 def _validate_target_marker(path: Path) -> None:
     if not _is_normal_file_target(path):
         raise ProcessRegistryError(f"非法或异常 marker 文件路径：{path}")
+
+
+def _validate_monitor_disconnect_path() -> None:
+    signal_path = _monitor_disconnect_path()
+    _validate_registry_directory(_REGISTRY_DIR)
+    if not _is_normal_file_target(signal_path):
+        raise ProcessRegistryError(
+            f"非法或异常监控通讯停止信号路径：{signal_path}"
+        )
+
+
+def _monitor_disconnect_path() -> Path:
+    return _REGISTRY_DIR / ".monitor-disconnect.json"
+
+
+def _parse_monitor_disconnect_payload(payload: object) -> str:
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version",
+        "generation",
+        "created_at_unix_ms",
+        "source",
+    }:
+        raise ProcessRegistryError("监控通讯停止信号 schema 无效")
+    schema_version = payload.get("schema_version")
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != MONITOR_DISCONNECT_SCHEMA_VERSION
+    ):
+        raise ProcessRegistryError("监控通讯停止信号 schema_version 无效")
+    generation = payload.get("generation")
+    if (
+        not isinstance(generation, str)
+        or not generation
+        or len(generation) > 200
+    ):
+        raise ProcessRegistryError("监控通讯停止信号 generation 无效")
+    created_at = payload.get("created_at_unix_ms")
+    if not isinstance(created_at, int) or isinstance(created_at, bool) or created_at <= 0:
+        raise ProcessRegistryError("监控通讯停止信号 created_at_unix_ms 无效")
+    if payload.get("source") not in {"settings", "telegram"}:
+        raise ProcessRegistryError("监控通讯停止信号 source 无效")
+    return generation
+
+
+def read_monitor_disconnect_generation() -> str | None:
+    """Read the current cross-process monitor-disconnect generation safely."""
+
+    signal_path = _monitor_disconnect_path()
+    _validate_monitor_disconnect_path()
+    if not signal_path.exists():
+        return None
+    size = signal_path.stat().st_size
+    if size <= 0 or size >= MAX_MONITOR_DISCONNECT_BYTES:
+        raise ProcessRegistryError("监控通讯停止信号大小无效")
+    try:
+        payload = json.loads(signal_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProcessRegistryError("监控通讯停止信号内容无效") from exc
+    return _parse_monitor_disconnect_payload(payload)
+
+
+def publish_monitor_disconnect(source: str = "telegram") -> str:
+    """Broadcast a request that every Agent stop only its monitor threads."""
+
+    if source not in {"settings", "telegram"}:
+        raise ProcessRegistryError(f"非法监控通讯停止信号来源：{source}")
+    _validate_registry_directory(_REGISTRY_DIR)
+    _REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+    _validate_monitor_disconnect_path()
+    signal_path = _monitor_disconnect_path()
+
+    generation = f"{source}-{os.getpid()}-{uuid.uuid4()}"
+    payload_text = json.dumps(
+        {
+            "schema_version": MONITOR_DISCONNECT_SCHEMA_VERSION,
+            "generation": generation,
+            "created_at_unix_ms": time.time_ns() // 1_000_000,
+            "source": source,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    if len(payload_text.encode("utf-8")) >= MAX_MONITOR_DISCONNECT_BYTES:
+        raise ProcessRegistryError("监控通讯停止信号内容超出 size 限制")
+
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=_REGISTRY_DIR,
+            prefix=".tmp-monitor-disconnect-",
+            suffix=".json",
+            delete=False,
+        ) as tmp_file:
+            temporary_path = Path(tmp_file.name)
+            tmp_file.write(payload_text)
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
+        _validate_monitor_disconnect_path()
+        os.replace(temporary_path, signal_path)
+    except Exception:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
+    return generation
 
 
 def _get_pid() -> int:

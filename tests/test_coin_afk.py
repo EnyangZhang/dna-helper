@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -12,7 +13,57 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 import round_logger  # noqa: E402
 
 
+ROOT = Path(__file__).resolve().parent.parent
+
+
 class CoinAFKRoundTest(unittest.TestCase):
+    def test_space_wait_can_recover_from_already_entered_combat(self) -> None:
+        pipeline = json.loads(
+            (ROOT / "assets/resource/base/pipeline/CoinAFK.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(
+            pipeline["CoinAFKWaitSpaceStart"]["next"],
+            [
+                "CoinAFKCombatHudFrame1",
+                "CoinAFKSpaceStart",
+                "CoinAFKLobbyStart",
+                "CoinAFKWaitSpaceStart",
+            ],
+        )
+
+    def test_combat_loading_debounces_stale_lobby_button(self) -> None:
+        pipeline = json.loads(
+            (ROOT / "assets/resource/base/pipeline/CoinAFK.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(
+            pipeline["CoinAFKWaitCombatHud"]["next"],
+            [
+                "CoinAFKCombatHudFrame1",
+                "CoinAFKSpaceStart",
+                "CoinAFKLobbyRecoveryCandidate",
+                "CoinAFKWaitCombatHud",
+            ],
+        )
+        candidate = pipeline["CoinAFKLobbyRecoveryCandidate"]
+        confirm = pipeline["CoinAFKLobbyRecoveryConfirm"]
+        self.assertEqual(candidate["post_delay"], 1500)
+        self.assertEqual(
+            candidate["next"],
+            ["CoinAFKLobbyRecoveryConfirm", "CoinAFKWaitCombatHud"],
+        )
+        self.assertEqual(
+            confirm["next"], ["CoinAFKLobbyStart", "CoinAFKWaitCombatHud"]
+        )
+        self.assertEqual(
+            candidate["recognition"]["param"], confirm["recognition"]["param"]
+        )
+
     def test_normal_hold_uses_same_early_completion_recovery(self) -> None:
         context = Mock()
         context.get_hit_count.return_value = 2

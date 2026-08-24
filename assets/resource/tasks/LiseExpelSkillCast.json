@@ -2,8 +2,8 @@
     "option": {
         "BackgroundSkillInput": {
             "type": "switch",
-            "label": "首次前台触发，后续后台发送",
-            "description": "开启后，每个新任务第一次触发 E 或 Q 时会切换到游戏前台，使用真实按键发送该次技能，然后恢复原窗口和鼠标；首次成功后，同一任务后续 E、Q 改用后台窗口消息。若后台消息被 Windows 拒绝，本次自动回退到前台真实按键并再次恢复。其他按钮点击始终使用原有焦点恢复机制。",
+            "label": "首次副本前台，后续副本后台",
+            "description": "开启后，每个新任务的首个副本会把整套 E、Q 技能都作为真实前台按键发送；整套技能结束后，下一副本及后续副本的 E、Q 才改用后台窗口消息。若后台消息被 Windows 拒绝，本次自动回退到前台真实按键并再次恢复。其他按钮点击始终使用原有焦点恢复机制。",
             "default_case": "No",
             "cases": [
                 {
@@ -15,40 +15,12 @@
                                 "param": {
                                     "custom_action": "hybrid_skill_action"
                                 }
-                            },
-                            "focus": {
-                                "Node.Action.Starting": {
-                                    "content": "[角色] 准备发送 E 键（首次前台，后续后台）",
-                                    "display": [
-                                        "log"
-                                    ]
-                                },
-                                "Node.Action.Succeeded": {
-                                    "content": "[角色] E 输入已发送",
-                                    "display": [
-                                        "log"
-                                    ]
-                                }
                             }
                         },
                         "LisePressEAfterQ": {
                             "action": {
                                 "param": {
                                     "custom_action": "hybrid_skill_action"
-                                }
-                            },
-                            "focus": {
-                                "Node.Action.Starting": {
-                                    "content": "[角色] 准备发送 E 键（首次前台，后续后台）",
-                                    "display": [
-                                        "log"
-                                    ]
-                                },
-                                "Node.Action.Succeeded": {
-                                    "content": "[角色] E 输入已发送",
-                                    "display": [
-                                        "log"
-                                    ]
                                 }
                             }
                         },
@@ -57,20 +29,6 @@
                                 "param": {
                                     "custom_action": "hybrid_skill_action"
                                 }
-                            },
-                            "focus": {
-                                "Node.Action.Starting": {
-                                    "content": "[角色] 准备连续发送 3 次 Q 键（首次前台，后续后台）",
-                                    "display": [
-                                        "log"
-                                    ]
-                                },
-                                "Node.Action.Succeeded": {
-                                    "content": "[角色] Q 输入已连续发送 3 次",
-                                    "display": [
-                                        "log"
-                                    ]
-                                }
                             }
                         },
                         "LisePressQBeforeE": {
@@ -78,19 +36,13 @@
                                 "param": {
                                     "custom_action": "hybrid_skill_action"
                                 }
-                            },
-                            "focus": {
-                                "Node.Action.Starting": {
-                                    "content": "[角色] 准备先连续发送 3 次 Q 键（首次前台，后续后台）",
-                                    "display": [
-                                        "log"
-                                    ]
-                                },
-                                "Node.Action.Succeeded": {
-                                    "content": "[角色] 前置 Q 输入已连续发送 3 次",
-                                    "display": [
-                                        "log"
-                                    ]
+                            }
+                        },
+                        "LiseSkillCastEnd": {
+                            "action": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_action": "hybrid_skill_dungeon_complete"
                                 }
                             }
                         }
@@ -110,7 +62,7 @@
                 {
                     "name": "delay_ms",
                     "label": "等待时间（ms）",
-                    "default": "2000",
+                    "default": "3000",
                     "pipeline_type": "int",
                     "verify": "^(?:[2-9]\\d{3}|[1-9]\\d{4,})$"
                 }
@@ -404,7 +356,7 @@
                 {
                     "name": "delay_ms",
                     "label": "等待时间（ms）",
-                    "default": "2000",
+                    "default": "3000",
                     "pipeline_type": "int",
                     "verify": "^\\d+$"
                 }

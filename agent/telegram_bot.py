@@ -51,6 +51,14 @@ def start() -> bool:
     config = _load_config()
     if not config:
         return False
+    try:
+        disconnect_generation = process_registry.read_monitor_disconnect_generation()
+    except (OSError, process_registry.ProcessRegistryError) as exc:
+        print(
+            f"[进度监控] 读取全局通讯停止信号失败：{type(exc).__name__}",
+            flush=True,
+        )
+        return False
     with _lifecycle_lock:
         if _thread and _thread.is_alive() and not _stop_event.is_set():
             if _owner_id is not None and _is_owner(_owner_id):
@@ -83,7 +91,7 @@ def start() -> bool:
         )
         _ownership_thread = threading.Thread(
             target=_ownership_watchdog,
-            args=(run_stop_event, owner_id),
+            args=(run_stop_event, owner_id, disconnect_generation),
             name="dna-telegram-owner",
             daemon=True,
         )
@@ -94,7 +102,9 @@ def start() -> bool:
     return True
 
 
-def stop(final_message: str | None = None) -> bool:
+def stop(
+    final_message: str | None = None, *, reset_progress: bool = True
+) -> bool:
     """Stop the active bot and optionally send one final lifecycle message."""
 
     global _config
@@ -112,7 +122,7 @@ def stop(final_message: str | None = None) -> bool:
         if _owner_id is not None and owned:
             _release_ownership(_owner_id)
         _owner_id = None
-        if was_running:
+        if was_running and reset_progress:
             progress_state.reset()
         while True:
             try:
@@ -316,16 +326,51 @@ def _refresh_ownership(owner_id: str | None, *, now: float | None = None) -> boo
         return False
 
 
-def _ownership_watchdog(stop_event: threading.Event, owner_id: str) -> None:
+def _ownership_watchdog(
+    stop_event: threading.Event,
+    owner_id: str,
+    disconnect_generation: str | None = None,
+) -> None:
     consecutive_failures = 0
+    signal_read_failed = False
     while not stop_event.wait(_OWNERSHIP_WATCHDOG_SECONDS):
+        try:
+            current_generation = (
+                process_registry.read_monitor_disconnect_generation()
+            )
+            signal_read_failed = False
+        except (OSError, process_registry.ProcessRegistryError) as exc:
+            if not signal_read_failed:
+                print(
+                    f"[进度监控] 检查全局通讯停止信号失败：{type(exc).__name__}",
+                    flush=True,
+                )
+            signal_read_failed = True
+        else:
+            if (
+                current_generation is not None
+                and current_generation != disconnect_generation
+            ):
+                print("[进度监控] 收到全局关闭通讯信号，监听已停止", flush=True)
+                stop(reset_progress=False)
+                break
         if _refresh_ownership(owner_id):
             consecutive_failures = 0
             continue
         consecutive_failures += 1
         if consecutive_failures >= _OWNERSHIP_FAILURE_LIMIT:
-            print("[进度监控] 连续失去监听权，已停止当前 Telegram 监听", flush=True)
-            stop_event.set()
+            print(
+                "[进度监控] 连续失去监听权，仅停止当前实例通讯",
+                flush=True,
+            )
+            try:
+                stop(reset_progress=False)
+            except Exception as exc:
+                stop_event.set()
+                print(
+                    f"[进度监控] 停止当前实例通讯失败：{type(exc).__name__}",
+                    flush=True,
+                )
             break
 
 
@@ -440,11 +485,53 @@ def _handle_update(token: str, allowed_chat_id: int, update: dict[str, Any]) -> 
     command = text.strip().lower().split("@", 1)[0]
     if command in {"/status", "进度"}:
         _send_message(token, allowed_chat_id, progress_state.format_status())
+    elif command in {"disconnect", "/disconnect"}:
+        try:
+            _send_message(
+                token,
+                allowed_chat_id,
+                "DNA Helper 已收到 disconnect。\n正在关闭本机全部监控通讯；当前游戏任务和窗口不会关闭。",
+            )
+        finally:
+            _acknowledge_disconnect_update(token, update.get("update_id"))
+            try:
+                process_registry.publish_monitor_disconnect("telegram")
+            except (OSError, process_registry.ProcessRegistryError) as exc:
+                print(
+                    f"[进度监控] 广播关闭通讯失败：{type(exc).__name__}",
+                    flush=True,
+                )
+            if stop(reset_progress=False):
+                print(
+                    "[进度监控] disconnect 已执行，本机全部监控通讯已关闭；当前任务继续运行",
+                    flush=True,
+                )
     elif command in {"/start", "/help", "帮助"}:
         _send_message(
             token,
             allowed_chat_id,
-            "DNA Helper 状态机器人已连接。\n发送 /status 或“进度”查询当前状态。",
+            "DNA Helper 状态机器人已连接。\n"
+            "发送 /status 或“进度”查询当前状态。\n"
+            "发送 disconnect 关闭主机端全部监控通讯。",
+        )
+
+
+def _acknowledge_disconnect_update(token: str, update_id: object) -> None:
+    """Confirm the terminal command so Telegram cannot replay it after restart."""
+
+    if not isinstance(update_id, int):
+        return
+    try:
+        _api_call(
+            token,
+            "getUpdates",
+            {"offset": update_id + 1, "timeout": 0},
+            timeout=5,
+        )
+    except (OSError, ValueError, urllib.error.URLError) as exc:
+        print(
+            f"[进度监控] disconnect 更新确认失败：{_network_error_summary(exc)}",
+            flush=True,
         )
 
 

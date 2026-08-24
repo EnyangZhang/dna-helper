@@ -17,7 +17,7 @@
         "post_delay": 0,
         "focus": {
             "Node.Action.Succeeded": {
-                "content": "[皎皎币挂机] 任务已启动，仅等待委托页面右下角的开始挑战",
+                "content": "[皎皎币挂机] 任务已启动，等待委托页“开始挑战”",
                 "display": ["log"]
             }
         },
@@ -73,7 +73,7 @@
     },
     "focus": {
         "Node.Action.Succeeded": {
-            "content": "[皎皎币挂机] 已点击委托页面开始挑战，等待 Space 开始挑战",
+            "content": "[皎皎币挂机] 委托页“开始挑战”已点击",
             "display": [
                 "log"
             ]
@@ -113,7 +113,12 @@
         "pre_delay": 0,
         "post_delay": 50,
         "max_hit": 10000000,
-        "next": ["CoinAFKSpaceStart", "CoinAFKLobbyStart", "CoinAFKWaitSpaceStart"]
+        "next": [
+            "CoinAFKCombatHudFrame1",
+            "CoinAFKSpaceStart",
+            "CoinAFKLobbyStart",
+            "CoinAFKWaitSpaceStart"
+        ]
     },
     "CoinAFKSpaceStart": {
         "recognition": {
@@ -156,7 +161,7 @@
     },
     "focus": {
         "Node.Action.Succeeded": {
-            "content": "[皎皎币挂机] 已点击 Space 开始挑战，等待战斗 HUD",
+            "content": "[皎皎币挂机] Space“开始挑战”已点击",
             "display": [
                 "log"
             ]
@@ -200,9 +205,39 @@
         "next": [
             "CoinAFKCombatHudFrame1",
             "CoinAFKSpaceStart",
-            "CoinAFKLobbyStart",
+            "CoinAFKLobbyRecoveryCandidate",
             "CoinAFKWaitCombatHud"
         ]
+    },
+    "CoinAFKLobbyRecoveryCandidate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CoinAFK/lobby_start_challenge.png",
+                "roi": [1060, 570, 220, 100],
+                "threshold": 0.8
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 1500,
+        "next": ["CoinAFKLobbyRecoveryConfirm", "CoinAFKWaitCombatHud"]
+    },
+    "CoinAFKLobbyRecoveryConfirm": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CoinAFK/lobby_start_challenge.png",
+                "roi": [1060, 570, 220, 100],
+                "threshold": 0.8
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["CoinAFKLobbyStart", "CoinAFKWaitCombatHud"]
     },
     "CoinAFKCombatHudFrame1": {
         "recognition": {
@@ -254,12 +289,6 @@
         "rate_limit": 0,
         "pre_delay": 0,
         "post_delay": 0,
-        "focus": {
-            "Node.Recognition.Succeeded": {
-                "content": "[皎皎币挂机] 已连续确认 3 帧战斗 HUD，开始检查目标小地图",
-                "display": ["log"]
-            }
-        },
         "next": ["CoinAFKMapCheckWindow"],
         "on_error": ["CoinAFKWaitCombatHud"]
     },
@@ -288,7 +317,7 @@
         "post_delay": 0,
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[皎皎币挂机] 目标小地图识别成功，执行正式角色操作序列",
+                "content": "[皎皎币挂机] 目标地图已确认",
                 "display": ["log"]
             }
         },
@@ -303,7 +332,7 @@
                 "custom_action_param": {
                     "kind": "key_sequence",
                     "steps": [
-                        {"delay_ms": 2000},
+                        {"delay_ms": 3000},
                         {"key": 69},
                         {"delay_ms": 300},
                         {"key": 69},
@@ -311,7 +340,8 @@
                         {"key": 83, "hold_ms": 600},
                         {"key": 81},
                         {"delay_ms": 3500},
-                        {"key": 83, "hold_ms": 5000}
+                        {"key": 83, "hold_ms": 5000},
+                        {"key": 68, "hold_ms": 100}
                     ],
                     "restore_delay_ms": 100
                 }
@@ -321,12 +351,8 @@
         "pre_delay": 0,
         "post_delay": 0,
         "focus": {
-            "Node.Action.Starting": {
-                "content": "[皎皎币挂机] 开始角色操作：2000ms → E → 300ms → E → 300ms → S 600ms → Q → 3500ms → S 5000ms",
-                "display": ["log"]
-            },
             "Node.Action.Succeeded": {
-                "content": "[皎皎币挂机] 角色操作完成，进入局内 99 轮加速",
+                "content": "[皎皎币挂机] 角色操作完成，开始局内加速",
                 "display": ["log"]
             }
         },
@@ -579,7 +605,7 @@
         },
         "focus": {
             "Node.Action.Succeeded": {
-                "content": "[皎皎币挂机] 已点击再次进行，等待委托页面开始挑战",
+                "content": "[皎皎币挂机] “再次进行”已点击",
                 "display": ["log"]
             }
         },
@@ -710,7 +736,7 @@
     },
     "focus": {
         "Node.Action.Succeeded": {
-            "content": "[皎皎币挂机] 已选择扼守/无尽委托，等待委托页面开始挑战",
+            "content": "[皎皎币挂机] 委托卡片已选择",
             "display": [
                 "log"
             ]
@@ -761,8 +787,8 @@
         "pre_delay": 0,
         "post_delay": 0,
         "focus": {
-            "Node.Action.Starting": {
-                "content": "[皎皎币挂机] 未识别到目标小地图，发送 Esc 并准备放弃本次挑战",
+            "Node.Action.Succeeded": {
+                "content": "[皎皎币挂机] 目标地图不符，已发送 Esc",
                 "display": ["log"]
             }
         },
@@ -894,7 +920,7 @@
     },
     "focus": {
         "Node.Action.Succeeded": {
-            "content": "[皎皎币挂机] 已确认放弃，本次副本不计入完成轮次",
+            "content": "[皎皎币挂机] 已放弃错误地图，本次副本不计数",
             "display": [
                 "log"
             ]
@@ -951,7 +977,7 @@
         },
         "focus": {
             "Node.Action.Succeeded": {
-                "content": "[皎皎币挂机] 已从放弃结算页点击再次进行，重新选择副本",
+                "content": "[皎皎币挂机] 放弃结算页“再次进行”已点击",
                 "display": ["log"]
             }
         },
@@ -968,7 +994,7 @@
         "post_delay": 0,
         "focus": {
             "Node.Action.Starting": {
-                "content": "[皎皎币挂机] 已完成设定的副本轮次，任务结束",
+                "content": "[皎皎币挂机] 副本轮次已完成，任务结束",
                 "display": ["log", "toast"]
             }
         }

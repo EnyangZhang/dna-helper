@@ -87,6 +87,7 @@ _e_sequence_lock = threading.Lock()
 _e_sequence_progress: dict[tuple[int, str], int] = {}
 _hybrid_skill_lock = threading.Lock()
 _hybrid_skill_ready_hwnd = 0
+_hybrid_fishing_ready_hwnd = 0
 
 
 def _next_e_sequence_index(task_id: int, node_name: str, total: int) -> int:
@@ -127,10 +128,12 @@ def _cursor_position() -> tuple[int, int] | None:
 
 
 def _remember_restore_target(
-    hwnd: int, game_hwnd: int
+    hwnd: int, game_hwnd: int, *, keep_game_focused: bool = False
 ) -> tuple[int, tuple[int, int] | None]:
     global _fallback_cursor_position, _fallback_hwnd
     with _state_lock:
+        if keep_game_focused and hwnd and hwnd == game_hwnd:
+            return 0, None
         if not _restore_in_progress and _is_restore_target(hwnd, game_hwnd):
             position = _cursor_position()
             if hwnd != _fallback_hwnd or position is not None:
@@ -139,6 +142,17 @@ def _remember_restore_target(
         if not _is_restore_target(_fallback_hwnd, game_hwnd):
             return 0, None
         return _fallback_hwnd, _fallback_cursor_position
+
+
+def _initialize_restore_target(hwnd: int, game_hwnd: int) -> int:
+    """Start a task without carrying a stale non-game target into a game-focused run."""
+    global _fallback_cursor_position, _fallback_hwnd
+    if hwnd and hwnd == game_hwnd:
+        with _state_lock:
+            _fallback_hwnd = 0
+            _fallback_cursor_position = None
+        return 0
+    return _remember_window(hwnd, game_hwnd)
 
 
 def _remember_window(hwnd: int, game_hwnd: int) -> int:
@@ -204,6 +218,23 @@ def _mark_hybrid_skill_ready(hwnd: int) -> None:
 def _is_hybrid_skill_ready(hwnd: int) -> bool:
     with _hybrid_skill_lock:
         return bool(hwnd and _hybrid_skill_ready_hwnd == int(hwnd))
+
+
+def _reset_hybrid_fishing_ready() -> None:
+    global _hybrid_fishing_ready_hwnd
+    with _hybrid_skill_lock:
+        _hybrid_fishing_ready_hwnd = 0
+
+
+def _mark_hybrid_fishing_ready(hwnd: int) -> None:
+    global _hybrid_fishing_ready_hwnd
+    with _hybrid_skill_lock:
+        _hybrid_fishing_ready_hwnd = int(hwnd)
+
+
+def _is_hybrid_fishing_ready(hwnd: int) -> bool:
+    with _hybrid_skill_lock:
+        return bool(hwnd and _hybrid_fishing_ready_hwnd == int(hwnd))
 
 
 def _set_restore_in_progress(value: bool) -> None:
@@ -286,8 +317,40 @@ def _apply_progress_event(params: dict) -> None:
         progress_state.start_next_round()
     elif progress_event == "cipher_cycle_completed":
         infinite_99_completed = progress_state.advance_cipher_cycle()
+    elif progress_event == "fishing_caught":
+        progress_state.record_fishing_catch()
     if infinite_99_completed:
         telegram_bot.notify_infinite_99_completed()
+
+
+def _safe_user_log(message: str) -> None:
+    """Keep a broken log stream from changing an already-sent game action."""
+    try:
+        print(message, flush=True)
+    except (OSError, UnicodeError):
+        return
+
+
+def _log_fishing_action(params: dict, background: bool) -> None:
+    """Emit one user-facing summary after a successful fishing input."""
+    key_label = str(params.get("fishing_log_key", ""))
+    if key_label not in {"Space", "E", "Esc"}:
+        return
+    input_mode = "后台" if background else "前台"
+    if params.get("progress_event") != "fishing_caught":
+        _safe_user_log(f"[挂机钓鱼] {key_label} 已发送（{input_mode}）")
+        return
+    state = progress_state.snapshot()
+    current = int(state.get("stage_count", 0))
+    total = int(state.get("total_rounds", 0))
+    _safe_user_log(
+        f"[挂机钓鱼] {key_label} 已发送（{input_mode}），"
+        f"钓鱼数量：{current} / {total}"
+    )
+    if state.get("status") == "completed":
+        _safe_user_log(
+            f"[挂机钓鱼] 已达到设定数量：{current} / {total}，任务完成"
+        )
 
 
 @AgentServer.custom_action("focus_guard_start")
@@ -297,7 +360,7 @@ class FocusGuardStart(CustomAction):
     ) -> CustomAction.RunResult:
         params = _parse_params(argv.custom_action_param)
         game_hwnd = _controller_hwnd(context)
-        _remember_window(_foreground_window(), game_hwnd)
+        _initialize_restore_target(_foreground_window(), game_hwnd)
         _start_foreground_watcher(game_hwnd)
         progress_mode = str(params.get("progress_mode", "普通扼守"))
         task_started = progress_state.start_task(
@@ -308,7 +371,15 @@ class FocusGuardStart(CustomAction):
         )
         if task_started:
             _reset_hybrid_skill_ready()
+            _reset_hybrid_fishing_ready()
             telegram_bot.notify_task_started(progress_mode)
+            if progress_mode == "挂机钓鱼":
+                state = progress_state.snapshot()
+                _safe_user_log(
+                    "[挂机钓鱼] 任务已启动，钓鱼数量："
+                    f"{int(state.get('stage_count', 0))} / "
+                    f"{int(state.get('total_rounds', 0))}"
+                )
         return CustomAction.RunResult(success=True)
 
 
@@ -367,11 +438,22 @@ class FocusGuardAction(CustomAction):
             key = params.get("key")
             if not isinstance(key, int):
                 return CustomAction.RunResult(success=False)
+            requested_proxy = params.get("proxy_node")
+            allowed_proxy = {
+                (32, "FishingSpaceKeyProxy"),
+                (69, "FishingEKeyProxy"),
+                (27, "FishingEscapeKeyProxy"),
+            }
+            if requested_proxy is not None and (key, requested_proxy) not in allowed_proxy:
+                return CustomAction.RunResult(success=False)
             proxy_node = {
+                32: "FishingSpaceKeyProxy",
                 69: "FocusGuardEKeyProxy",
                 81: "FocusGuardQKeyProxy",
                 27: "CoinAFKEscapeProxy",
             }.get(key)
+            if requested_proxy is not None:
+                proxy_node = requested_proxy
             if not proxy_node:
                 return CustomAction.RunResult(success=False)
         elif kind == "key_hold":
@@ -420,7 +502,8 @@ class FocusGuardAction(CustomAction):
 
         e_sequence_index = 0
         e_sequence_total = 0
-        if kind == "key" and key == 69:
+        track_e_sequence = bool(params.get("track_e_sequence", True))
+        if kind == "key" and key == 69 and track_e_sequence:
             e_sequence_total = max(1, int(params.get("sequence_total", 1)))
             task_id = int(getattr(argv.task_detail, "task_id", 0))
             e_sequence_index = _next_e_sequence_index(
@@ -429,7 +512,7 @@ class FocusGuardAction(CustomAction):
 
         game_hwnd = _controller_hwnd(context)
         restore_hwnd, restore_cursor_position = _remember_restore_target(
-            _foreground_window(), game_hwnd
+            _foreground_window(), game_hwnd, keep_game_focused=True
         )
         if force_game_foreground and not _activate_game_for_skill(game_hwnd):
             return CustomAction.RunResult(success=False)
@@ -466,7 +549,7 @@ class FocusGuardAction(CustomAction):
                     detail = context.run_action(detail_value)
                     succeeded = succeeded and detail is not None and detail.success
             for index in range(repeat if kind not in {"key_hold", "key_sequence"} else 0):
-                if kind == "key" and key == 69:
+                if kind == "key" and key == 69 and track_e_sequence:
                     log_proxy = (
                         "FocusGuardEBackgroundLogProxy"
                         if background_key_input
@@ -491,7 +574,7 @@ class FocusGuardAction(CustomAction):
                 if background_key_input:
                     input_succeeded = _send_background_key(game_hwnd, key)
                     succeeded = succeeded and input_succeeded
-                    if input_succeeded and key == 69:
+                    if input_succeeded and key == 69 and track_e_sequence:
                         detail = context.run_action("FocusGuardEBackgroundLogProxy")
                         succeeded = succeeded and detail is not None and detail.success
                 else:
@@ -507,6 +590,7 @@ class FocusGuardAction(CustomAction):
 
         if succeeded:
             _apply_progress_event(params)
+            _log_fishing_action(params, background_key_input)
 
         return CustomAction.RunResult(success=succeeded)
 
@@ -525,7 +609,7 @@ class _BackgroundSkillAction(FocusGuardAction):
 
 @AgentServer.custom_action("hybrid_skill_action")
 class HybridSkillAction(CustomAction):
-    """First E/Q is foreground with restore; later E/Q uses background input."""
+    """Use foreground for the first dungeon and background for later dungeons."""
 
     def run(
         self, context: Context, argv: CustomAction.RunArg
@@ -536,8 +620,43 @@ class HybridSkillAction(CustomAction):
             if background_result.success:
                 return background_result
             _reset_hybrid_skill_ready()
+            foreground_result = _ForegroundPrimingSkillAction().run(context, argv)
+            if foreground_result.success:
+                _mark_hybrid_skill_ready(game_hwnd)
+            return foreground_result
+
+        return _ForegroundPrimingSkillAction().run(context, argv)
+
+
+@AgentServer.custom_action("hybrid_skill_dungeon_complete")
+class HybridSkillDungeonComplete(CustomAction):
+    """Enable background E/Q only after the first dungeon's full skill set ends."""
+
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        game_hwnd = _controller_hwnd(context)
+        if not game_hwnd:
+            return CustomAction.RunResult(success=False)
+        _mark_hybrid_skill_ready(game_hwnd)
+        return CustomAction.RunResult(success=True)
+
+
+@AgentServer.custom_action("hybrid_fishing_action")
+class HybridFishingAction(CustomAction):
+    """Send the first fishing Space in foreground, then use background messages."""
+
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        game_hwnd = _controller_hwnd(context)
+        if _is_hybrid_fishing_ready(game_hwnd):
+            background_result = _BackgroundSkillAction().run(context, argv)
+            if background_result.success:
+                return background_result
+            _reset_hybrid_fishing_ready()
 
         foreground_result = _ForegroundPrimingSkillAction().run(context, argv)
         if foreground_result.success:
-            _mark_hybrid_skill_ready(game_hwnd)
+            _mark_hybrid_fishing_ready(game_hwnd)
         return foreground_result

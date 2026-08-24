@@ -1,0 +1,174 @@
+{
+    "FishingEntry": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_start",
+                "custom_action_param": {
+                    "progress_mode": "挂机钓鱼",
+                    "progress_total": 0,
+                    "progress_stage_total": 0
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["FishingMonitor"]
+    },
+    "FishingMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "FishingClosePromptDetected",
+            "FishingEPromptDetected",
+            "FishingPromptDetected",
+            "FishingIdle"
+        ]
+    },
+    "FishingPromptDetected": {
+        "recognition": {
+            "type": "Custom",
+            "param": {
+                "custom_recognition": "fishing_prompt",
+                "custom_recognition_param": {
+                    "prompt": "space",
+                    "threshold": 0.72,
+                    "cooldown_ms": 3000
+                },
+                "roi": [0, 0, 0, 0]
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key",
+                    "key": 32,
+                    "repeat": 1,
+                    "restore_delay_ms": 100,
+                    "fishing_log_key": "Space"
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["FishingMonitor"]
+    },
+    "FishingEPromptDetected": {
+        "recognition": {
+            "type": "Custom",
+            "param": {
+                "custom_recognition": "fishing_prompt",
+                "custom_recognition_param": {
+                    "prompt": "e",
+                    "threshold": 0.72,
+                    "cooldown_ms": 3000
+                },
+                "roi": [0, 0, 0, 0]
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key",
+                    "key": 69,
+                    "repeat": 1,
+                    "proxy_node": "FishingEKeyProxy",
+                    "track_e_sequence": false,
+                    "restore_delay_ms": 100,
+                    "fishing_log_key": "E"
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["FishingMonitor"]
+    },
+    "FishingClosePromptDetected": {
+        "recognition": {
+            "type": "Custom",
+            "param": {
+                "custom_recognition": "fishing_prompt",
+                "custom_recognition_param": {
+                    "prompt": "escape",
+                    "threshold": 0.65,
+                    "cooldown_ms": 3000
+                },
+                "roi": [0, 0, 0, 0]
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key",
+                    "key": 27,
+                    "repeat": 1,
+                    "proxy_node": "FishingEscapeKeyProxy",
+                    "restore_delay_ms": 100,
+                    "progress_event": "fishing_caught",
+                    "fishing_log_key": "Esc"
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 500,
+        "post_delay": 0,
+        "next": ["FishingTargetReached", "FishingMonitor"]
+    },
+    "FishingTargetReached": {
+        "recognition": {
+            "type": "Custom",
+            "param": {
+                "custom_recognition": "fishing_target_reached",
+                "custom_recognition_param": {},
+                "roi": [0, 0, 0, 0]
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    },
+    "FishingIdle": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 1000000000,
+        "next": ["FishingMonitor"]
+    },
+    "FishingSpaceKeyProxy": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "ClickKey", "param": {"key": 32}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    },
+    "FishingEKeyProxy": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "ClickKey", "param": {"key": 69}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    },
+    "FishingEscapeKeyProxy": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "ClickKey", "param": {"key": 27}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    }
+}

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 import io
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
@@ -34,6 +34,96 @@ class TelegramBotTest(unittest.TestCase):
             "token", 123, {"message": {"chat": {"id": 456}, "text": "进度"}}
         )
         send_message.assert_not_called()
+
+    def test_authorized_disconnect_consumes_update_then_stops_only_telegram(self) -> None:
+        events: list[str] = []
+        with (
+            patch.object(
+                telegram_bot,
+                "_send_message",
+                side_effect=lambda *_args: events.append("ack"),
+            ) as send_message,
+            patch.object(
+                telegram_bot,
+                "_acknowledge_disconnect_update",
+                side_effect=lambda *_args: events.append("consume"),
+            ) as acknowledge,
+            patch.object(
+                telegram_bot.process_registry,
+                "publish_monitor_disconnect",
+                side_effect=lambda *_args: events.append("broadcast"),
+            ) as broadcast,
+            patch.object(
+                telegram_bot,
+                "stop",
+                side_effect=lambda **_kwargs: events.append("telegram-stop") or True,
+            ) as stop,
+            patch("sys.stdout", new_callable=io.StringIO) as output,
+        ):
+            telegram_bot._handle_update(
+                "token",
+                123,
+                {
+                    "update_id": 900,
+                    "message": {"chat": {"id": 123}, "text": "disconnect"},
+                },
+            )
+
+        self.assertEqual(events, ["ack", "consume", "broadcast", "telegram-stop"])
+        send_message.assert_called_once_with(
+            "token",
+            123,
+            "DNA Helper 已收到 disconnect。\n正在关闭本机全部监控通讯；当前游戏任务和窗口不会关闭。",
+        )
+        acknowledge.assert_called_once_with("token", 900)
+        broadcast.assert_called_once_with("telegram")
+        stop.assert_called_once_with(reset_progress=False)
+        self.assertIn(
+            "disconnect 已执行，本机全部监控通讯已关闭；当前任务继续运行",
+            output.getvalue(),
+        )
+
+    def test_disconnect_supports_slash_and_bot_suffix(self) -> None:
+        with (
+            patch.object(telegram_bot, "_send_message") as send_message,
+            patch.object(telegram_bot, "_acknowledge_disconnect_update"),
+            patch.object(telegram_bot.process_registry, "publish_monitor_disconnect"),
+            patch.object(telegram_bot, "stop"),
+        ):
+            telegram_bot._handle_update(
+                "token",
+                123,
+                {
+                    "message": {
+                        "chat": {"id": 123},
+                        "text": "/disconnect@DNAHelperBot",
+                    }
+                },
+            )
+
+        send_message.assert_called_once()
+
+    def test_disconnect_still_stops_when_acknowledgement_fails(self) -> None:
+        with (
+            patch.object(telegram_bot, "_send_message", side_effect=OSError("offline")),
+            patch.object(telegram_bot, "_acknowledge_disconnect_update"),
+            patch.object(telegram_bot.process_registry, "publish_monitor_disconnect"),
+            patch.object(telegram_bot, "stop"),
+        ):
+            with self.assertRaises(OSError):
+                telegram_bot._handle_update(
+                    "token",
+                    123,
+                    {"message": {"chat": {"id": 123}, "text": "disconnect"}},
+                )
+
+    @patch("telegram_bot._api_call")
+    def test_disconnect_update_is_consumed_before_shutdown(self, api_call) -> None:
+        telegram_bot._acknowledge_disconnect_update("token", 900)
+
+        api_call.assert_called_once_with(
+            "token", "getUpdates", {"offset": 901, "timeout": 0}, timeout=5
+        )
 
     @patch.object(telegram_bot._outbound, "put")
     def test_task_start_notification_is_queued_once_enabled(self, put) -> None:
@@ -157,6 +247,15 @@ class TelegramBotTest(unittest.TestCase):
         telegram_bot.stop()
         reset_state.assert_called_once_with()
 
+    @patch("telegram_bot.progress_state.reset")
+    def test_disconnect_stop_preserves_running_task_progress(self, reset_state) -> None:
+        telegram_bot._stop_event.clear()
+        telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
+
+        telegram_bot.stop(reset_progress=False)
+
+        reset_state.assert_not_called()
+
     @patch("telegram_bot._send_message", side_effect=OSError("https://api.telegram.org/botbotSECRET/sendMessage"))
     def test_final_message_network_failure_is_non_blocking(self, send_message) -> None:
         with patch("sys.stdout", new_callable=io.StringIO) as output:
@@ -223,7 +322,10 @@ class TelegramBotTest(unittest.TestCase):
         put.assert_called_once_with("当前状态")
 
     @patch("telegram_bot._refresh_ownership", side_effect=[False, False, True, False, False, False])
-    def test_ownership_watchdog_tolerates_transient_failures(self, refresh) -> None:
+    @patch("telegram_bot.process_registry.read_monitor_disconnect_generation", return_value=None)
+    def test_ownership_watchdog_tolerates_transient_failures(
+        self, _read_signal, refresh
+    ) -> None:
         class ImmediateWait:
             def __init__(self) -> None:
                 self.stopped = False
@@ -236,13 +338,92 @@ class TelegramBotTest(unittest.TestCase):
                 self.stopped = True
 
         stop_event = ImmediateWait()
-        with patch("sys.stdout", new_callable=io.StringIO) as output:
+        stop = Mock(side_effect=lambda **_kwargs: stop_event.set())
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as output,
+            patch.object(telegram_bot, "stop", stop),
+        ):
             telegram_bot._ownership_watchdog(stop_event, "owner-a")
 
         self.assertTrue(stop_event.stopped)
         self.assertEqual(stop_event.assert_interval, telegram_bot._OWNERSHIP_WATCHDOG_SECONDS)
         self.assertEqual(refresh.call_count, 6)
         self.assertIn("连续失去监听权", output.getvalue())
+        self.assertIn("仅停止当前实例通讯", output.getvalue())
+        stop.assert_called_once_with(reset_progress=False)
+
+    @patch("telegram_bot._refresh_ownership", side_effect=[False, False, False])
+    @patch("telegram_bot.process_registry.read_monitor_disconnect_generation", return_value=None)
+    def test_ownership_loss_stop_failure_never_requests_agent_shutdown(
+        self, _read_signal, refresh
+    ) -> None:
+        class ImmediateWait:
+            stopped = False
+
+            def wait(self, _seconds: int) -> bool:
+                return self.stopped
+
+            def set(self) -> None:
+                self.stopped = True
+
+        stop_event = ImmediateWait()
+        stop = Mock(side_effect=RuntimeError("stop failed"))
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as output,
+            patch.object(telegram_bot, "stop", stop),
+        ):
+            telegram_bot._ownership_watchdog(stop_event, "owner-a")
+
+        self.assertTrue(stop_event.stopped)
+        stop.assert_called_once_with(reset_progress=False)
+        self.assertIn("停止当前实例通讯失败", output.getvalue())
+
+    def test_global_disconnect_signal_stops_only_telegram_and_preserves_progress(self) -> None:
+        class StopAfterOneWait:
+            def wait(self, _seconds: int) -> bool:
+                return False
+
+        stop = Mock()
+        with (
+            patch.object(
+                telegram_bot.process_registry,
+                "read_monitor_disconnect_generation",
+                return_value="new-generation",
+            ),
+            patch.object(telegram_bot, "stop", stop),
+            patch.object(telegram_bot, "_refresh_ownership") as refresh,
+        ):
+            telegram_bot._ownership_watchdog(
+                StopAfterOneWait(), "owner-a", "startup-generation"
+            )
+
+        stop.assert_called_once_with(reset_progress=False)
+        refresh.assert_not_called()
+
+    def test_existing_disconnect_signal_is_only_a_startup_baseline(self) -> None:
+        class StopAfterSecondWait:
+            def __init__(self) -> None:
+                self.wait_count = 0
+
+            def wait(self, _seconds: int) -> bool:
+                self.wait_count += 1
+                return self.wait_count >= 2
+
+        stop = Mock()
+        with (
+            patch.object(
+                telegram_bot.process_registry,
+                "read_monitor_disconnect_generation",
+                return_value="startup-generation",
+            ),
+            patch.object(telegram_bot, "stop", stop),
+            patch.object(telegram_bot, "_refresh_ownership", return_value=True),
+        ):
+            telegram_bot._ownership_watchdog(
+                StopAfterSecondWait(), "owner-a", "startup-generation"
+            )
+
+        stop.assert_not_called()
 
     @patch("telegram_bot._is_owner", side_effect=AssertionError("worker must not read owner file"))
     @patch("telegram_bot._refresh_ownership", side_effect=AssertionError("worker must not refresh owner file"))

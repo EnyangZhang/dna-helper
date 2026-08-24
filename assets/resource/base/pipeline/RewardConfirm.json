@@ -486,7 +486,7 @@
         "post_delay": 0,
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[密函驱离] 局外监控已连续确认 3 帧战斗 HUD，切换到局内监控",
+                "content": "[密函驱离] 战斗 HUD 已确认，进入局内监控",
                 "display": ["log"]
             }
         },
@@ -843,7 +843,7 @@
         "post_delay": 0,
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[密函驱离] 重开后已连续确认 3 帧战斗 HUD，进入下一轮局内监控",
+                "content": "[密函驱离] 战斗 HUD 已确认，恢复局内监控",
                 "display": ["log"]
             }
         },
@@ -1033,7 +1033,7 @@
         },
         "focus": {
             "Node.Action.Starting": {
-                "content": "[密函驱离] 已完成设定的副本轮次，不再点击再次进行，任务结束",
+                "content": "[密函驱离] 副本轮次已完成，任务结束",
                 "display": ["log", "toast"]
             }
         },

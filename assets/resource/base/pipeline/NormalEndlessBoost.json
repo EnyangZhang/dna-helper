@@ -119,7 +119,7 @@
         "post_delay": 0,
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[普通副本] 局外监控已连续确认 3 帧战斗 HUD，切换到局内监控",
+                "content": "[普通副本] 战斗 HUD 已确认，进入局内监控",
                 "display": ["log"]
             }
         },
@@ -443,7 +443,7 @@
         },
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[普通副本] 已连续确认 3 帧战斗 HUD，跳过开始挑战等待并恢复副本监控",
+                "content": "[普通副本] 战斗 HUD 已确认，恢复局内监控",
                 "display": [
                     "log"
                 ]
@@ -524,7 +524,7 @@
     },
     "focus": {
         "Node.Action.Succeeded": {
-            "content": "[普通无尽] 已点击开始挑战，进入下一轮副本",
+            "content": "[普通扼守] “开始挑战”已点击",
             "display": [
                 "log"
             ]
@@ -1043,7 +1043,7 @@
         "post_delay": 0,
         "focus": {
             "Node.Recognition.Succeeded": {
-                "content": "[普通副本] 本轮技能已释放，战斗 HUD 恢复后继续局内监控且不重复释放",
+                "content": "[普通副本] 战斗 HUD 已恢复，本副本不重复释放技能",
                 "display": ["log"]
             }
         },
@@ -1128,7 +1128,7 @@
         },
         "focus": {
             "Node.Action.Succeeded": {
-                "content": "[普通无尽] 当前第 1 / 1 轮（每轮 99 局）",
+                "content": "[普通扼守] 已完成第 1 / 1 个 99 轮副本",
                 "display": [
                     "log"
                 ]
@@ -1206,7 +1206,7 @@
     },
     "focus": {
         "Node.Action.Succeeded": {
-            "content": "[普通无尽] 已点击再次进行，开始下一轮副本",
+            "content": "[普通扼守] “再次进行”已点击",
             "display": [
                 "log"
             ]
@@ -1248,7 +1248,7 @@
         },
         "focus": {
             "Node.Action.Starting": {
-                "content": "[普通无尽] 已完成设定的副本轮次，不再点击再次进行，任务结束",
+                "content": "[普通扼守] 副本轮次已完成，任务结束",
                 "display": [
                     "log",
                     "toast"
@@ -1304,7 +1304,7 @@
         },
         "focus": {
             "Node.Action.Succeeded": {
-                "content": "[普通驱离] 当前第 1 / 1 轮",
+                "content": "[普通驱离] 已完成第 1 / 1 轮",
                 "display": [
                     "log"
                 ]
@@ -1346,7 +1346,7 @@
         },
         "focus": {
             "Node.Action.Starting": {
-                "content": "[普通驱离] 已完成设定的副本轮次，不再点击再次进行，任务结束",
+                "content": "[普通驱离] 副本轮次已完成，任务结束",
                 "display": [
                     "log",
                     "toast"

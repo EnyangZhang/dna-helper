@@ -4,7 +4,7 @@
 
 ## 系统边界
 
-皎皎币挂机正式固定按键序列的最后一次 S 持续 **5000ms**；校验器与运行 Pipeline 必须保持该值同步。
+皎皎币挂机正式固定按键序列以 **S 5000ms → D 100ms** 结束；校验器与运行 Pipeline 必须保持这两个长按值及顺序同步。
 
 DNA Helper 由四层组成：
 
@@ -63,6 +63,8 @@ DNA Helper 由四层组成：
 
 所有 Pipeline 节点还必须显式声明 `rate_limit`、`pre_delay`、`post_delay`，禁止继承 MaaFramework 默认时序。即时路由、状态门控、输入代理和完成决策使用 `0 / 0 / 0`；长期或边界未知空闲轮询使用 `0 / 0 / 50`；连续 HUD 确认的前两帧使用 `0 / 0 / 50`、最后一帧使用 `0 / 0 / 0`。用户配置等待和限时识别窗口可以使用其他非负值，但必须写全三个字段并由文档及校验或测试说明。这个约束同时控制“页面出现到第一次点击”的延迟和点击链内部间隔，不能只验证后者。`tools/validate_project.py` 对全部节点强制检查字段存在且为非负数。
 
+用户可见日志采用结果型事件模型。每个基础节点或任务覆盖最多配置一个正常 `focus` 事件；不为同一动作同时配置 `Node.Action.Starting` 和 `Node.Action.Succeeded`，也不输出“准备发送”“已记录结果”“延迟结束”等状态机内部过程。一次逻辑按钮操作、一次分支判断或一组 Q 输入只输出一个成功结果。E 是有意保留的例外：Agent 在每次底层 E 成功后动态写入 `第 N / 总次数`，因此 E 节点本身不得再配置序列开始或序列完成日志。轮次、异常、完成、监控启停和输入失败日志不属于冗余过程，必须保留。校验器同时检查基础 Pipeline 与任务 `pipeline_override`，阻止过程型日志重新进入运行版。
+
 ## Pipeline 资源组织
 
 ```text
@@ -86,7 +88,7 @@ assets/resource/tasks/
 
 ## 进度监控启动任务
 
-Telegram 监听使用 `config/agent-processes/.telegram-owner.json` 维护跨进程单一所有者。新实例原子接管 owner 记录；每个实例只有所有权守护线程可以刷新该文件，轮询、发送与定时线程不得自行读写 owner 文件，只响应守护线程共享的停止事件。守护线程每 2 秒刷新一次，连续三次失败才认定失权并停止实例，从而既能让旧实例在约 6 秒内退出，也不会因 Windows 上一次瞬时文件竞争杀死 `/status`、发送或定时线程。停止与一键清理只允许当前所有者或已登记 Agent 操作对应记录，并清理旧版本孤儿 marker；UI 窗口保持打开，错误日志不得包含 Bot Token。
+Telegram 监听使用 `config/agent-processes/.telegram-owner.json` 维护跨进程单一所有者。新实例原子接管 owner 记录；每个实例只有所有权守护线程可以刷新该文件，轮询、发送与定时线程不得自行读写 owner 文件，只响应守护线程共享的停止事件。守护线程每 2 秒刷新一次，连续三次失败才认定失权；失权后只调用 `telegram_bot.stop(reset_progress=False)` 停止当前旧实例的 Telegram 线程，不得关闭 AgentServer、当前 Maa 任务或重置进度。设置或手机主动关闭通讯同样通过全局代次信号只停止 Telegram 线程。所有路径都不得让错误日志包含 Bot Token。
 
 UI 的“监控”分组提供正式任务“进度监控”，它会自动选择两种运行方式：
 
@@ -108,9 +110,9 @@ ProgressMonitorEntry
 
 `agent/main.py` 只注册 Agent 动作，不在 UI 启动时自动开启 Telegram；监听生命周期由“进度监控”任务显式启动。缺少有效本机配置或启动异常时，该任务记录“已跳过”；队列引导仍成功结束且不得阻塞后续游戏任务，独立运行则保留 UI 停止能力。Token 和 Chat ID 只从环境变量或 Git 忽略的 `config/telegram.json` 读取。
 
-Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有启动它的 UI/MXU 父进程句柄，并在守护线程中通过 `WaitForSingleObject` 等待该具体进程结束。父进程正常退出、崩溃或重启后，回调只执行一次 `telegram_bot.stop()` 与 `AgentServer.shut_down()`，让阻塞中的 `AgentServer.join()` 返回；该异常退出路径不生成任务完成消息。使用进程句柄而不是反复查询 PID，可以避免父进程退出后 PID 被复用造成孤立 Agent 误判为仍受 UI 管理。
+Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有启动它的 UI/MXU 父进程句柄，并在守护线程中通过 `WaitForSingleObject` 等待该具体进程结束。父进程正常退出、托盘右键退出、崩溃或重启后，统一关闭回调只执行一次 `telegram_bot.stop()` 与 `AgentServer.shut_down()`，让阻塞中的 `AgentServer.join()` 返回；该异常退出路径不生成任务完成消息。回调执行前同时启动 5 秒强制退出计时器，正常完成 marker 清理后取消；若 MaaFramework 停止或 join 卡住，则只强制结束当前旧 Agent 进程。Telegram 监听权连续丢失不再调用这条完整退出回调，只停止失权实例的 Telegram 线程；完整 Agent 关闭严格限定为父进程退出。使用进程句柄而不是反复查询 PID，可以避免父进程退出后 PID 被复用造成孤立 Agent 误判为仍受 UI 管理。
 
-## Agent 进程登记与一键关闭
+## Agent 进程登记与全局关闭通讯
 
 `agent/process_registry.py` 在 `AgentServer.start_up` 之前把当前 Agent 登记到 `<exe-root>/config/agent-processes/<pid>.json`。源码运行时 `exe-root` 是项目根，桌面包运行时是 `dist/DNAHelper`，两者都由 `agent/` 的上级目录推导。marker schema 固定为：
 
@@ -123,16 +125,24 @@ Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有
 }
 ```
 
-`creation_time_100ns` 是 `GetProcessTimes` 返回的 Windows FILETIME 创建时间。`executable_path` 是解析后的 `sys.executable` 绝对路径。marker 必须小于 4096 字节，先写入同目录临时文件、`fsync`，再用 `os.replace` 原子替换；现有祖先目录、登记目录或 marker 为符号链接、Windows 重解析点或非普通目标时拒绝写入。启动失败和正常退出都尽力删除 marker；强制终止留下的 marker 由下次一键清理判断是否过期。
+`creation_time_100ns` 是 `GetProcessTimes` 返回的 Windows FILETIME 创建时间。`executable_path` 是解析后的 `sys.executable` 绝对路径。marker 必须小于 4096 字节，先写入同目录临时文件、`fsync`，再用 `os.replace` 原子替换；现有祖先目录、登记目录或 marker 为符号链接、Windows 重解析点或非普通目标时拒绝写入。启动失败和正常退出都尽力删除 marker。主动关闭通讯不删除 marker，因为 Agent 与任务仍然存活。
 
-定制 MXU 注册 Tauri 命令 `terminate_all_dna_helper_monitors`，返回 camelCase 的 `MonitorTerminationSummary`：`agentsTerminated`、`staleMarkersRemoved`。该命令：
+定制 MXU 注册 Tauri 命令 `disconnect_all_dna_helper_monitors`，返回 camelCase 的 `MonitorDisconnectSummary`：`generation`。Telegram `disconnect` 与该命令都把固定 schema 的信号写入 `<exe-root>/config/agent-processes/.monitor-disconnect.json`：
 
-- 最多读取 256 个、每个小于 4096 字节的普通 marker，拒绝符号链接、重解析点、越界路径、多余 schema 字段和异常文件名。
-- 先匹配 PID 和进程创建 FILETIME，再将 marker 路径与 `QueryFullProcessImageNameW` 得到的运行路径分别规范化后精确比较。只有三者一致才终止 Agent；PID 不存在或创建时间不同只删除过期 marker；路径不匹配或无法核验时报错且不终止、不删 marker。
-- 对 Agent 调用 `TerminateProcess` 后最多等待 2000ms 并确认退出。命令不枚举、不终止任何 UI 或游戏进程，也不关闭未登记的其他 Python。
-- 前端确认后调用命令，成功或失败后当前 DNA Helper 窗口都保持打开。任何部分失败都返回错误，已成功的终止不回滚，全程不删除配置或日志。
+```json
+{
+  "schema_version": 1,
+  "generation": "settings-1234-...",
+  "created_at_unix_ms": 1787500000000,
+  "source": "settings"
+}
+```
 
-设置页的危险操作按钮使用 `ConfirmDialog`；确认文案必须明确说明会停止已登记的 Agent、任务和 Telegram 监听，但不会关闭游戏或 Helper 窗口。
+- MXU 和 Python 都先校验可执行目录、`config/agent-processes`、目标文件及全部现有祖先，拒绝符号链接、重解析点、非普通文件和越界路径；信号小于 4096 字节且拒绝多余 schema 字段。
+- 两端都先在同目录写入并刷盘临时文件。Python 使用 `os.replace`；Windows MXU 使用 `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` 原子发布新代次。
+- 每个 Telegram 监听在启动前读取当前 `generation` 作为基线；所有权守护线程每 2 秒读取一次，只有观察到非空且不同的新代次才调用 `telegram_bot.stop(reset_progress=False)`。因此旧命令不会关闭之后重新启动的监听。
+- 该命令不枚举或终止任何进程，不调用 `AgentServer.shut_down()`、Maa `post_stop()` 或进度重置。当前 Agent、自动化任务、游戏、UI 和进度全部保持运行；仅 Telegram 接收、发送、定时状态与所有权线程停止。
+- 设置按钮使用 `ConfirmDialog`，文案必须明确“关闭通讯但任务继续”。旧版 Agent 没有代次监听能力；首次升级必须完整退出一次旧运行环境，不能为兼容旧版而恢复进程终止。
 
 ## 局内 / 局外状态边界
 
@@ -150,7 +160,7 @@ Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有
 | 普通驱离＋技能关闭 | 无 | 再次进行、开始挑战 |
 | 皎皎币挂机 | 血条、目标小地图、继续挑战、确认选择 | 再次进行、扼守/无尽委托卡片、委托页开始挑战、Space 开始挑战；错误地图时使用放弃挑战和确定 |
 
-皎皎币挂机的初始入口是特例：为防止从错误页面接管，它只识别委托页右下角的“开始挑战”。点击委托页和弹窗的两个开始按钮后，连续 3 帧血条确认局内并记录当前副本第 1 局，再在 1500ms 窗口内检查 `CoinAFK/target_minimap.png`。命中后先在同一 Agent 角色操作集中等待 2000ms，让战斗输入层稳定，再执行 `E → 300ms → E → 300ms → S 600ms → Q → 3500ms → S 5000ms`，然后进入普通扼守式局内循环；未命中则执行 `Esc → 放弃挑战 → 确定 → 再次进行`。正常重开时，再次进行后优先识别弹窗 Space 开始挑战并直接进入 HUD 等待；同一个重开监控仍保留“扼守/无尽”委托卡片和委托页开始挑战，作为游戏异常返回委托列表或详情页时的恢复分支。错误地图主动放弃不经过 `CoinAFKRoundQuota`，因此不会污染局外完成数。结算页“再次进行”出现时无论实际局内进度是否达到 99 都进入轮次记录：不足 99 时保留真实进度、计入一次完成并继续剩余副本，同时只发送一次异常通知。
+皎皎币挂机的初始入口是特例：为防止从错误页面接管，它只识别委托页右下角的“开始挑战”。点击委托页和弹窗的两个开始按钮后，连续 3 帧血条确认局内并记录当前副本第 1 局，再在 1500ms 窗口内检查 `CoinAFK/target_minimap.png`。命中后先在同一 Agent 角色操作集中等待 3000ms，让战斗输入层稳定，再执行 `E → 300ms → E → 300ms → S 600ms → Q → 3500ms → S 5000ms → D 100ms`，然后进入普通扼守式局内循环；未命中则执行 `Esc → 放弃挑战 → 确定 → 再次进行`。正常重开时，再次进行后优先识别弹窗 Space 开始挑战并进入 HUD 等待；`CoinAFKWaitSpaceStart` 本身也把三帧血条确认放在首位，因此弹窗被手动处理、自动跳过或状态误退时仍能恢复局内。Space 点击后的 `CoinAFKWaitCombatHud` 不直接接受委托页按钮：只有 `CoinAFKLobbyRecoveryCandidate` 命中后等待 1500ms，且 `CoinAFKLobbyRecoveryConfirm` 再次命中，才进入委托页点击链，防止加载开始时仍保留的旧帧以 `1.0` 匹配分数把状态机错误带回局外。同一个重开监控仍保留“扼守/无尽”委托卡片和委托页开始挑战，作为游戏确实返回委托列表或详情页时的恢复分支。错误地图主动放弃不经过 `CoinAFKRoundQuota`，因此不会污染局外完成数。结算页“再次进行”出现时无论实际局内进度是否达到 99 都进入轮次记录：不足 99 时保留真实进度、计入一次完成并继续剩余副本，同时只发送一次异常通知。
 
 皎皎币挂机的全部三连鼠标操作都不使用 Agent 鼠标输入，包括委托页开始、Space 开始、委托卡片恢复、再次进行、局内继续/确认和错误地图放弃/确定。它们统一与普通扼守保持相同的快速结构：三次均直接执行 Maa `Click`，前两个节点各等待 50ms，第三击后立即进入无输入的 `focus_guard_finalize` 恢复焦点；需要进度事件的链也只在收尾节点记录一次。这样既保留相同的原生快速连点，也不会把三次物理点击重复计算为三轮或误触发角色攻击。
 
@@ -319,22 +329,24 @@ Frame3: combat_health_bar.png
 
 | 参数 | 密函驱离 | 普通扼守 | 普通驱离 |
 |---|---:|---:|---:|
-| 技能触发延迟 | 2000ms | 2000ms | 2000ms |
+| 技能触发延迟 | 3000ms | 3000ms | 3000ms |
 | E 开关 | 开 | 开 | 开 |
 | E 次数 | 2 | 2 | 2 |
 | E 间隔 | 1000ms | 1250ms | 1000ms |
 | Q 开关 | 开 | 开 | 开 |
 | Q 在 E 前释放 | 默认关 | 默认关 | 默认关 |
-| Q 后触发间隔 | 2000ms | 2000ms | 2000ms |
+| Q 后触发间隔 | 3000ms | 3000ms | 3000ms |
 | 仅高台 E | 默认关 | 不提供 | 默认关 |
 
 顶层“是否开启技能”默认关闭；表中的 E/Q 默认值只在用户开启技能后生效。
 
 三帧血条识别只负责确认战斗 HUD 已就绪；Q 图标不再参与触发或复核。一旦进入技能链，E/Q 是否执行只由选项开关决定。
 
+普通驱离的高台开关还必须同步覆盖 `NormalOutsideCombatHudReady` 与 `NormalRestartCombatHudReady`：开启时两者直接跳到 `NormalExpelCombatEntry`，再进入 `LiseHighPlatformWindowStart`；关闭时两者跳到启用的 `LiseCombatLoadDelay`。禁止把 HUD Ready 节点指向已被当前选项禁用的延迟节点，否则 MaaFramework 会沿 `on_error` 返回 `NormalEndlessWaitStartChallenge` 并形成血条确认循环。密函驱离的 `LiseCombatHudReady.next` 同时保留 `LiseCombatLoadDelay` 与 `CipherExpelCombatEntry`，因此禁用前者后仍有合法入口。
+
 每个 Q 节点都会通过焦点保护动作连续发送 3 次 Q，发送间隔固定为 100ms；前置和后置 Q 使用同一机制。
 
-E 连续点击的每次底层按键成功后都会记录 `第 N / 总次数`，序列级日志仍负责标记整组 E 的开始和结束。
+E 连续点击的每次底层按键成功后都会记录 `第 N / 总次数`；E 节点不再额外记录整组开始和结束，避免一次按键序列出现三套重复描述。Q 只在三次发送全部成功后记录一条 `3 / 3` 结果。
 
 技能顺序默认是 `E → E 间隔 → Q`。只有 E、Q 都开启时才显示“Q 在 E 前释放”；开启后才继续显示“Q 后触发间隔”，执行顺序变为 `Q → Q 后触发间隔 → E 连点`。E 连点间隔与 Q 后等待分别配置，最后一个 E 后不再增加无用途的等待。
 
@@ -366,11 +378,13 @@ E 连续点击的每次底层按键成功后都会记录 `第 N / 总次数`，�
 4. 前台监控线程持续记录最近的非游戏窗口和鼠标虚拟屏幕坐标；收尾时调用 `ClipCursor(None)`，再尝试恢复该窗口。
 5. 仅当窗口恢复成功时调用 `SetCursorPos` 恢复鼠标位置；坐标允许为负数，以支持主屏左侧或上方的显示器。
 
-E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKeyProxy`。皎皎币挂机的正式角色操作使用同一动作的 `key_sequence` 分支：长按 S 通过 Maa 控制器的 `post_key_down(83)` / `post_key_up(83)` 实现，E/Q 复用既有按键代理，序列中的等待由 Agent 精确执行。整套序列只记录一次原窗口和鼠标位置，任何长按步骤即使异常也会尽力释放 S，所有步骤结束后只恢复一次焦点。
+`focus_guard_start` 会对每个新 Maa 游戏任务重新判定初始前台窗口：若初始前台就是控制器绑定的游戏窗口，则清空跨任务保留的非游戏窗口和鼠标快照，避免快捷键从游戏前台启动时错误切回旧窗口。Agent 键盘动作在发送输入前再次检查当前前台；当前仍是游戏时返回空恢复目标，动作结束只释放 `ClipCursor`，不调用窗口切换。原生鼠标点击链的 `focus_guard_finalize` 仍允许使用点击前由 watcher 保存的非游戏快照，因为它执行时游戏前台通常是自动点击造成的，不能按同一规则清除。
 
-只有密函驱离和普通驱离在技能开启后会显示默认关闭的“首次前台触发，后续后台发送”；普通扼守固定使用默认前台技能输入。启用此项时，任务选项把四个 E/Q 节点的自定义动作切换为 `hybrid_skill_action`。`focus_guard_start` 为每个新 Maa 游戏任务清除混合输入就绪标记；第一次 E/Q 使用 `_ForegroundPrimingSkillAction`，先以 `_restore_window(game_hwnd)` 把游戏置于前台并等待 100ms，再通过 `FocusGuardEKeyProxy` / `FocusGuardQKeyProxy` 发送真实按键，最后完整调用 `_restore_window_and_cursor()` 恢复用户窗口与鼠标。成功后记录当前游戏窗口已经完成初始化。
+E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKeyProxy`。皎皎币挂机的正式角色操作使用同一动作的 `key_sequence` 分支：长按 S/D 通过 Maa 控制器的 `post_key_down` / `post_key_up` 实现，E/Q 复用既有按键代理，序列中的等待由 Agent 精确执行。整套序列只记录一次原窗口和鼠标位置，任何长按步骤即使异常也会尽力释放当前按键，所有步骤结束后只恢复一次焦点。
 
-同一任务后续 E/Q 使用 `_BackgroundSkillAction`，通过 `PostMessageW` 投递 `WM_KEYDOWN` / `WM_KEYUP`，不切换焦点；Q 的三次发送间隔仍为 100ms。若任一后台投递明确失败，`HybridSkillAction` 清除就绪标记，并让本次动作回退到上述前台真实输入与焦点恢复流程，成功后重新标记。页面鼠标点击全部由 Maa 原生节点完成并由 `focus_guard_finalize` 无输入收尾；未启用后台选项的技能仍使用 `focus_guard_action`。后台投递成功只证明消息进入窗口队列，不能证明 Unreal 一定消费。
+只有密函驱离和普通驱离在技能开启后会显示默认关闭的“首次副本前台，后续副本后台”；普通扼守固定使用默认前台技能输入。启用此项时，任务选项把四个 E/Q 节点的自定义动作切换为 `hybrid_skill_action`，并把整套技能公共出口 `LiseSkillCastEnd` 切换为 `hybrid_skill_dungeon_complete`。`focus_guard_start` 为每个新 Maa 游戏任务清除混合输入就绪标记；就绪标记为空期间，首个副本的每一次 E/Q 都使用 `_ForegroundPrimingSkillAction`，先以 `_restore_window(game_hwnd)` 把游戏置于前台并等待 100ms，再通过 `FocusGuardEKeyProxy` / `FocusGuardQKeyProxy` 发送真实按键，最后完整调用 `_restore_window_and_cursor()` 恢复用户窗口与鼠标。首个 E/Q 成功不能设置就绪标记；只有整套技能到达公共出口后才标记当前游戏窗口允许后台输入。
+
+下一副本及同一任务后续副本的 E/Q 使用 `_BackgroundSkillAction`，通过 `PostMessageW` 投递 `WM_KEYDOWN` / `WM_KEYUP`，不切换焦点；Q 的三次发送间隔仍为 100ms。若任一后台投递明确失败，`HybridSkillAction` 清除就绪标记，并让本次动作回退到上述前台真实输入与焦点恢复流程，成功后重新标记。页面鼠标点击全部由 Maa 原生节点完成并由 `focus_guard_finalize` 无输入收尾；未启用后台选项的技能仍使用 `focus_guard_action`。后台投递成功只证明消息进入窗口队列，不能证明 Unreal 一定消费。
 
 这些代理节点虽然不一定从任务入口的静态 `next` 图可达，却是 Agent 的真实动态入口，不能作为死节点删除。普通重开链的 `NormalEndlessRestartByClick` 同样由 `round_logger.py` 动态选择。
 
@@ -396,9 +410,11 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
 
 `focus_guard_start` 从任务和轮次选项接收 `progress_mode`、`progress_total`、`progress_stage_total`。密函无尽循环会重复进入任务入口，因此使用 Maa `task_id` 去重初始化和启动通知。密函无尽和普通无尽没有自然成功事件：`advance_cipher_cycle()` / `increment_stage()` 仅在对应局内计数由 98 增至 99 时返回 `True`，`focus_guard_action` 据此调用 `notify_infinite_99_completed()`；计数继续到 100 及以后时不再触发，且不停止游戏任务或 Telegram。
 
-`telegram_bot.py` 仅在 `ProgressMonitorStart` 被执行且存在有效 `config/telegram.json` 或对应环境变量时启动。打开或重启 UI 本身不会启动监听。接收轮询、消息发送和定时调度使用三个独立守护线程；定时线程第一次等待 1800 秒后把 `progress_state.format_status()` 的结果放入现有发送队列，之后每 1800 秒重复。另一个所有权守护线程是 owner 文件的唯一刷新者，每 2 秒刷新一次；连续三次刷新失败才设置共享停止事件。三个工作线程不再各自读写 owner 文件，因此一次瞬时替换或读取竞争不会造成线程静默永久退出。定时线程不直接调用网络接口也不修改进度。网络失败采用退避重试，不得阻塞 Pipeline 输入。只响应 `allowed_chat_id`，Token 与状态文件都位于已被 Git 忽略的 `config/`。
+`telegram_bot.py` 仅在 `ProgressMonitorStart` 被执行且存在有效 `config/telegram.json` 或对应环境变量时启动。打开或重启 UI 本身不会启动监听。接收轮询、消息发送和定时调度使用三个独立守护线程；定时线程第一次等待 1800 秒后把 `progress_state.format_status()` 的结果放入现有发送队列，之后每 1800 秒重复。另一个所有权守护线程是 owner 文件的唯一刷新者，每 2 秒刷新 owner 并检查全局通讯停止代次；连续三次 owner 刷新失败才设置共享停止事件。三个工作线程不再各自读写 owner 或停止信号，因此一次瞬时替换或读取竞争不会造成线程静默永久退出。定时线程不直接调用网络接口也不修改进度。网络失败采用退避重试，不得阻塞 Pipeline 输入。只响应 `allowed_chat_id`，Token 与状态文件都位于已被 Git 忽略的 `config/`。
 
-`ProgressMonitorLifecycle` 通过 MaaFramework 的 `TaskerEventSink` 接收 UI 任务生命周期。独立运行时，`ProgressMonitorEntry` 收到 `Tasker.Task.Failed` 表示用户从 UI 停止任务，此时关闭监控；队列引导正常完成产生的 `Succeeded` 必须忽略，否则后续游戏任务无法使用监听。`RewardConfirmEntry` 或 `NormalEndlessEntry` 收到 `Tasker.Task.Succeeded` 时，从 `progress_state` 读取当前模式，生成包含正式任务名和模式的“任务已完成”消息，再把它作为 `telegram_bot.stop(final_message=...)` 的最终消息；`Tasker.Task.Failed`（包括 UI 停止）只调用无最终消息的停止，不得误报完成。只有停止调用确实从运行态切到停止态时才打印“监听已停止”，因此未选择监控时结束游戏任务不会产生消息或误导日志。当前运行实例的停止事件立即唤醒可中断等待并清空未发送队列；最终完成消息使用配置快照和独立的一次性守护线程发送，不依赖已停止的主发送队列，也不阻塞 Maa 生命周期回调。已经进入系统网络调用的请求允许在自身超时内返回，但停止后不再处理其结果。每次重新开始时创建新的停止事件和线程，避免快速停止后重启复用旧线程。UI/MXU 父进程退出是独立兜底信号，不依赖 Maa 是否仍能投递任务事件，因此桌面进程突然消失时也会停止 Telegram 定时状态线程和 AgentServer。
+授权账号发送 `disconnect`、`/disconnect` 或带 Bot 用户名后缀的 `/disconnect@name` 时，轮询线程先同步发送一条关闭确认，再以当前 `update_id + 1` 发出零超时 `getUpdates`，明确消费终止命令，避免 Agent 重启后 Telegram 重放同一条命令；随后发布新的全局停止代次并调用 `telegram_bot.stop(reset_progress=False)`。本实例成功从运行态切换到停止态后必须打印 `[进度监控] disconnect 已执行，本机全部监控通讯已关闭；当前任务继续运行`；其他实例收到新代次时打印全局通讯已停止日志。本实例立即关闭接收、发送、定时状态和所有权线程并释放 owner 文件，其他当前版本实例最多约 2 秒后处理同一代次；全部实例都不重置 `progress_state`，因此正在运行的副本轮次、钓鱼目标和技能状态机不受影响。这里严禁从 Telegram 线程直接调用 `AgentServer.shut_down()`，也严禁保存自定义动作中的临时 `Context.tasker` 后跨线程调用 `post_stop()`：前者会让 `AgentServer.join()` 抛出 `0xe06d7363` 并使后续节点出现 `server is not alive`，后者在反向调用会话结束后抛出 `OSError`。确认、消费或广播失败使用 `finally` 保证至少关闭当前实例；未授权 Chat ID 在命令分支之前即被拒绝。
+
+`ProgressMonitorLifecycle` 通过 MaaFramework 的 `TaskerEventSink` 接收 UI 任务生命周期。独立运行时，`ProgressMonitorEntry` 收到 `Tasker.Task.Failed` 表示用户从 UI 停止任务，此时关闭监控；队列引导正常完成产生的 `Succeeded` 必须忽略，否则后续游戏任务无法使用监听。`RewardConfirmEntry`、`NormalEndlessEntry`、`CoinAFKEntry` 和 `FishingEntry` 都属于受监控游戏任务；收到 `Tasker.Task.Succeeded` 时，从 `progress_state` 读取当前模式，生成包含正式任务名和模式的“任务已完成”消息，再把它作为 `telegram_bot.stop(final_message=...)` 的最终消息；`Tasker.Task.Failed`（包括 UI 停止）只调用无最终消息的停止，不得误报完成。只有停止调用确实从运行态切到停止态时才打印“监听已停止”，因此未选择监控时结束游戏任务不会产生消息或误导日志。当前运行实例的停止事件立即唤醒可中断等待并清空未发送队列；最终完成消息使用配置快照和独立的一次性守护线程发送，不依赖已停止的主发送队列，也不阻塞 Maa 生命周期回调。已经进入系统网络调用的请求允许在自身超时内返回，但停止后不再处理其结果。每次重新开始时创建新的停止事件和线程，避免快速停止后重启复用旧线程。UI/MXU 父进程退出是独立兜底信号，不依赖 Maa 是否仍能投递任务事件，因此桌面进程突然消失时也会停止 Telegram 定时状态线程和 AgentServer。
 
 ## 坐标与识别约束
 
@@ -421,6 +437,10 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
     "max_hit": 10000000
 }
 ```
+
+“挂机钓鱼”也是 `DailyAFK` 下的正式任务，但不进入副本状态机。`FishingEntry → FishingMonitor` 长期以 50ms 显式节流，按优先级轮询关闭文字、鱼形 E 图标和鱼竿 Space 图标。三者都由 `agent/fishing.py` 注册的 `fishing_prompt` 自定义识别器处理完整画面：鱼竿与鱼形模板和截图先在 HSV 空间提取低饱和高亮白色像素，再以 `TM_CCOEFF_NORMED` 匹配白色轮廓；关闭文字使用 Canny 灰度边缘匹配稳定字形，不匹配浅色半透明底板。每个 Maa `task_id` 按 `space`、`e`、`escape` 分别持有独立的单调时钟到期时间；一次提示被接受后只锁定自身 3000ms，其他两种提示仍可立即触发。锁到期后即使画面从未消失，同一提示也能再次上报，不再使用连续未命中帧重新武装。
+
+钓鱼默认通过 `focus_guard_action` 分别调用三个专用代理，发送一次 Space、E 或 Esc。`FishingClosePromptDetected` 是明确的业务时序例外：识别成功后以 `pre_delay: 500` 等待界面稳定，再发送 Esc；另外两个按键仍为 0ms。实验开关同时覆写三个动作到 `hybrid_fishing_action`：同一任务第一个实际按键使用 `_ForegroundPrimingSkillAction` 并恢复焦点，成功后记录独立于驱离技能的钓鱼后台就绪窗口；后续三个按键共享 `_BackgroundSkillAction` 状态。只有 Esc 动作保留 `progress_event: fishing_caught`，动作成功后才调用 `progress_state.record_fishing_catch()` 加 1；Space 与 E 不携带该事件。输入成功并完成进度更新后，`_log_fishing_action()` 对 Space/E 只输出按键与前台/后台方式；Esc 汇总日志额外包含最新 `当前数量 / 目标数量`。识别准备行、静态动作成功行和独立后台代理日志均被移除，完成目标时由同一进度快照输出最终数量和完成行，日志本身失败不得影响游戏输入结果。`FishingCount` 把用户输入的 `1–9999` 目标写入 `progress_total`；计数达到目标时共享状态先切为 `completed`，随后 Esc 节点的候选链优先命中终止节点 `FishingTargetReached`，不再返回长期监控。这样最后一次 Esc 成功、状态持久化和 Maa 任务成功事件保持严格顺序，进度监控能够沿用统一生命周期发送完成通知。独立时间锁会把每一种提示的动作限制为最多每 3000ms 一次，同时允许三个提示互不阻塞；如果后台 Esc 未被游戏消费，持续存在的关闭提示会在锁到期后再次触发。Telegram 沿用统一监听、即时 `/status` 与每 30 分钟自动状态周期，并把该计数显示为“钓鱼数量 / 目标”。`focus_guard_start` 在新 Maa 任务开始时同时清除技能与钓鱼两套混合输入状态，二者不能相互污染。
 
 这会把空闲轮询节流明确限定为 50ms，不再叠加框架默认前置等待，并能覆盖很长的日常运行，但不是真正无限。按纯 50ms 下限计算约 5.8 天后会耗尽，实际还包含识别耗时。需要真正无限监听时，应先确认 MaaFramework 的停止语义并统一替换，不能只在个别节点删除 `max_hit`。
 
@@ -453,7 +473,7 @@ E/Q 也由 `focus_guard_action` 分别调用 `FocusGuardEKeyProxy` 和 `FocusGua
 - `pipeline_override` 只覆盖现有节点。
 - 从任务入口与动态目标出发不存在不可达节点。
 - TemplateMatch 引用的模板文件存在。
-- Agent marker 的 schema、原子替换、AgentServer 前登记/退出清理生命周期，以及定制 MXU 补丁中的监控终止命令、身份校验 API、2000ms 等待上限、禁止终止 UI 的约束、中文危险按钮与五种 locale 键。
+- Agent marker 与全局通讯停止信号的 schema、原子替换、AgentServer 前登记/退出清理生命周期，以及定制 MXU 补丁中的无进程终止广播命令、禁止影响任务与 UI 的约束、中文按钮与五种 locale 键。
 
 校验器采用所有可选覆盖边的并集做保守可达性分析：节点只要在任一合法模式、子选项或 Agent 动态路径中可能使用，就应保留。
 
@@ -477,7 +497,7 @@ dist/DNAHelper/
   maafw/
   resource/
   agent/
-  config/agent-processes/       # 运行中 Agent marker（正常退出时删除）
+  config/agent-processes/       # Agent marker、Telegram owner 与全局通讯停止代次
 ```
 
 桌面壳基于固定的 MXU v2.1.3 提交，通过 `tools/mxu-v2.1.3-log-retention.patch` 维护项目定制。补丁以零上下文格式生成，构建脚本只有在 HEAD 精确匹配固定基线提交后才使用 `git apply --unidiff-zero` 正向应用或反向核验，避免补丁文件中的空白上下文损坏，同时不扩大到其他 MXU 版本。`tools/build_custom_mxu.ps1` 负责验证基线、应用补丁并生成 release 可执行文件；`build_ui.py` 不允许静默回退到没有这些定制命令的官方 MXU。

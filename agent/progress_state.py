@@ -144,6 +144,21 @@ def mark_dungeon_entered() -> bool:
         return True
 
 
+def record_fishing_catch() -> bool:
+    """Count one successful fishing key and complete at the configured target."""
+    with _lock:
+        if _state["mode"] != "挂机钓鱼" or _state["status"] != "running":
+            return False
+        target = int(_state["total_rounds"])
+        next_count = int(_state["stage_count"]) + 1
+        _state["stage_count"] = min(next_count, target) if target else next_count
+        if target and int(_state["stage_count"]) >= target:
+            _state["status"] = "completed"
+        _state["updated_at"] = time.time()
+        _persist_locked()
+        return True
+
+
 def complete_round(
     current: int, total: int, mode: str | None = None
 ) -> RoundCompletion:
@@ -237,7 +252,11 @@ def format_status(now: float | None = None) -> str:
     stage_total = int(state["stage_total"])
     stage_count = int(state["stage_count"])
     lines = [f"{mode}：{labels.get(status, status)}"]
-    if mode in {"普通无尽", "密函无尽"}:
+    if mode == "挂机钓鱼":
+        lines.append(
+            f"钓鱼数量：{stage_count} / {total}" if total else f"钓鱼数量：{stage_count}"
+        )
+    elif mode in {"普通无尽", "密函无尽"}:
         lines.append(f"局内轮次：{stage_count}")
     else:
         lines.append(f"局外副本轮次（已完成）：{completed} / {total}")
