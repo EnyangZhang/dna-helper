@@ -3,7 +3,7 @@
         {
             "name": "Fishing",
             "label": "挂机钓鱼",
-            "description": "用于大世界钓鱼地点。识别鱼竿图标发送 Space、鱼形图标发送 E、关闭提示发送 Esc；每次成功发送 Esc 计为钓到 1 条鱼，达到设定数量后自动结束。",
+            "description": "用于大世界钓鱼地点。识别鱼竿图标发送 Space、鱼形图标发送 E、关闭提示发送 Esc；达到设定数量，或识别到“水中暂时无鱼”时自动结束，后者会通知 Telegram 鱼池已空。",
             "entry": "FishingEntry",
             "option": ["FishingCount", "FishingBackgroundInput"],
             "group": ["DailyAFK"],
@@ -19,7 +19,7 @@
                 {
                     "name": "count",
                     "label": "数量",
-                    "default": "10",
+                    "default": "120",
                     "pipeline_type": "int",
                     "verify": "^[1-9]\\d{0,3}$"
                 }

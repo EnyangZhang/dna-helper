@@ -193,7 +193,10 @@ def notify_early_completion(
 def format_task_completed_message() -> str:
     """Build the natural-completion notification from the shared task state."""
 
-    mode = str(progress_state.snapshot().get("mode", "任务"))
+    state = progress_state.snapshot()
+    if state.get("completion_reason") == "fishing_pool_empty":
+        return "鱼池已空。"
+    mode = str(state.get("mode", "任务"))
     task_name, mode_name = _TASK_LABELS.get(mode, (mode, mode))
     return f"DNA Helper 任务已完成\n任务：{task_name}\n模式：{mode_name}"
 
@@ -407,21 +410,35 @@ def _poll_loop(config: dict[str, Any], stop_event: threading.Event, _owner_id: s
     allowed_chat_id = config["allowed_chat_id"]
     poll_timeout = config["poll_timeout_seconds"]
     offset: int | None = None
+    startup_baseline_ready = False
     failure_delay = 1
 
     while not stop_event.is_set():
+        timeout = poll_timeout if startup_baseline_ready else 0
         params: dict[str, Any] = {
-            "timeout": poll_timeout,
+            "timeout": timeout,
             "allowed_updates": json.dumps(["message"]),
         }
         if offset is not None:
             params["offset"] = offset
         try:
-            response = _api_call(token, "getUpdates", params, poll_timeout + 5)
+            response = _api_call(token, "getUpdates", params, timeout + 5)
             if stop_event.is_set():
                 break
             failure_delay = 1
-            for update in response.get("result", []):
+            updates = response.get("result", [])
+            if not startup_baseline_ready:
+                update_ids = [
+                    update.get("update_id")
+                    for update in updates
+                    if isinstance(update, dict)
+                    and isinstance(update.get("update_id"), int)
+                ]
+                if update_ids:
+                    offset = max(update_ids) + 1
+                startup_baseline_ready = True
+                continue
+            for update in updates:
                 if stop_event.is_set():
                     break
                 if not isinstance(update, dict):

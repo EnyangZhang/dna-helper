@@ -34,6 +34,17 @@ class ProgressStateTest(unittest.TestCase):
         self.assertFalse(progress_state.record_fishing_catch())
         self.assertIn("钓鱼数量：2 / 2", progress_state.format_status())
 
+    def test_fishing_pool_empty_records_terminal_reason_without_incrementing(self) -> None:
+        progress_state.start_task("挂机钓鱼", 120, 0, task_id=702)
+
+        self.assertTrue(progress_state.mark_fishing_pool_empty())
+        state = progress_state.snapshot()
+
+        self.assertEqual(state["status"], "completed")
+        self.assertEqual(state["completion_reason"], "fishing_pool_empty")
+        self.assertEqual(state["stage_count"], 0)
+        self.assertFalse(progress_state.mark_fishing_pool_empty())
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.original_path = progress_state._STATUS_PATH
@@ -186,6 +197,7 @@ class ProgressStateTest(unittest.TestCase):
         self.assertEqual(state["total_rounds"], 0)
         self.assertEqual(state["stage_count"], 0)
         self.assertFalse(state["stage_tracking_active"])
+        self.assertIsNone(state["completion_reason"])
         self.assertIsNone(state["started_at"])
 
 

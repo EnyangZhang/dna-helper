@@ -207,6 +207,17 @@ class TelegramBotTest(unittest.TestCase):
         )
         snapshot.assert_called_once_with()
 
+    @patch(
+        "telegram_bot.progress_state.snapshot",
+        return_value={
+            "mode": "挂机钓鱼",
+            "completion_reason": "fishing_pool_empty",
+        },
+    )
+    def test_fishing_pool_empty_uses_specific_completion_message(self, snapshot) -> None:
+        self.assertEqual(telegram_bot.format_task_completed_message(), "鱼池已空。")
+        snapshot.assert_called_once_with()
+
     @patch.object(telegram_bot._outbound, "put")
     def test_standalone_monitor_start_notification_is_queued(self, put) -> None:
         telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
@@ -288,6 +299,51 @@ class TelegramBotTest(unittest.TestCase):
             )
         api_call.assert_called_once()
         self.assertNotIn("botSECRET", output.getvalue())
+
+    def test_poll_discards_pending_updates_before_processing_new_messages(self) -> None:
+        class StopAfterSecondCall:
+            stopped = False
+
+            def is_set(self) -> bool:
+                return self.stopped
+
+            def wait(self, _seconds: int) -> bool:
+                self.stopped = True
+                return True
+
+        stop_event = StopAfterSecondCall()
+        responses = [
+            {
+                "result": [
+                    {
+                        "update_id": 900,
+                        "message": {"chat": {"id": 123}, "text": "disconnect"},
+                    }
+                ]
+            },
+            {"result": []},
+        ]
+
+        def api_call(_token, _method, params, _timeout):
+            response = responses.pop(0)
+            if not responses:
+                stop_event.stopped = True
+            return response
+
+        with (
+            patch.object(telegram_bot, "_api_call", side_effect=api_call) as call,
+            patch.object(telegram_bot, "_handle_update") as handle_update,
+        ):
+            telegram_bot._poll_loop(
+                {"bot_token": "token", "allowed_chat_id": 123, "poll_timeout_seconds": 5},
+                stop_event,
+                "owner-a",
+            )
+
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(call.call_args_list[0].args[2]["timeout"], 0)
+        self.assertEqual(call.call_args_list[1].args[2]["offset"], 901)
+        handle_update.assert_not_called()
 
     def test_owner_record_rejects_non_normal_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

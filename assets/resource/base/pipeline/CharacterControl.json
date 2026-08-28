@@ -235,6 +235,7 @@
                     "kind": "key",
                     "key": 69,
                     "repeat": 1,
+                    "skill_input_group": true,
                     "sequence_total": 2
                 }
             }
@@ -262,6 +263,7 @@
                     "kind": "key",
                     "key": 69,
                     "repeat": 1,
+                    "skill_input_group": true,
                     "sequence_total": 2
                 }
             }
@@ -288,7 +290,8 @@
                     "kind": "key",
                     "key": 81,
                     "repeat": 3,
-                    "interval_ms": 100
+                    "interval_ms": 100,
+                    "skill_input_group": true
                 }
             }
         },
@@ -320,7 +323,8 @@
                     "kind": "key",
                     "key": 81,
                     "repeat": 3,
-                    "interval_ms": 100
+                    "interval_ms": 100,
+                    "skill_input_group": true
                 }
             }
         },
@@ -362,7 +366,10 @@
             "type": "DirectHit"
         },
         "action": {
-            "type": "DoNothing"
+            "type": "Custom",
+            "param": {
+                "custom_action": "skill_input_group_complete"
+            }
         },
         "focus": {
             "Node.Action.Starting": {

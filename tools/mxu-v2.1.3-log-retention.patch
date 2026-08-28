@@ -398,21 +398,63 @@ index e137aec..c5fa0f2 100644
 +pub mod process_control;
 diff --git a/src-tauri/src/commands/process_control.rs b/src-tauri/src/commands/process_control.rs
 new file mode 100644
-index 0000000..3937a36
+index 0000000..bd6e758
 --- /dev/null
 +++ b/src-tauri/src/commands/process_control.rs
-@@ -0,0 +1,333 @@
-+//! Broadcast a safe cross-process request to stop DNA Helper monitoring only.
+@@ -0,0 +1,896 @@
++//! Stop monitor communications and clean up verified orphan Agents locally.
 +
 +use serde::{Deserialize, Serialize};
 +
 +const MONITOR_DISCONNECT_SCHEMA_VERSION: u32 = 1;
 +const MAX_MONITOR_DISCONNECT_BYTES: usize = 4096;
 +
-+#[derive(Clone, Debug, Serialize)]
++#[derive(Clone, Debug, Default, Serialize)]
 +#[serde(rename_all = "camelCase")]
 +pub struct MonitorDisconnectSummary {
-+    pub generation: String,
++    pub generation: Option<String>,
++    pub signal_error: Option<String>,
++    pub scan_error: Option<String>,
++    pub scanned_processes: usize,
++    pub orphan_agents_terminated: usize,
++    pub live_agents_preserved: usize,
++    pub stale_records: usize,
++    pub unverified_entries: usize,
++    pub failed_pids: Vec<u32>,
++}
++
++#[derive(Clone, Debug, Deserialize, Serialize)]
++#[serde(deny_unknown_fields)]
++struct AgentMarker {
++    schema_version: u32,
++    pid: u32,
++    creation_time_100ns: u64,
++    executable_path: String,
++}
++
++fn parse_agent_marker(bytes: &[u8], filename: &str) -> Result<AgentMarker, String> {
++    if bytes.is_empty() || bytes.len() >= 4096 {
++        return Err("Agent 登记文件大小无效".into());
++    }
++    let marker: AgentMarker =
++        serde_json::from_slice(bytes).map_err(|_| "Agent 登记文件内容无效".to_string())?;
++    if marker.schema_version != 1
++        || marker.pid == 0
++        || marker.creation_time_100ns == 0
++        || filename != format!("{}.json", marker.pid)
++        || !std::path::Path::new(&marker.executable_path).is_absolute()
++    {
++        return Err("Agent 登记文件身份无效".into());
++    }
++    let executable_name = std::path::Path::new(&marker.executable_path)
++        .file_name()
++        .and_then(|v| v.to_str())
++        .unwrap_or("")
++        .to_ascii_lowercase();
++    if !matches!(executable_name.as_str(), "python.exe" | "pythonw.exe") {
++        return Err("登记的进程不是 Python Agent".into());
++    }
++    Ok(marker)
 +}
 +
 +#[derive(Clone, Debug, Deserialize, Serialize)]
@@ -447,13 +489,16 @@ index 0000000..3937a36
 +    Ok(signal)
 +}
 +
-+/// Stop Telegram receiving, sending, scheduled status and ownership threads in
-+/// every current DNA Helper Agent without terminating Agents or running tasks.
++/// Local-only cleanup. Telegram disconnect remains signal-only.
 +#[tauri::command]
-+pub fn disconnect_all_dna_helper_monitors() -> Result<MonitorDisconnectSummary, String> {
++pub async fn disconnect_all_dna_helper_monitors() -> Result<MonitorDisconnectSummary, String> {
 +    #[cfg(windows)]
 +    {
-+        return windows_impl::disconnect_all_dna_helper_monitors_windows();
++        return tauri::async_runtime::spawn_blocking(
++            windows_impl::disconnect_all_dna_helper_monitors_windows,
++        )
++        .await
++        .map_err(|error| format!("清理监控任务失败: {error}"))?;
 +    }
 +
 +    #[cfg(not(windows))]
@@ -465,6 +510,8 @@ index 0000000..3937a36
 +#[cfg(windows)]
 +mod windows_impl {
 +    use super::*;
++    use std::collections::HashMap;
++    use std::ffi::c_void;
 +    use std::fs::OpenOptions;
 +    use std::io::Write;
 +    use std::os::windows::ffi::OsStrExt;
@@ -477,14 +524,297 @@ index 0000000..3937a36
 +    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
 +    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
 +    static SIGNAL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
++    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
++    const PROCESS_TERMINATE: u32 = 0x0001;
++    const SYNCHRONIZE: u32 = 0x00100000;
++    const WAIT_OBJECT_0: u32 = 0;
++    const WAIT_TIMEOUT: u32 = 258;
++    const ERROR_INVALID_PARAMETER: i32 = 87;
++    const ERROR_NO_MORE_FILES: i32 = 18;
++    type Handle = *mut c_void;
++
++    #[repr(C)]
++    #[derive(Default)]
++    struct FileTime {
++        low: u32,
++        high: u32,
++    }
++
++    #[repr(C)]
++    struct ProcessEntry {
++        size: u32,
++        usage: u32,
++        pid: u32,
++        heap: usize,
++        module: u32,
++        threads: u32,
++        parent_pid: u32,
++        priority: i32,
++        flags: u32,
++        exe: [u16; 260],
++    }
++
++    struct OwnedHandle(Handle);
++    impl Drop for OwnedHandle {
++        fn drop(&mut self) {
++            unsafe {
++                CloseHandle(self.0);
++            }
++        }
++    }
++
++    #[derive(Debug, PartialEq)]
++    enum CleanupOutcome {
++        Terminated,
++        LiveParent,
++        Stale,
++        Unverified,
++    }
 +
 +    #[link(name = "kernel32")]
 +    extern "system" {
++        fn CreateToolhelp32Snapshot(flags: u32, pid: u32) -> Handle;
++        fn Process32FirstW(snapshot: Handle, entry: *mut ProcessEntry) -> i32;
++        fn Process32NextW(snapshot: Handle, entry: *mut ProcessEntry) -> i32;
++        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
++        fn CloseHandle(handle: Handle) -> i32;
++        fn GetProcessTimes(
++            handle: Handle,
++            creation: *mut FileTime,
++            exit: *mut FileTime,
++            kernel: *mut FileTime,
++            user: *mut FileTime,
++        ) -> i32;
++        fn QueryFullProcessImageNameW(
++            handle: Handle,
++            flags: u32,
++            name: *mut u16,
++            size: *mut u32,
++        ) -> i32;
++        fn WaitForSingleObject(handle: Handle, timeout: u32) -> u32;
++        fn TerminateProcess(handle: Handle, exit_code: u32) -> i32;
 +        fn MoveFileExW(
 +            existing_file_name: *const u16,
 +            new_file_name: *const u16,
 +            flags: u32,
 +        ) -> i32;
++    }
++
++    fn process_snapshot() -> Result<HashMap<u32, u32>, String> {
++        let raw = unsafe { CreateToolhelp32Snapshot(2, 0) };
++        if raw == (-1isize) as Handle {
++            return Err(format!(
++                "扫描系统进程失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++        let snapshot = OwnedHandle(raw);
++        let mut entry: ProcessEntry = unsafe { std::mem::zeroed() };
++        entry.size = std::mem::size_of::<ProcessEntry>() as u32;
++        let mut found = unsafe { Process32FirstW(snapshot.0, &mut entry) };
++        let mut processes = HashMap::new();
++        while found != 0 {
++            processes.insert(entry.pid, entry.parent_pid);
++            found = unsafe { Process32NextW(snapshot.0, &mut entry) };
++        }
++        let error = std::io::Error::last_os_error();
++        if error.raw_os_error() != Some(ERROR_NO_MORE_FILES) {
++            return Err(format!("系统进程扫描不完整，未终止任何进程: {error}"));
++        }
++        Ok(processes)
++    }
++
++    fn open_process(pid: u32, terminate: bool) -> Result<OwnedHandle, std::io::Error> {
++        let rights = PROCESS_QUERY_LIMITED_INFORMATION
++            | SYNCHRONIZE
++            | if terminate { PROCESS_TERMINATE } else { 0 };
++        let handle = unsafe { OpenProcess(rights, 0, pid) };
++        if handle.is_null() {
++            Err(std::io::Error::last_os_error())
++        } else {
++            Ok(OwnedHandle(handle))
++        }
++    }
++
++    fn creation_time(handle: &OwnedHandle) -> Result<u64, String> {
++        let (mut c, mut e, mut k, mut u) = (
++            FileTime::default(),
++            FileTime::default(),
++            FileTime::default(),
++            FileTime::default(),
++        );
++        if unsafe { GetProcessTimes(handle.0, &mut c, &mut e, &mut k, &mut u) } == 0 {
++            return Err(format!(
++                "读取进程创建时间失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++        Ok((u64::from(c.high) << 32) | u64::from(c.low))
++    }
++
++    fn executable_path(handle: &OwnedHandle) -> Result<PathBuf, String> {
++        let mut name = vec![0u16; 32768];
++        let mut size = name.len() as u32;
++        if unsafe { QueryFullProcessImageNameW(handle.0, 0, name.as_mut_ptr(), &mut size) } == 0 {
++            return Err(format!(
++                "读取进程路径失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++        use std::os::windows::ffi::OsStringExt;
++        let raw = PathBuf::from(std::ffi::OsString::from_wide(&name[..size as usize]));
++        std::fs::canonicalize(raw).map_err(|error| format!("解析进程路径失败: {error}"))
++    }
++
++    fn same_identity(handle: &OwnedHandle, marker: &AgentMarker) -> Result<bool, String> {
++        if creation_time(handle)? != marker.creation_time_100ns {
++            return Ok(false);
++        }
++        let registered_path = Path::new(&marker.executable_path);
++        validate_existing_ancestor_chain(registered_path)?;
++        let registered = std::fs::canonicalize(registered_path)
++            .map_err(|error| format!("解析 Agent 登记路径失败: {error}"))?;
++        Ok(executable_path(handle)? == registered)
++    }
++
++    fn parent_is_gone(parent_pid: u32, child_created: u64) -> Result<bool, String> {
++        // Unknown parent identity must never grant permission to terminate.
++        if parent_pid == 0 {
++            return Err("无法确认 Agent 父进程".into());
++        }
++        let parent = match open_process(parent_pid, false) {
++            Ok(parent) => parent,
++            Err(error) if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER) => return Ok(true),
++            Err(error) => return Err(format!("无法核验父进程 {parent_pid}: {error}")),
++        };
++        match unsafe { WaitForSingleObject(parent.0, 0) } {
++            WAIT_OBJECT_0 => Ok(true),
++            WAIT_TIMEOUT => Ok(creation_time(&parent)? > child_created), // PID was reused.
++            _ => Err("无法确认父进程状态".into()),
++        }
++    }
++
++    fn inspect_and_cleanup(
++        marker: &AgentMarker,
++        parent_pid: u32,
++    ) -> Result<CleanupOutcome, String> {
++        if marker.pid == std::process::id() {
++            return Ok(CleanupOutcome::Unverified);
++        }
++        let child = match open_process(marker.pid, false) {
++            Ok(child) => child,
++            Err(error) if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER) => {
++                return Ok(CleanupOutcome::Stale)
++            }
++            Err(error) => return Err(format!("无法核验 Agent {}: {error}", marker.pid)),
++        };
++        match unsafe { WaitForSingleObject(child.0, 0) } {
++            WAIT_OBJECT_0 => return Ok(CleanupOutcome::Stale),
++            WAIT_TIMEOUT => {}
++            _ => return Err("无法确认 Agent 状态".into()),
++        }
++        if !same_identity(&child, marker)? {
++            return Ok(CleanupOutcome::Unverified);
++        }
++        // Refresh parent identity while this exact child is pinned. A PID may have
++        // been recycled between the initial system snapshot and reading its marker.
++        let current = process_snapshot()?;
++        if current.get(&marker.pid) != Some(&parent_pid) {
++            return Ok(CleanupOutcome::Unverified);
++        }
++        if !parent_is_gone(parent_pid, marker.creation_time_100ns)? {
++            return Ok(CleanupOutcome::LiveParent);
++        }
++        // Keep the original handle pinned and revalidate the termination handle.
++        let target =
++            open_process(marker.pid, true).map_err(|error| format!("无法终止 Agent: {error}"))?;
++        if !same_identity(&target, marker)?
++            || !parent_is_gone(parent_pid, marker.creation_time_100ns)?
++        {
++            return Ok(CleanupOutcome::Unverified);
++        }
++        if unsafe { TerminateProcess(target.0, 0) } == 0 {
++            return Err(format!(
++                "终止残留 Agent 失败: {}",
++                std::io::Error::last_os_error()
++            ));
++        }
++        if unsafe { WaitForSingleObject(target.0, 2000) } != WAIT_OBJECT_0 {
++            return Err("已请求终止，但尚未确认残留 Agent 退出".into());
++        }
++        Ok(CleanupOutcome::Terminated)
++    }
++
++    fn cleanup_registered_orphans(
++        registry: &Path,
++        summary: &mut MonitorDisconnectSummary,
++    ) -> Result<(), String> {
++        // Enumerate ALL processes; registration is the authorization filter, not a name match.
++        let processes = process_snapshot()?;
++        summary.scanned_processes = processes.len();
++        let entries = std::fs::read_dir(registry)
++            .map_err(|error| format!("读取 Agent 登记目录失败: {error}"))?;
++        for entry in entries {
++            let entry = entry.map_err(|error| format!("读取 Agent 登记项失败: {error}"))?;
++            let name = entry.file_name();
++            let name = name.to_string_lossy();
++            // Ownership, disconnect signals and atomic-write temp files are not Agent markers.
++            if name.starts_with('.') {
++                continue;
++            }
++            let path = entry.path();
++            let load = (|| -> Result<AgentMarker, String> {
++                if path.parent() != Some(registry) {
++                    return Err("Agent 登记路径越界".into());
++                }
++                let metadata =
++                    std::fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
++                if !metadata.is_file()
++                    || metadata_is_link_or_reparse(&metadata)
++                    || metadata.len() >= 4096
++                {
++                    return Err("拒绝异常 Agent 登记文件".into());
++                }
++                let resolved = std::fs::canonicalize(&path).map_err(|error| error.to_string())?;
++                if resolved.parent() != Some(registry) {
++                    return Err("Agent 登记路径越界".into());
++                }
++                use std::io::Read;
++                let mut bytes = Vec::new();
++                std::fs::File::open(&path)
++                    .map_err(|error| error.to_string())?
++                    .take(4096)
++                    .read_to_end(&mut bytes)
++                    .map_err(|error| error.to_string())?;
++                parse_agent_marker(&bytes, &name)
++            })();
++            let marker = match load {
++                Ok(marker) => marker,
++                Err(_) => {
++                    summary.unverified_entries += 1;
++                    continue;
++                }
++            };
++            let Some(&parent_pid) = processes.get(&marker.pid) else {
++                summary.stale_records += 1;
++                continue;
++            };
++            match inspect_and_cleanup(&marker, parent_pid) {
++                Ok(CleanupOutcome::Terminated) => {
++                    summary.orphan_agents_terminated += 1;
++                    log::info!("已终止身份核验通过的残留 Agent: PID={}", marker.pid);
++                }
++                Ok(CleanupOutcome::LiveParent) => summary.live_agents_preserved += 1,
++                Ok(CleanupOutcome::Stale) => summary.stale_records += 1,
++                Ok(CleanupOutcome::Unverified) => summary.unverified_entries += 1,
++                Err(error) => {
++                    log::warn!("残留 Agent {} 未清理: {error}", marker.pid);
++                    summary.failed_pids.push(marker.pid);
++                }
++            }
++        }
++        // Marker files are intentionally retained: cleanup never deletes configuration.
++        Ok(())
 +    }
 +
 +    fn metadata_is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
@@ -695,14 +1025,237 @@ index 0000000..3937a36
 +                .map_err(|_| "系统时间超出监控信号范围".to_string())?,
 +            source: "settings".to_string(),
 +        };
-+        write_signal(&registry, &signal)?;
-+        Ok(MonitorDisconnectSummary { generation })
++        let signal_error = write_signal(&registry, &signal).err();
++        let mut summary = MonitorDisconnectSummary {
++            generation: if signal_error.is_none() {
++                Some(generation)
++            } else {
++                None
++            },
++            signal_error,
++            scan_error: None,
++            scanned_processes: 0,
++            orphan_agents_terminated: 0,
++            live_agents_preserved: 0,
++            stale_records: 0,
++            unverified_entries: 0,
++            failed_pids: Vec::new(),
++        };
++        summary.scan_error = cleanup_registered_orphans(&registry, &mut summary).err();
++        Ok(summary)
++    }
++
++    #[cfg(test)]
++    mod cleanup_tests {
++        use super::*;
++        use std::os::windows::process::CommandExt;
++        use std::process::{Child, Command, Stdio};
++
++        struct TestChild(Child);
++        impl Drop for TestChild {
++            fn drop(&mut self) {
++                let _ = self.0.kill();
++                let _ = self.0.wait();
++            }
++        }
++
++        fn spawn_child() -> TestChild {
++            TestChild(
++                Command::new("python")
++                    .args(["-c", "import time; time.sleep(60)"])
++                    .creation_flags(0x08000000)
++                    .stdin(Stdio::null())
++                    .stdout(Stdio::null())
++                    .stderr(Stdio::null())
++                    .spawn()
++                    .expect("test Python child"),
++            )
++        }
++
++        fn marker_for(pid: u32) -> AgentMarker {
++            let handle = open_process(pid, false).unwrap();
++            AgentMarker {
++                schema_version: 1,
++                pid,
++                creation_time_100ns: creation_time(&handle).unwrap(),
++                executable_path: executable_path(&handle)
++                    .unwrap()
++                    .to_string_lossy()
++                    .into_owned(),
++            }
++        }
++
++        #[test]
++        fn cleanup_preserves_live_parent_and_rejects_reused_pid_and_wrong_path() {
++            let child = spawn_child();
++            let marker = marker_for(child.0.id());
++            let parent = std::process::id();
++            assert_eq!(
++                inspect_and_cleanup(&marker, parent).unwrap(),
++                CleanupOutcome::LiveParent
++            );
++            let mut wrong_time = marker.clone();
++            wrong_time.creation_time_100ns += 1;
++            assert_eq!(
++                inspect_and_cleanup(&wrong_time, parent).unwrap(),
++                CleanupOutcome::Unverified
++            );
++            let mut wrong_path = marker.clone();
++            wrong_path.executable_path = std::env::current_exe()
++                .unwrap()
++                .to_string_lossy()
++                .into_owned();
++            assert_eq!(
++                inspect_and_cleanup(&wrong_path, parent).unwrap(),
++                CleanupOutcome::Unverified
++            );
++            assert_eq!(
++                inspect_and_cleanup(&marker, 0).unwrap(),
++                CleanupOutcome::Unverified
++            );
++            assert_eq!(
++                unsafe { WaitForSingleObject(open_process(marker.pid, false).unwrap().0, 0) },
++                WAIT_TIMEOUT
++            );
++        }
++
++        #[test]
++        fn cleanup_terminates_only_its_own_verified_orphan_fixture() {
++            // The intermediate parent exits; only this test-created orphan may be killed.
++            let output = Command::new("python").args(["-c",
++                "import subprocess,sys; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=0x08000000); print(p.pid)"])
++                .creation_flags(0x08000000).output().unwrap();
++            assert!(output.status.success());
++            let pid: u32 = String::from_utf8(output.stdout)
++                .unwrap()
++                .trim()
++                .parse()
++                .unwrap();
++            let target = open_process(pid, true).unwrap();
++            // The guard owns only the test fixture's concrete handle, never a reused PID.
++            struct OrphanGuard(OwnedHandle);
++            impl Drop for OrphanGuard {
++                fn drop(&mut self) {
++                    unsafe {
++                        TerminateProcess(self.0 .0, 0);
++                        WaitForSingleObject(self.0 .0, 2000);
++                    }
++                }
++            }
++            let guard = OrphanGuard(target);
++            let marker = marker_for(pid);
++            let parent_pid = process_snapshot().unwrap()[&pid];
++            assert_eq!(
++                inspect_and_cleanup(&marker, parent_pid).unwrap(),
++                CleanupOutcome::Terminated
++            );
++            assert_eq!(unsafe { WaitForSingleObject(guard.0 .0, 0) }, WAIT_OBJECT_0);
++            assert_eq!(
++                inspect_and_cleanup(&marker, parent_pid).unwrap(),
++                CleanupOutcome::Stale
++            );
++        }
++
++        #[test]
++        fn snapshot_includes_current_process_and_unknown_parent_is_not_orphan() {
++            assert!(process_snapshot()
++                .unwrap()
++                .contains_key(&std::process::id()));
++            assert!(parent_is_gone(0, 1).is_err());
++            let this = open_process(std::process::id(), false).unwrap();
++            let created = creation_time(&this).unwrap();
++            assert!(!parent_is_gone(std::process::id(), created).unwrap());
++            assert!(parent_is_gone(std::process::id(), created - 1).unwrap());
++        }
++
++        #[test]
++        fn scan_ignores_unregistered_processes_and_rejects_bad_registry_entries() {
++            let registered = spawn_child();
++            let unrelated = spawn_child();
++            let marker = marker_for(registered.0.id());
++            let root = std::env::temp_dir().join(format!(
++                "dna-cleanup-test-{}-{}",
++                std::process::id(),
++                SystemTime::now()
++                    .duration_since(UNIX_EPOCH)
++                    .unwrap()
++                    .as_nanos()
++            ));
++            std::fs::create_dir(&root).unwrap();
++            let root = std::fs::canonicalize(root).unwrap();
++            let marker_path = root.join(format!("{}.json", marker.pid));
++            std::fs::write(&marker_path, serde_json::to_vec(&marker).unwrap()).unwrap();
++            std::fs::write(root.join("invalid.json"), b"not JSON").unwrap();
++            std::fs::create_dir(root.join("directory.json")).unwrap();
++            let stale = AgentMarker {
++                pid: u32::MAX,
++                ..marker.clone()
++            };
++            let stale_path = root.join(format!("{}.json", stale.pid));
++            std::fs::write(&stale_path, serde_json::to_vec(&stale).unwrap()).unwrap();
++            let link = root.join("link.json");
++            let linked = std::os::windows::fs::symlink_file(&marker_path, &link).is_ok();
++            let mut summary = MonitorDisconnectSummary::default();
++            cleanup_registered_orphans(&root, &mut summary).unwrap();
++            assert!(summary.scanned_processes > 0);
++            assert_eq!(summary.orphan_agents_terminated, 0);
++            assert_eq!(summary.live_agents_preserved, 1);
++            assert_eq!(summary.stale_records, 1);
++            assert_eq!(summary.unverified_entries, if linked { 3 } else { 2 });
++            assert!(summary.failed_pids.is_empty());
++            assert_eq!(
++                unsafe { WaitForSingleObject(open_process(unrelated.0.id(), false).unwrap().0, 0) },
++                WAIT_TIMEOUT
++            );
++            assert!(marker_path.is_file()); // Cleanup does not delete configuration.
++            if linked {
++                std::fs::remove_file(link).unwrap();
++            }
++            std::fs::remove_file(marker_path).unwrap();
++            std::fs::remove_file(stale_path).unwrap();
++            std::fs::remove_file(root.join("invalid.json")).unwrap();
++            std::fs::remove_dir(root.join("directory.json")).unwrap();
++            std::fs::remove_dir(root).unwrap();
++        }
 +    }
 +}
 +
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++
++    #[cfg(windows)]
++    #[test]
++    fn agent_marker_requires_exact_identity_schema_and_python_executable() {
++        let marker = serde_json::json!({"schema_version": 1, "pid": 123,
++            "creation_time_100ns": 100, "executable_path": "C:\\Python\\python.exe"});
++        let bytes = serde_json::to_vec(&marker).unwrap();
++        assert!(parse_agent_marker(&bytes, "123.json").is_ok());
++        for name in [
++            "124.json",
++            "0123.json",
++            "../123.json",
++            ".telegram-owner.json",
++        ] {
++            assert!(parse_agent_marker(&bytes, name).is_err());
++        }
++        for (key, bad) in [
++            ("schema_version", serde_json::json!(2)),
++            ("pid", serde_json::json!(0)),
++            ("creation_time_100ns", serde_json::json!(0)),
++            ("unexpected", serde_json::json!(true)),
++            ("executable_path", serde_json::json!("python.exe")),
++            ("executable_path", serde_json::json!("C:\\Games\\game.exe")),
++        ] {
++            let mut invalid = marker.clone();
++            invalid[key] = bad;
++            assert!(
++                parse_agent_marker(&serde_json::to_vec(&invalid).unwrap(), "123.json").is_err()
++            );
++        }
++        assert!(parse_agent_marker(&vec![b' '; 4096], "123.json").is_err());
++        assert!(parse_agent_marker(b"", "123.json").is_err());
++    }
 +
 +    #[test]
 +    fn signal_parser_rejects_unknown_fields_and_invalid_source() {
@@ -727,11 +1280,21 @@ index 0000000..3937a36
 +    #[test]
 +    fn disconnect_summary_serializes_with_camel_case_fields() {
 +        let summary = MonitorDisconnectSummary {
-+            generation: "settings-1".to_string(),
++            generation: Some("settings-1".to_string()),
++            signal_error: None,
++            scan_error: None,
++            scanned_processes: 100,
++            orphan_agents_terminated: 2,
++            live_agents_preserved: 1,
++            stale_records: 3,
++            unverified_entries: 0,
++            failed_pids: vec![42],
 +        };
 +        assert_eq!(
 +            serde_json::to_value(summary).unwrap(),
-+            serde_json::json!({"generation": "settings-1"})
++            serde_json::json!({"generation": "settings-1", "signalError": null, "scanError": null,
++                "scannedProcesses": 100, "orphanAgentsTerminated": 2, "liveAgentsPreserved": 1,
++                "staleRecords": 3, "unverifiedEntries": 0, "failedPids": [42]})
 +        );
 +    }
 +}
@@ -770,7 +1333,7 @@ index 9445863..c0bde2d 100644
 +            } catch (error) {
 +              log.warn('Auto-cleanup refused or failed:', error);
 diff --git a/src/components/settings/DebugSection.tsx b/src/components/settings/DebugSection.tsx
-index 2e0ac20..8c4d377 100644
+index 2e0ac20..38751fd 100644
 --- a/src/components/settings/DebugSection.tsx
 +++ b/src/components/settings/DebugSection.tsx
 @@ -12,0 +13,2 @@ import {
@@ -780,12 +1343,26 @@ index 2e0ac20..8c4d377 100644
 +import { toast } from 'sonner';
 @@ -20,0 +24 @@ import { SwitchButton } from '@/components/FormControls';
 +import { ConfirmDialog } from '@/components/ConfirmDialog';
-@@ -54,0 +59,4 @@ export function DebugSection() {
+@@ -22,0 +27,12 @@ import { ExportLogsModal } from './ExportLogsModal';
++interface MonitorCleanupSummary {
++  generation: string | null;
++  signalError: string | null;
++  scanError: string | null;
++  scannedProcesses: number;
++  orphanAgentsTerminated: number;
++  liveAgentsPreserved: number;
++  staleRecords: number;
++  unverifiedEntries: number;
++  failedPids: number[];
++}
++
+@@ -54,0 +71,5 @@ export function DebugSection() {
 +  const [showClearLogsConfirm, setShowClearLogsConfirm] = useState(false);
 +  const [isSchedulingLogClear, setIsSchedulingLogClear] = useState(false);
 +  const [showDisconnectMonitorsConfirm, setShowDisconnectMonitorsConfirm] = useState(false);
 +  const [isDisconnectingMonitors, setIsDisconnectingMonitors] = useState(false);
-@@ -60,0 +69,36 @@ export function DebugSection() {
++  const [monitorCleanupSummary, setMonitorCleanupSummary] = useState<string | null>(null);
+@@ -60,0 +82,55 @@ export function DebugSection() {
 +  const handleClearAllLogs = useCallback(async () => {
 +    if (!isTauri() || isSchedulingLogClear) return;
 +    setIsSchedulingLogClear(true);
@@ -806,15 +1383,34 @@ index 2e0ac20..8c4d377 100644
 +  const handleDisconnectAllMonitors = useCallback(async () => {
 +    if (!isTauri() || isDisconnectingMonitors) return;
 +    setIsDisconnectingMonitors(true);
++    setMonitorCleanupSummary(null);
 +    try {
 +      const { invoke } = await import('@tauri-apps/api/core');
-+      const summary = await invoke<{
-+        generation: string;
-+      }>('disconnect_all_dna_helper_monitors');
-+      loggers.ui.info('DNA Helper 全局监控通讯停止信号已发布:', summary);
-+      toast.success(t('debug.disconnectAllMonitorsSucceeded'));
++      const summary = await invoke<MonitorCleanupSummary>('disconnect_all_dna_helper_monitors');
++      const result = t('debug.disconnectAllMonitorsSucceeded', {
++        scanned: summary.scannedProcesses,
++        terminated: summary.orphanAgentsTerminated,
++        preserved: summary.liveAgentsPreserved,
++        stale: summary.staleRecords,
++      });
++      const incomplete =
++        summary.failedPids.length > 0 ||
++        summary.unverifiedEntries > 0 ||
++        !!summary.signalError ||
++        !!summary.scanError;
++      const details = incomplete
++        ? `${result} ${t('debug.disconnectAllMonitorsPartial', {
++            unverified: summary.unverifiedEntries,
++            failed: summary.failedPids.length,
++          })}`
++        : result;
++      setMonitorCleanupSummary(details);
++      loggers.ui.info('DNA Helper 本地监控残留扫描结果:', summary);
++      if (incomplete) toast.warning(details);
++      else toast.success(details);
 +    } catch (error) {
 +      loggers.ui.error('关闭所有 DNA Helper 监控通讯失败:', error);
++      setMonitorCleanupSummary(t('debug.disconnectAllMonitorsFailed'));
 +      toast.error(t('debug.disconnectAllMonitorsFailed'));
 +    } finally {
 +      setIsDisconnectingMonitors(false);
@@ -822,7 +1418,7 @@ index 2e0ac20..8c4d377 100644
 +    }
 +  }, [isDisconnectingMonitors, t]);
 +
-@@ -330,0 +375,20 @@ export function DebugSection() {
+@@ -330,0 +407,20 @@ export function DebugSection() {
 +          <button
 +            type="button"
 +            onClick={() => setShowClearLogsConfirm(true)}
@@ -843,7 +1439,14 @@ index 2e0ac20..8c4d377 100644
 +            <Power className="w-4 h-4" />
 +            {t('debug.disconnectAllMonitors')}
 +          </button>
-@@ -436,0 +501,26 @@ export function DebugSection() {
+@@ -332,0 +429,6 @@ export function DebugSection() {
++        {monitorCleanupSummary && (
++          <p role="status" className="text-sm text-text-secondary break-words">
++            {monitorCleanupSummary}
++          </p>
++        )}
++
+@@ -436,0 +539,26 @@ export function DebugSection() {
 +      <ConfirmDialog
 +        open={showClearLogsConfirm}
 +        title={t('debug.clearAllLogsConfirmTitle')}
@@ -884,14 +1487,14 @@ index 4e2c221..e29683c 100644
 +            onChange={(v) => setAutoClearLogsOnLaunch(v)}
 +          />
 diff --git a/src/i18n/locales/en-US.ts b/src/i18n/locales/en-US.ts
-index c6a4cb9..47fbd9a 100644
+index c6a4cb9..83f3d7d 100644
 --- a/src/i18n/locales/en-US.ts
 +++ b/src/i18n/locales/en-US.ts
 @@ -118 +118,2 @@ export default {
 -    autoClearLogsOnLaunchHint: 'Automatically clear runtime logs and delete old log files every time the project is launched',
 +    autoClearLogsOnLaunchHint:
 +      'Delete logs and debug files in the debug directory that are older than 14 days on launch',
-@@ -524,0 +526,16 @@ export default {
+@@ -524,0 +526,21 @@ export default {
 +    clearAllLogs: 'Clear All Logs',
 +    clearAllLogsHint: 'Restart and remove every log and debug file from the debug directory',
 +    clearAllLogsConfirmTitle: 'Clear all logs?',
@@ -900,16 +1503,21 @@ index c6a4cb9..47fbd9a 100644
 +    clearAllLogsConfirm: 'Clear and Restart',
 +    clearAllLogsScheduled: 'Restarting to clear all logs',
 +    clearAllLogsFailed: 'Failed to schedule log cleanup',
-+    disconnectAllMonitors: 'Disconnect All Monitoring',
-+    disconnectAllMonitorsHint: 'Stop all Telegram monitoring without affecting running tasks',
-+    disconnectAllMonitorsConfirmTitle: 'Disconnect all monitoring?',
++    disconnectAllMonitors: 'Disconnect and Clean Up Orphan Agents',
++    disconnectAllMonitorsHint:
++      'Scan system processes and terminate verified orphan Agents registered in this installation',
++    disconnectAllMonitorsConfirmTitle: 'Disconnect and clean up orphan Agents?',
 +    disconnectAllMonitorsConfirmMessage:
-+      'This stops Telegram receiving, sending, and scheduled status in every Agent. It does not stop Agents, running tasks, the game, or any DNA Helper window.',
-+    disconnectAllMonitorsConfirm: 'Disconnect Monitoring',
-+    disconnectAllMonitorsSucceeded: 'The disconnect signal was sent to all monitoring',
-+    disconnectAllMonitorsFailed: 'Failed to send the monitoring disconnect signal',
++      'Publish a disconnect signal and scan all system processes. Terminate only identity-verified Agents registered in this installation whose original parent has exited. Preserve Agents with a live parent, all Helper windows, the game, and unrelated Python processes. Report unverified entries without terminating them.',
++    disconnectAllMonitorsConfirm: 'Disconnect and Clean Up',
++    disconnectAllMonitorsSucceeded:
++      'Scanned {{scanned}} processes: terminated {{terminated}} orphan Agents, preserved {{preserved}} live Agents, found {{stale}} stale records.',
++    disconnectAllMonitorsPartial:
++      '{{unverified}} unverified entries, {{failed}} process failures, or scanning/signal publication failed. Check logs; full shutdown is not confirmed.',
++    disconnectAllMonitorsFailed:
++      'Local cleanup did not complete. Check logs for actions already performed.',
 diff --git a/src/i18n/locales/ja-JP.ts b/src/i18n/locales/ja-JP.ts
-index 5b48883..3728ccd 100644
+index 5b48883..daf1e34 100644
 --- a/src/i18n/locales/ja-JP.ts
 +++ b/src/i18n/locales/ja-JP.ts
 @@ -114,2 +114,5 @@ export default {
@@ -920,7 +1528,7 @@ index 5b48883..3728ccd 100644
 +    autoClearLogsOnLaunchHint:
 +      '起動時に debug フォルダー内の 14 日を超えたログとデバッグファイルを削除します',
 +  },
-@@ -517,0 +521,16 @@ export default {
+@@ -517,0 +521,21 @@ export default {
 +    clearAllLogs: 'ログを完全に消去',
 +    clearAllLogsHint: '再起動して debug フォルダー内のすべてのログとデバッグファイルを削除します',
 +    clearAllLogsConfirmTitle: 'すべてのログを消去しますか？',
@@ -929,23 +1537,28 @@ index 5b48883..3728ccd 100644
 +    clearAllLogsConfirm: '消去して再起動',
 +    clearAllLogsScheduled: '再起動してログを消去しています',
 +    clearAllLogsFailed: 'ログ消去を予約できませんでした',
-+    disconnectAllMonitors: 'すべての監視通信を切断',
-+    disconnectAllMonitorsHint: '実行中のタスクに影響せず Telegram 監視を停止します',
-+    disconnectAllMonitorsConfirmTitle: 'すべての監視通信を切断しますか？',
++    disconnectAllMonitors: '監視を切断し残留プロセスを整理',
++    disconnectAllMonitorsHint:
++      '全プロセスを走査し、このインストールに登録済みの孤立 Agent のみ終了します',
++    disconnectAllMonitorsConfirmTitle: '監視を切断し残留プロセスを整理しますか？',
 +    disconnectAllMonitorsConfirmMessage:
-+      'すべての Agent の Telegram 受信、送信、定期状態通知を停止します。Agent、実行中のタスク、ゲーム、DNA Helper ウィンドウは停止しません。',
-+    disconnectAllMonitorsConfirm: '監視通信を切断',
-+    disconnectAllMonitorsSucceeded: 'すべての監視に切断信号を送信しました',
-+    disconnectAllMonitorsFailed: '監視切断信号を送信できませんでした',
++      '通信停止信号を送り、全プロセスを走査します。このインストールに登録され、身元を確認でき、親プロセスが終了した Agent のみ終了します。正常な親を持つ Agent、Helper ウィンドウ、ゲーム、無関係な Python は保持し、確認できない項目は報告します。',
++    disconnectAllMonitorsConfirm: '切断して整理',
++    disconnectAllMonitorsSucceeded:
++      '{{scanned}} プロセスを走査：残留 Agent {{terminated}} 件を終了、正常 Agent {{preserved}} 件を保持、無効な登録 {{stale}} 件。',
++    disconnectAllMonitorsPartial:
++      '身元未確認 {{unverified}} 件、処理失敗 {{failed}} 件、または走査・信号送信失敗。ログを確認してください。全停止は未確認です。',
++    disconnectAllMonitorsFailed:
++      '整理が完了しませんでした。実行済みの操作はログを確認してください。',
 diff --git a/src/i18n/locales/ko-KR.ts b/src/i18n/locales/ko-KR.ts
-index 76d1c1a..7726b8b 100644
+index 76d1c1a..0629ca4 100644
 --- a/src/i18n/locales/ko-KR.ts
 +++ b/src/i18n/locales/ko-KR.ts
 @@ -115 +115,2 @@ export default {
 -    autoClearLogsOnLaunchHint: '프로젝트를 시작할 때 런타임 로그를 자동으로 지우고 이전 로그 파일을 삭제합니다',
 +    autoClearLogsOnLaunchHint:
 +      '시작할 때 debug 폴더에서 14일이 지난 로그와 디버그 파일을 삭제합니다',
-@@ -516,0 +518,16 @@ export default {
+@@ -516,0 +518,20 @@ export default {
 +    clearAllLogs: '모든 로그 완전 삭제',
 +    clearAllLogsHint: '앱을 다시 시작하고 debug 폴더의 모든 로그 및 디버그 파일을 삭제합니다',
 +    clearAllLogsConfirmTitle: '모든 로그를 삭제할까요?',
@@ -954,22 +1567,26 @@ index 76d1c1a..7726b8b 100644
 +    clearAllLogsConfirm: '삭제 후 다시 시작',
 +    clearAllLogsScheduled: '모든 로그를 삭제하기 위해 다시 시작합니다',
 +    clearAllLogsFailed: '로그 삭제를 예약할 수 없습니다',
-+    disconnectAllMonitors: '모든 모니터링 통신 끊기',
-+    disconnectAllMonitorsHint: '실행 중인 작업에 영향 없이 Telegram 모니터링을 중지합니다',
-+    disconnectAllMonitorsConfirmTitle: '모든 모니터링 통신을 끊을까요?',
++    disconnectAllMonitors: '통신 종료 및 잔류 프로세스 정리',
++    disconnectAllMonitorsHint: '전체 프로세스를 검사하고 이 설치에 등록된 고아 Agent만 종료합니다',
++    disconnectAllMonitorsConfirmTitle: '통신을 종료하고 잔류 프로세스를 정리할까요?',
 +    disconnectAllMonitorsConfirmMessage:
-+      '모든 Agent의 Telegram 수신, 전송 및 정기 상태 알림을 중지합니다. Agent, 실행 중인 작업, 게임 또는 DNA Helper 창은 중지하지 않습니다.',
-+    disconnectAllMonitorsConfirm: '모니터링 통신 끊기',
-+    disconnectAllMonitorsSucceeded: '모든 모니터링에 연결 해제 신호를 보냈습니다',
-+    disconnectAllMonitorsFailed: '모니터링 연결 해제 신호를 보내지 못했습니다',
++      '통신 종료 신호를 보내고 전체 프로세스를 검사합니다. 이 설치에 등록되어 신원이 확인되고 부모가 종료된 Agent만 종료합니다. 정상 부모가 있는 Agent, Helper 창, 게임 및 다른 Python은 유지하며 확인 불가능한 항목은 보고합니다.',
++    disconnectAllMonitorsConfirm: '종료 및 정리',
++    disconnectAllMonitorsSucceeded:
++      '{{scanned}}개 검사: 잔류 Agent {{terminated}}개 종료, 정상 Agent {{preserved}}개 유지, 만료된 등록 {{stale}}개.',
++    disconnectAllMonitorsPartial:
++      '신원 미확인 {{unverified}}개, 처리 실패 {{failed}}개 또는 검사/신호 전송 실패. 로그를 확인하세요. 전체 종료는 확인되지 않았습니다.',
++    disconnectAllMonitorsFailed:
++      '정리를 완료하지 못했습니다. 이미 실행된 작업은 로그를 확인하세요.',
 diff --git a/src/i18n/locales/zh-CN.ts b/src/i18n/locales/zh-CN.ts
-index bbbc8e2..4b00c2c 100644
+index bbbc8e2..2627839 100644
 --- a/src/i18n/locales/zh-CN.ts
 +++ b/src/i18n/locales/zh-CN.ts
 @@ -115 +115 @@ export default {
 -    autoClearLogsOnLaunchHint: '每次启动项目时，自动清理运行日志并删除旧的日志文件',
 +    autoClearLogsOnLaunchHint: '每次启动项目时，自动删除 debug 目录内超过 14 天的日志和调试文件',
-@@ -513,0 +514,15 @@ export default {
+@@ -513,0 +514,18 @@ export default {
 +    clearAllLogs: '完全清空日志',
 +    clearAllLogsHint: '重启程序并清空 debug 目录中的全部日志和调试文件',
 +    clearAllLogsConfirmTitle: '完全清空日志？',
@@ -977,16 +1594,19 @@ index bbbc8e2..4b00c2c 100644
 +    clearAllLogsConfirm: '清空并重启',
 +    clearAllLogsScheduled: '正在重启并完全清空日志',
 +    clearAllLogsFailed: '无法安排日志清理',
-+    disconnectAllMonitors: '关闭所有监控通讯',
-+    disconnectAllMonitorsHint: '停止全部 Telegram 监听，不影响正在运行的任务',
-+    disconnectAllMonitorsConfirmTitle: '关闭所有监控通讯？',
++    disconnectAllMonitors: '关闭监听并清理残留进程',
++    disconnectAllMonitorsHint: '扫描系统进程，终止本目录已登记的孤立 Agent；不影响正在运行的任务',
++    disconnectAllMonitorsConfirmTitle: '关闭监听并清理残留进程？',
 +    disconnectAllMonitorsConfirmMessage:
-+      '这将关闭所有 Agent 的 Telegram 接收、发送和定时状态，但不会停止 Agent、正在运行的任务、游戏或任何 DNA Helper 窗口。',
-+    disconnectAllMonitorsConfirm: '关闭通讯',
-+    disconnectAllMonitorsSucceeded: '关闭全部监控通讯的信号已发送',
-+    disconnectAllMonitorsFailed: '无法发送关闭监控通讯的信号',
++      '将发送关闭通讯信号，并扫描系统全部进程。仅终止本助手目录已登记、身份核验通过且原父进程已退出的残留 Agent。仍受正常 UI 管理的 Agent 会保留；不会关闭助手窗口、游戏或其他 Python。身份不明的项会跳过并报告。',
++    disconnectAllMonitorsConfirm: '关闭并清理',
++    disconnectAllMonitorsSucceeded:
++      '扫描 {{scanned}} 个进程：已终止 {{terminated}} 个残留 Agent，保留 {{preserved}} 个正常 Agent，发现 {{stale}} 条已失效登记。',
++    disconnectAllMonitorsPartial:
++      '另有 {{unverified}} 项身份未确认、{{failed}} 个进程处理失败；或扫描、通讯信号发布失败。请查看日志，不能确认全部关闭。',
++    disconnectAllMonitorsFailed: '本地监控清理未完成，请查看日志核对已执行的操作',
 diff --git a/src/i18n/locales/zh-TW.ts b/src/i18n/locales/zh-TW.ts
-index 7371edd..e655b98 100644
+index 7371edd..1903fbe 100644
 --- a/src/i18n/locales/zh-TW.ts
 +++ b/src/i18n/locales/zh-TW.ts
 @@ -112,2 +112,4 @@ export default {
@@ -996,7 +1616,7 @@ index 7371edd..e655b98 100644
 +    autoClearLogsOnLaunch: '自動清理運行日誌',
 +    autoClearLogsOnLaunchHint: '每次啟動項目時，自動刪除 debug 目錄內超過 14 天的日誌與除錯檔案',
 +  },
-@@ -507,0 +510,16 @@ export default {
+@@ -507,0 +510,19 @@ export default {
 +    clearAllLogs: '完全清空日誌',
 +    clearAllLogsHint: '重新啟動程式並清空 debug 目錄中的全部日誌與除錯檔案',
 +    clearAllLogsConfirmTitle: '完全清空日誌？',
@@ -1005,11 +1625,14 @@ index 7371edd..e655b98 100644
 +    clearAllLogsConfirm: '清空並重新啟動',
 +    clearAllLogsScheduled: '正在重新啟動並完全清空日誌',
 +    clearAllLogsFailed: '無法安排日誌清理',
-+    disconnectAllMonitors: '關閉所有監控通訊',
-+    disconnectAllMonitorsHint: '停止全部 Telegram 監聽，不影響正在執行的任務',
-+    disconnectAllMonitorsConfirmTitle: '關閉所有監控通訊？',
++    disconnectAllMonitors: '關閉監聽並清理殘留程序',
++    disconnectAllMonitorsHint: '掃描系統程序，只終止本目錄已登記的孤立 Agent，不影響執行中的任務',
++    disconnectAllMonitorsConfirmTitle: '關閉監聽並清理殘留程序？',
 +    disconnectAllMonitorsConfirmMessage:
-+      '這將關閉所有 Agent 的 Telegram 接收、傳送和定時狀態，但不會停止 Agent、正在執行的任務、遊戲或任何 DNA Helper 視窗。',
-+    disconnectAllMonitorsConfirm: '關閉通訊',
-+    disconnectAllMonitorsSucceeded: '關閉全部監控通訊的訊號已傳送',
-+    disconnectAllMonitorsFailed: '無法傳送關閉監控通訊的訊號',
++      '傳送關閉通訊訊號並掃描全部系統程序。僅終止本助手目錄已登記、身分核驗通過且父程序已退出的殘留 Agent。保留正常 UI 管理的 Agent、助手視窗、遊戲和其他 Python；無法核驗的項目會跳過並回報。',
++    disconnectAllMonitorsConfirm: '關閉並清理',
++    disconnectAllMonitorsSucceeded:
++      '掃描 {{scanned}} 個程序：終止 {{terminated}} 個殘留 Agent，保留 {{preserved}} 個正常 Agent，發現 {{stale}} 筆失效登記。',
++    disconnectAllMonitorsPartial:
++      '另有 {{unverified}} 項身分未確認、{{failed}} 個程序處理失敗；或掃描、通訊訊號發布失敗。請查看日誌，無法確認全部關閉。',
++    disconnectAllMonitorsFailed: '本地監控清理未完成，請查看日誌核對已執行的操作',

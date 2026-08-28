@@ -81,7 +81,7 @@ def require_source_fragments(path: Path, fragments: tuple[str, ...]) -> str:
 
 
 def validate_monitor_disconnect_contract() -> None:
-    """Keep every monitor-only disconnect path aligned and task-safe."""
+    """Remote disconnect stays signal-only; local cleanup targets verified orphans."""
     registry_source = require_source_fragments(
         ROOT / "agent" / "process_registry.py",
         (
@@ -134,6 +134,8 @@ def validate_monitor_disconnect_contract() -> None:
             "收到全局关闭通讯信号",
             "连续失去监听权，仅停止当前实例通讯",
             "disconnect 已执行，本机全部监控通讯已关闭；当前任务继续运行",
+            "startup_baseline_ready",
+            "offset = max(update_ids) + 1",
         ),
     )
     forbidden_telegram_fragments = (
@@ -154,7 +156,7 @@ def validate_monitor_disconnect_contract() -> None:
     patch_source = require_source_fragments(
         ROOT / "tools" / "mxu-v2.1.3-log-retention.patch",
         (
-            "pub fn disconnect_all_dna_helper_monitors()",
+            "pub async fn disconnect_all_dna_helper_monitors()",
             "MonitorDisconnectSummary",
             'serde(rename_all = "camelCase")',
             "MONITOR_DISCONNECT_SCHEMA_VERSION: u32 = 1",
@@ -164,17 +166,27 @@ def validate_monitor_disconnect_contract() -> None:
             "MOVEFILE_REPLACE_EXISTING",
             'join("agent-processes")',
             "disconnect_all_dna_helper_monitors",
-            "关闭所有监控通讯",
-            "不会停止 Agent",
+            "关闭监听并清理残留进程",
             "不影响正在运行的任务",
+            "CreateToolhelp32Snapshot",
+            "QueryFullProcessImageNameW",
+            "GetProcessTimes",
+            "same_identity(&target, marker)?",
+            "parent_is_gone(parent_pid, marker.creation_time_100ns)?",
+            "TerminateProcess(target.0, 0)",
+            "WaitForSingleObject(target.0, 2000)",
+            "cleanup_registered_orphans",
+            "orphanAgentsTerminated",
+            "liveAgentsPreserved",
+            "unverifiedEntries",
+            "failedPids",
+            "scanError",
+            "disconnectAllMonitorsPartial",
         ),
     )
     if patch_source.count("disconnectAllMonitors:") != 5:
         raise SystemExit("MXU monitor disconnect labels must exist in all five locales")
     forbidden_fragments = (
-        "TerminateProcess",
-        "agentsTerminated",
-        "staleMarkersRemoved",
         "terminate_all_dna_helper_monitors",
         "uiProcessesTerminated",
         "terminate_sibling_ui_processes",
@@ -182,7 +194,7 @@ def validate_monitor_disconnect_contract() -> None:
     )
     present = [fragment for fragment in forbidden_fragments if fragment in patch_source]
     if present:
-        raise SystemExit(f"MXU monitor disconnect must not terminate any process: {present}")
+        raise SystemExit(f"Local cleanup must not terminate UI or use broad legacy termination: {present}")
 
     build_script_source = require_source_fragments(
         ROOT / "tools" / "build_custom_mxu.ps1",
@@ -1095,6 +1107,7 @@ def main() -> None:
             "key": 81,
             "repeat": 3,
             "interval_ms": 100,
+            "skill_input_group": True,
         }
         if params != expected_q_params:
             raise SystemExit(
@@ -1163,6 +1176,16 @@ def main() -> None:
             "BackgroundSkillInput/Yes must delay background input until "
             "LiseSkillCastEnd"
         )
+    default_skill_boundary_action = (
+        pipeline_nodes.get("LiseSkillCastEnd", {})
+        .get("action", {})
+        .get("param", {})
+        .get("custom_action")
+    )
+    if default_skill_boundary_action != "skill_input_group_complete":
+        raise SystemExit(
+            "LiseSkillCastEnd must close the shared foreground E/Q input group"
+        )
 
     fishing_option = all_options.get("FishingBackgroundInput")
     if fishing_option is None or fishing_option.get("default_case") != "No":
@@ -1171,10 +1194,10 @@ def main() -> None:
     fishing_count_inputs = fishing_count_option.get("inputs", [])
     if (
         not fishing_count_inputs
-        or fishing_count_inputs[0].get("default") != "10"
+        or fishing_count_inputs[0].get("default") != "120"
         or fishing_count_inputs[0].get("verify") != r"^[1-9]\d{0,3}$"
     ):
-        raise SystemExit("FishingCount must accept 1 through 9999 and default to ten")
+        raise SystemExit("FishingCount must accept 1 through 9999 and default to 120")
     fishing_entry_action = (
         fishing_count_option.get("pipeline_override", {})
         .get("FishingEntry", {})
@@ -1269,10 +1292,26 @@ def main() -> None:
     ):
         raise SystemExit("Only successful fishing Esc actions may terminate through the target check")
 
+    fishing_empty_node = pipeline_nodes.get("FishingPoolEmptyDetected", {})
+    fishing_empty_recognition = fishing_empty_node.get("recognition", {}).get("param", {})
+    if (
+        fishing_empty_recognition.get("custom_recognition") != "fishing_prompt"
+        or fishing_empty_recognition.get("roi") != [0, 0, 0, 0]
+        or fishing_empty_recognition.get("custom_recognition_param")
+        != {"prompt": "empty", "threshold": 0.85, "cooldown_ms": 60000}
+        or fishing_empty_node.get("action", {}).get("param", {}).get("custom_action")
+        != "fishing_pool_empty"
+        or fishing_empty_node.get("next")
+        or pipeline_nodes.get("FishingMonitor", {}).get("next", [None])[0]
+        != "FishingPoolEmptyDetected"
+    ):
+        raise SystemExit("Fishing pool-empty text must terminate before other fishing prompts")
+
     fishing_template_names = {
         "fishing_prompt.png",
         "fishing_e_prompt.png",
         "fishing_close_prompt.png",
+        "fishing_pool_empty.png",
     }
     for filename in fishing_template_names:
         fishing_template = (
@@ -1286,8 +1325,14 @@ def main() -> None:
         (
             '@AgentServer.custom_recognition("fishing_prompt")',
             '@AgentServer.custom_recognition("fishing_target_reached")',
+            '@AgentServer.custom_action("fishing_pool_empty")',
+            "mark_fishing_pool_empty",
             "cv2.inRange(hsv, (0, 0, 175), (179, 115, 255))",
             "cv2.Canny(gray, 25, 80)",
+            "cv2.MORPH_TOPHAT",
+            "_POOL_EMPTY_ROI = (320, 180, 640, 140)",
+            "_POOL_EMPTY_SCALES = (1.0, 0.95, 0.975, 1.025, 1.05)",
+            "_POOL_EMPTY_SEGMENT_THRESHOLD = 0.80",
             "cv2.TM_CCOEFF_NORMED",
             "_accept_after_cooldown",
         ),
@@ -1957,8 +2002,13 @@ def main() -> None:
             or e_after_q_override.get("repeat_delay") != expected_placeholder
         ):
             raise SystemExit(
-                f"{interval_option_name}: both E repeat delays and E post delay "
-                "must use {interval_ms}"
+                f"{interval_option_name}: both E repeat delays and the E-to-Q post "
+                "delay must use {interval_ms}"
+            )
+        if "action" in e_override or "action" in e_after_q_override:
+            raise SystemExit(
+                f"{interval_option_name}: interval overrides must not replace the "
+                "complete grouped E custom_action_param"
             )
         if "LiseQBeforeEIntervalDelay" in override:
             raise SystemExit(
@@ -1969,7 +2019,9 @@ def main() -> None:
     for node_name in ("LisePressE", "LisePressEAfterQ"):
         node_override = e_count_override.get(node_name, {})
         if node_override.get("repeat") != "{count}":
-            raise SystemExit(f"LiseECount: {node_name}.repeat must use {{count}}")
+            raise SystemExit(
+                f"LiseECount: {node_name}.repeat must use {{count}}"
+            )
         params = (
             node_override.get("action", {})
             .get("param", {})
@@ -1979,11 +2031,30 @@ def main() -> None:
             "kind": "key",
             "key": 69,
             "repeat": 1,
+            "skill_input_group": True,
             "sequence_total": "{count}",
         }
         if params != expected_e_params:
             raise SystemExit(
-                f"LiseECount: {node_name} must pass the configured total to E logging"
+                f"LiseECount: {node_name} must keep every E in one Agent input group"
+            )
+
+    for node_name in ("LisePressE", "LisePressEAfterQ"):
+        node = pipeline_nodes.get(node_name, {})
+        params = (
+            node.get("action", {})
+            .get("param", {})
+            .get("custom_action_param", {})
+        )
+        if (
+            node.get("repeat") != 2
+            or node.get("repeat_delay") != 1000
+            or params.get("repeat") != 1
+            or params.get("skill_input_group") is not True
+            or params.get("sequence_total") != 2
+        ):
+            raise SystemExit(
+                f"{node_name}: repeated E actions must reuse one shared skill input group"
             )
 
     graph = {

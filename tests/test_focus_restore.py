@@ -19,11 +19,15 @@ class FocusRestoreTest(unittest.TestCase):
         self.original_restore_state = focus_restore._restore_in_progress
         self.original_hybrid_ready_hwnd = focus_restore._hybrid_skill_ready_hwnd
         self.original_fishing_ready_hwnd = focus_restore._hybrid_fishing_ready_hwnd
+        self.original_skill_input_groups = dict(focus_restore._skill_input_groups)
+        self.original_e_sequence_progress = dict(focus_restore._e_sequence_progress)
         focus_restore._fallback_hwnd = 0
         focus_restore._fallback_cursor_position = None
         focus_restore._restore_in_progress = False
         focus_restore._hybrid_skill_ready_hwnd = 0
         focus_restore._hybrid_fishing_ready_hwnd = 0
+        focus_restore._skill_input_groups.clear()
+        focus_restore._e_sequence_progress.clear()
 
     def tearDown(self) -> None:
         focus_restore._fallback_hwnd = self.original_hwnd
@@ -31,6 +35,10 @@ class FocusRestoreTest(unittest.TestCase):
         focus_restore._restore_in_progress = self.original_restore_state
         focus_restore._hybrid_skill_ready_hwnd = self.original_hybrid_ready_hwnd
         focus_restore._hybrid_fishing_ready_hwnd = self.original_fishing_ready_hwnd
+        focus_restore._skill_input_groups.clear()
+        focus_restore._skill_input_groups.update(self.original_skill_input_groups)
+        focus_restore._e_sequence_progress.clear()
+        focus_restore._e_sequence_progress.update(self.original_e_sequence_progress)
 
     def test_confirmed_combat_hud_marks_dungeon_entered(self) -> None:
         with patch.object(
@@ -198,9 +206,27 @@ class FocusRestoreTest(unittest.TestCase):
         context = SimpleNamespace(
             tasker=SimpleNamespace(controller=SimpleNamespace(info={"hwnd": 202})),
             run_action=Mock(return_value=SimpleNamespace(success=True)),
+            override_pipeline=Mock(return_value=True),
         )
-        argv = SimpleNamespace(
-            custom_action_param={"kind": "key", "key": 81, "repeat": 1},
+        e_argv = SimpleNamespace(
+            custom_action_param={
+                "kind": "key",
+                "key": 69,
+                "repeat": 1,
+                "skill_input_group": True,
+                "sequence_total": 2,
+            },
+            task_detail=SimpleNamespace(task_id=1),
+            node_name="LisePressE",
+        )
+        q_argv = SimpleNamespace(
+            custom_action_param={
+                "kind": "key",
+                "key": 81,
+                "repeat": 3,
+                "interval_ms": 100,
+                "skill_input_group": True,
+            },
             task_detail=SimpleNamespace(task_id=1),
             node_name="LisePressQ",
         )
@@ -213,22 +239,36 @@ class FocusRestoreTest(unittest.TestCase):
             patch.object(focus_restore, "_activate_game_for_skill", return_value=True),
             patch.object(focus_restore, "_restore_window_and_cursor") as restore,
             patch.object(focus_restore, "_send_background_key", return_value=True) as send,
+            patch.object(focus_restore.time, "sleep"),
         ):
-            first = focus_restore.HybridSkillAction().run(context, argv)
-            second = focus_restore.HybridSkillAction().run(context, argv)
-            boundary = focus_restore.HybridSkillDungeonComplete().run(context, argv)
-            third = focus_restore.HybridSkillAction().run(context, argv)
+            first_e_1 = focus_restore.HybridSkillAction().run(context, e_argv)
+            first_e_2 = focus_restore.HybridSkillAction().run(context, e_argv)
+            first_q = focus_restore.HybridSkillAction().run(context, q_argv)
+            self.assertEqual(restore.call_count, 0)
+            first_boundary = focus_restore.HybridSkillDungeonComplete().run(
+                context, q_argv
+            )
+            second_e_1 = focus_restore.HybridSkillAction().run(context, e_argv)
+            second_e_2 = focus_restore.HybridSkillAction().run(context, e_argv)
+            second_q = focus_restore.HybridSkillAction().run(context, q_argv)
+            second_boundary = focus_restore.HybridSkillDungeonComplete().run(
+                context, q_argv
+            )
 
-        self.assertTrue(first.success)
-        self.assertTrue(second.success)
-        self.assertTrue(boundary.success)
-        self.assertTrue(third.success)
-        self.assertEqual(context.run_action.call_count, 2)
-        context.run_action.assert_called_with("FocusGuardQKeyProxy")
-        self.assertEqual(restore.call_count, 2)
+        self.assertTrue(first_e_1.success)
+        self.assertTrue(first_e_2.success)
+        self.assertTrue(first_q.success)
+        self.assertTrue(first_boundary.success)
+        self.assertTrue(second_e_1.success)
+        self.assertTrue(second_e_2.success)
+        self.assertTrue(second_q.success)
+        self.assertTrue(second_boundary.success)
+        self.assertEqual(context.run_action.call_count, 7)
+        self.assertEqual(restore.call_count, 1)
         restore.assert_called_with(101, (300, 400))
-        send.assert_called_once_with(202, 81)
+        self.assertEqual(send.call_count, 5)
         self.assertTrue(focus_restore._is_hybrid_skill_ready(202))
+        self.assertFalse(focus_restore._skill_input_groups)
 
     def test_hybrid_background_failure_falls_back_to_foreground_with_restore(self) -> None:
         focus_restore._mark_hybrid_skill_ready(202)
@@ -237,7 +277,12 @@ class FocusRestoreTest(unittest.TestCase):
             run_action=Mock(return_value=SimpleNamespace(success=True)),
         )
         argv = SimpleNamespace(
-            custom_action_param={"kind": "key", "key": 81, "repeat": 1},
+            custom_action_param={
+                "kind": "key",
+                "key": 81,
+                "repeat": 1,
+                "skill_input_group": True,
+            },
             task_detail=SimpleNamespace(task_id=1),
             node_name="LisePressQ",
         )
@@ -252,11 +297,86 @@ class FocusRestoreTest(unittest.TestCase):
             patch.object(focus_restore, "_send_background_key", return_value=False),
         ):
             result = focus_restore.HybridSkillAction().run(context, argv)
+            self.assertEqual(restore.call_count, 0)
+            boundary = focus_restore.HybridSkillDungeonComplete().run(context, argv)
 
         self.assertTrue(result.success)
+        self.assertTrue(boundary.success)
         context.run_action.assert_called_once_with("FocusGuardQKeyProxy")
         restore.assert_called_once_with(101, (300, 400))
         self.assertTrue(focus_restore._is_hybrid_skill_ready(202))
+
+    def test_normal_skill_keeps_e_and_q_in_one_foreground_group(self) -> None:
+        context = SimpleNamespace(
+            tasker=SimpleNamespace(controller=SimpleNamespace(info={"hwnd": 202})),
+            run_action=Mock(return_value=SimpleNamespace(success=True)),
+            override_pipeline=Mock(return_value=True),
+        )
+        e_argv = SimpleNamespace(
+            custom_action_param={
+                "kind": "key",
+                "key": 69,
+                "repeat": 1,
+                "skill_input_group": True,
+                "sequence_total": 2,
+            },
+            task_detail=SimpleNamespace(task_id=7),
+            node_name="LisePressE",
+        )
+        q_argv = SimpleNamespace(
+            custom_action_param={
+                "kind": "key",
+                "key": 81,
+                "repeat": 3,
+                "interval_ms": 100,
+                "skill_input_group": True,
+            },
+            task_detail=SimpleNamespace(task_id=7),
+            node_name="LisePressQ",
+        )
+        with (
+            patch.object(
+                focus_restore,
+                "_remember_restore_target",
+                return_value=(101, (300, 400)),
+            ),
+            patch.object(
+                focus_restore, "_activate_game_for_skill", return_value=True
+            ) as activate,
+            patch.object(focus_restore, "_restore_window_and_cursor") as restore,
+            patch.object(focus_restore.time, "sleep") as sleep,
+        ):
+            first_e_result = focus_restore.FocusGuardAction().run(context, e_argv)
+            second_e_result = focus_restore.FocusGuardAction().run(context, e_argv)
+            q_result = focus_restore.FocusGuardAction().run(context, q_argv)
+            self.assertEqual(restore.call_count, 0)
+            end_result = focus_restore.SkillInputGroupComplete().run(context, q_argv)
+
+        self.assertTrue(first_e_result.success)
+        self.assertTrue(second_e_result.success)
+        self.assertTrue(q_result.success)
+        self.assertTrue(end_result.success)
+        activate.assert_called_once_with(202)
+        self.assertEqual(
+            context.run_action.call_args_list,
+            [
+                unittest.mock.call("FocusGuardEKeyProxy"),
+                unittest.mock.call("FocusGuardEKeyProxy"),
+                unittest.mock.call("FocusGuardQKeyProxy"),
+                unittest.mock.call("FocusGuardQKeyProxy"),
+                unittest.mock.call("FocusGuardQKeyProxy"),
+            ],
+        )
+        self.assertEqual(
+            sleep.call_args_list,
+            [
+                unittest.mock.call(0.1),
+                unittest.mock.call(0.1),
+                unittest.mock.call(0.1),
+            ],
+        )
+        restore.assert_called_once_with(101, (300, 400))
+        self.assertFalse(focus_restore._skill_input_groups)
 
     def test_fishing_hybrid_uses_first_foreground_then_background(self) -> None:
         context = SimpleNamespace(

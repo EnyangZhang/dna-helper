@@ -7,6 +7,7 @@ import json
 import threading
 import time
 from ctypes import wintypes
+from dataclasses import dataclass
 
 from maa.agent.agent_server import AgentServer
 from maa.context import Context
@@ -88,6 +89,18 @@ _e_sequence_progress: dict[tuple[int, str], int] = {}
 _hybrid_skill_lock = threading.Lock()
 _hybrid_skill_ready_hwnd = 0
 _hybrid_fishing_ready_hwnd = 0
+_skill_input_group_lock = threading.RLock()
+
+
+@dataclass(frozen=True)
+class _SkillInputGroup:
+    game_hwnd: int
+    restore_hwnd: int
+    restore_cursor_position: tuple[int, int] | None
+    background_key_input: bool
+
+
+_skill_input_groups: dict[int, _SkillInputGroup] = {}
 
 
 def _next_e_sequence_index(task_id: int, node_name: str, total: int) -> int:
@@ -294,6 +307,69 @@ def _activate_game_for_skill(game_hwnd: int) -> bool:
     return True
 
 
+def _task_id(argv: CustomAction.RunArg) -> int:
+    return int(getattr(argv.task_detail, "task_id", 0))
+
+
+def _finish_skill_input_group(task_id: int, restore_delay_ms: int = 100) -> bool:
+    """Close one E/Q group and restore the user only after the full group ends."""
+    with _skill_input_group_lock:
+        group = _skill_input_groups.pop(task_id, None)
+    if group is None or group.background_key_input:
+        return True
+    if restore_delay_ms:
+        time.sleep(max(0, restore_delay_ms) / 1000)
+    _restore_window_and_cursor(group.restore_hwnd, group.restore_cursor_position)
+    return True
+
+
+def _finish_all_skill_input_groups() -> None:
+    with _skill_input_group_lock:
+        task_ids = list(_skill_input_groups)
+    for task_id in task_ids:
+        _finish_skill_input_group(task_id, restore_delay_ms=0)
+
+
+def _begin_skill_input_group(
+    context: Context,
+    argv: CustomAction.RunArg,
+    *,
+    background_key_input: bool,
+) -> _SkillInputGroup | None:
+    """Start or reuse one foreground/background group for all E/Q inputs."""
+    task_id = _task_id(argv)
+    game_hwnd = _controller_hwnd(context)
+    with _skill_input_group_lock:
+        existing = _skill_input_groups.get(task_id)
+    if existing is not None:
+        if (
+            existing.game_hwnd == game_hwnd
+            and existing.background_key_input == background_key_input
+        ):
+            return existing
+        _finish_skill_input_group(task_id, restore_delay_ms=0)
+
+    if not game_hwnd:
+        return None
+    if background_key_input:
+        group = _SkillInputGroup(game_hwnd, 0, None, True)
+    else:
+        restore_hwnd, restore_cursor_position = _remember_restore_target(
+            _foreground_window(), game_hwnd, keep_game_focused=True
+        )
+        if not _activate_game_for_skill(game_hwnd):
+            return None
+        group = _SkillInputGroup(
+            game_hwnd,
+            restore_hwnd,
+            restore_cursor_position,
+            False,
+        )
+    with _skill_input_group_lock:
+        _skill_input_groups[task_id] = group
+    return group
+
+
 def _parse_params(raw: object) -> dict:
     if isinstance(raw, dict):
         return raw
@@ -370,6 +446,7 @@ class FocusGuardStart(CustomAction):
             int(getattr(argv.task_detail, "task_id", 0)),
         )
         if task_started:
+            _finish_all_skill_input_groups()
             _reset_hybrid_skill_ready()
             _reset_hybrid_fishing_ready()
             telegram_bot.notify_task_started(progress_mode)
@@ -425,14 +502,19 @@ class FocusGuardAction(CustomAction):
     ) -> CustomAction.RunResult:
         params = _parse_params(argv.custom_action_param)
         kind = params.get("kind")
-        repeat = min(10, max(1, int(params.get("repeat", 3))))
-        interval_ms = min(1000, max(0, int(params.get("interval_ms", 50))))
+        repeat = max(1, int(params.get("repeat", 3)))
+        interval_ms = max(0, int(params.get("interval_ms", 50)))
         restore_delay_ms = min(
             1000, max(0, int(params.get("restore_delay_ms", 100)))
         )
+        skill_input_group = bool(params.get("skill_input_group", False))
         background_key_input = bool(self.background_key_input and kind == "key")
         force_game_foreground = bool(self.force_game_foreground and kind == "key")
-        should_restore = bool(params.get("restore", True)) and not background_key_input
+        should_restore = (
+            bool(params.get("restore", True))
+            and not background_key_input
+            and not skill_input_group
+        )
 
         if kind == "key":
             key = params.get("key")
@@ -500,22 +582,32 @@ class FocusGuardAction(CustomAction):
         else:
             return CustomAction.RunResult(success=False)
 
+        track_e_sequence = bool(params.get("track_e_sequence", True))
         e_sequence_index = 0
         e_sequence_total = 0
-        track_e_sequence = bool(params.get("track_e_sequence", True))
         if kind == "key" and key == 69 and track_e_sequence:
-            e_sequence_total = max(1, int(params.get("sequence_total", 1)))
-            task_id = int(getattr(argv.task_detail, "task_id", 0))
+            e_sequence_total = max(1, int(params.get("sequence_total", repeat)))
             e_sequence_index = _next_e_sequence_index(
-                task_id, argv.node_name, e_sequence_total
+                _task_id(argv), argv.node_name, e_sequence_total
             )
 
         game_hwnd = _controller_hwnd(context)
-        restore_hwnd, restore_cursor_position = _remember_restore_target(
-            _foreground_window(), game_hwnd, keep_game_focused=True
-        )
-        if force_game_foreground and not _activate_game_for_skill(game_hwnd):
-            return CustomAction.RunResult(success=False)
+        if skill_input_group:
+            group = _begin_skill_input_group(
+                context,
+                argv,
+                background_key_input=background_key_input,
+            )
+            if group is None:
+                return CustomAction.RunResult(success=False)
+            background_key_input = group.background_key_input
+            restore_hwnd, restore_cursor_position = 0, None
+        else:
+            restore_hwnd, restore_cursor_position = _remember_restore_target(
+                _foreground_window(), game_hwnd, keep_game_focused=True
+            )
+            if force_game_foreground and not _activate_game_for_skill(game_hwnd):
+                return CustomAction.RunResult(success=False)
         succeeded = True
 
         try:
@@ -561,7 +653,7 @@ class FocusGuardAction(CustomAction):
                                 "focus": {
                                     "Node.Action.Succeeded": {
                                         "content": (
-                                            f"[角色] E 连续点击：第 {e_sequence_index} / "
+                                            f"[角色] E 连续点击：第 {e_sequence_index + index} / "
                                             f"{e_sequence_total} 次已发送"
                                         ),
                                         "display": ["log"],
@@ -580,6 +672,8 @@ class FocusGuardAction(CustomAction):
                 else:
                     detail = context.run_action(proxy_node)
                     succeeded = succeeded and detail is not None and detail.success
+                if not succeeded:
+                    break
                 if index + 1 < repeat and interval_ms:
                     time.sleep(interval_ms / 1000)
             if should_restore and restore_delay_ms:
@@ -591,18 +685,20 @@ class FocusGuardAction(CustomAction):
         if succeeded:
             _apply_progress_event(params)
             _log_fishing_action(params, background_key_input)
+        elif skill_input_group:
+            _finish_skill_input_group(_task_id(argv), restore_delay_ms=0)
 
         return CustomAction.RunResult(success=succeeded)
 
 
 class _ForegroundPrimingSkillAction(FocusGuardAction):
-    """Use one guaranteed foreground E/Q action and then restore focus."""
+    """Force foreground input; grouped E/Q defers restoration to its boundary."""
 
     force_game_foreground = True
 
 
 class _BackgroundSkillAction(FocusGuardAction):
-    """Use background messages only after foreground priming succeeded."""
+    """Use background messages; grouped E/Q keeps that mode to its boundary."""
 
     background_key_input = True
 
@@ -621,11 +717,25 @@ class HybridSkillAction(CustomAction):
                 return background_result
             _reset_hybrid_skill_ready()
             foreground_result = _ForegroundPrimingSkillAction().run(context, argv)
-            if foreground_result.success:
-                _mark_hybrid_skill_ready(game_hwnd)
             return foreground_result
 
         return _ForegroundPrimingSkillAction().run(context, argv)
+
+
+@AgentServer.custom_action("skill_input_group_complete")
+class SkillInputGroupComplete(CustomAction):
+    """Close the shared E/Q group after every configured skill input has run."""
+
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
+        restore_delay_ms = min(
+            1000, max(0, int(params.get("restore_delay_ms", 100)))
+        )
+        return CustomAction.RunResult(
+            success=_finish_skill_input_group(_task_id(argv), restore_delay_ms)
+        )
 
 
 @AgentServer.custom_action("hybrid_skill_dungeon_complete")
@@ -637,6 +747,8 @@ class HybridSkillDungeonComplete(CustomAction):
     ) -> CustomAction.RunResult:
         game_hwnd = _controller_hwnd(context)
         if not game_hwnd:
+            return CustomAction.RunResult(success=False)
+        if not _finish_skill_input_group(_task_id(argv), restore_delay_ms=100):
             return CustomAction.RunResult(success=False)
         _mark_hybrid_skill_ready(game_hwnd)
         return CustomAction.RunResult(success=True)

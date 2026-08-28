@@ -193,6 +193,7 @@
                                 "kind": "key",
                                 "key": 69,
                                 "repeat": 1,
+                                "skill_input_group": true,
                                 "sequence_total": "{count}"
                             }
                         }
@@ -208,6 +209,7 @@
                                 "kind": "key",
                                 "key": 69,
                                 "repeat": 1,
+                                "skill_input_group": true,
                                 "sequence_total": "{count}"
                             }
                         }

@@ -26,6 +26,7 @@ _state: dict[str, Any] = {
     "stage_count": 0,
     "stage_total": 99,
     "stage_tracking_active": False,
+    "completion_reason": None,
     "started_at": None,
     "updated_at": time.time(),
 }
@@ -64,6 +65,7 @@ def start_task(
                 "stage_count": initial_stage,
                 "stage_total": max(0, int(stage_total)),
                 "stage_tracking_active": mode == "普通无尽",
+                "completion_reason": None,
                 "started_at": now,
                 "updated_at": now,
             }
@@ -88,6 +90,7 @@ def reset() -> None:
                 "stage_count": 0,
                 "stage_total": 99,
                 "stage_tracking_active": False,
+                "completion_reason": None,
                 "started_at": None,
                 "updated_at": now,
             }
@@ -154,6 +157,19 @@ def record_fishing_catch() -> bool:
         _state["stage_count"] = min(next_count, target) if target else next_count
         if target and int(_state["stage_count"]) >= target:
             _state["status"] = "completed"
+        _state["updated_at"] = time.time()
+        _persist_locked()
+        return True
+
+
+def mark_fishing_pool_empty() -> bool:
+    """Complete an active fishing task because the game reports no fish."""
+
+    with _lock:
+        if _state["mode"] != "挂机钓鱼" or _state["status"] != "running":
+            return False
+        _state["status"] = "completed"
+        _state["completion_reason"] = "fishing_pool_empty"
         _state["updated_at"] = time.time()
         _persist_locked()
         return True

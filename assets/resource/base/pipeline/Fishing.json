@@ -24,11 +24,36 @@
         "pre_delay": 0,
         "post_delay": 0,
         "next": [
+            "FishingPoolEmptyDetected",
             "FishingClosePromptDetected",
             "FishingEPromptDetected",
             "FishingPromptDetected",
             "FishingIdle"
         ]
+    },
+    "FishingPoolEmptyDetected": {
+        "recognition": {
+            "type": "Custom",
+            "param": {
+                "custom_recognition": "fishing_prompt",
+                "custom_recognition_param": {
+                    "prompt": "empty",
+                    "threshold": 0.85,
+                    "cooldown_ms": 60000
+                },
+                "roi": [0, 0, 0, 0]
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "fishing_pool_empty",
+                "custom_action_param": {}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
     },
     "FishingPromptDetected": {
         "recognition": {
