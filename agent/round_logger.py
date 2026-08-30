@@ -189,6 +189,49 @@ class CoinAFKRoundDecision(CustomAction):
         return CustomAction.RunResult(success=succeeded)
 
 
+@AgentServer.custom_action("mediation_afk_log_round")
+class MediationAFKRoundLogger(CustomAction):
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
+        total = max(1, int(params.get("total", 1)))
+        current = max(1, context.get_hit_count("MediationAFKRoundQuota"))
+        progress_state.complete_round(current, total, "调停挂机")
+        succeeded = context.override_pipeline(
+            {
+                "MediationAFKRoundLog": {
+                    "focus": {
+                        "Node.Action.Succeeded": {
+                            "content": f"[调停挂机] 已完成第 {current} / {total} 次副本",
+                            "display": ["log"],
+                        }
+                    }
+                }
+            }
+        )
+        return CustomAction.RunResult(success=succeeded)
+
+
+@AgentServer.custom_action("mediation_afk_decide_restart")
+class MediationAFKRoundDecision(CustomAction):
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
+        total = max(1, int(params.get("total", 1)))
+        current = max(1, context.get_hit_count("MediationAFKRoundQuota"))
+        next_node = (
+            "MediationAFKRestartAgain"
+            if current < total
+            else "MediationAFKFinished"
+        )
+        succeeded = context.override_pipeline(
+            {"MediationAFKRoundDecision": {"next": [next_node]}}
+        )
+        return CustomAction.RunResult(success=succeeded)
+
+
 def _parse_params(raw: object) -> dict:
     if isinstance(raw, dict):
         return raw

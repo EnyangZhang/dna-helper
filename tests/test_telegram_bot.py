@@ -207,6 +207,14 @@ class TelegramBotTest(unittest.TestCase):
         )
         snapshot.assert_called_once_with()
 
+    @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "调停挂机"})
+    def test_mediation_afk_completion_uses_formal_task_label(self, snapshot) -> None:
+        self.assertEqual(
+            telegram_bot.format_task_completed_message(),
+            "DNA Helper 任务已完成\n任务：调停挂机\n模式：自动循环",
+        )
+        snapshot.assert_called_once_with()
+
     @patch(
         "telegram_bot.progress_state.snapshot",
         return_value={

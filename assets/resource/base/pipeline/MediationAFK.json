@@ -1,0 +1,380 @@
+{
+    "MediationAFKEntry": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_start",
+                "custom_action_param": {
+                    "progress_mode": "调停挂机",
+                    "progress_total": 1,
+                    "progress_stage_total": 0
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[调停挂机] 任务已启动，等待副本状态确认",
+                "display": ["log"]
+            }
+        },
+        "next": ["MediationAFKInitialMonitor"]
+    },
+    "MediationAFKInitialMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "MediationAFKCompletedAgain",
+            "MediationAFKSpaceStart",
+            "MediationAFKCombatHudFrame1",
+            "MediationAFKInitialMonitor"
+        ]
+    },
+    "MediationAFKSpaceStart": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CoinAFK/space_start_challenge.png",
+                "roi": [650, 430, 300, 100],
+                "threshold": 0.75
+            }
+        },
+        "action": {"type": "Click", "param": {"target": [770, 520]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["MediationAFKSpaceStartClick2"]
+    },
+    "MediationAFKSpaceStartClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [770, 520]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["MediationAFKSpaceStartClick3"]
+    },
+    "MediationAFKSpaceStartClick3": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [770, 520]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[调停挂机] Space“开始挑战”已点击",
+                "display": ["log"]
+            }
+        },
+        "next": ["MediationAFKSpaceStartClick3Finalize"]
+    },
+    "MediationAFKSpaceStartClick3Finalize": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_finalize",
+                "custom_action_param": {
+                    "restore_delay_ms": 100,
+                    "progress_event": "next_round_started"
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MediationAFKWaitCombatHud"]
+    },
+    "MediationAFKWaitCombatHud": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "MediationAFKCombatHudFrame1",
+            "MediationAFKSpaceStart",
+            "MediationAFKWaitCombatHud"
+        ]
+    },
+    "MediationAFKCombatHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["MediationAFKCombatHudFrame2"],
+        "on_error": ["MediationAFKWaitCombatHud"]
+    },
+    "MediationAFKCombatHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["MediationAFKCombatHudReady"],
+        "on_error": ["MediationAFKWaitCombatHud"]
+    },
+    "MediationAFKCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {"custom_action": "progress_dungeon_entered"}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "on_error": ["MediationAFKWaitCombatHud"],
+        "next": ["MediationAFKCombatSequence"]
+    },
+    "MediationAFKCombatSequence": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "input_sequence",
+                    "steps": [
+                        {"key_down": 87},
+                        {"delay_ms": 1200},
+                        {"key_up": 87},
+                        {"mouse_down": "left"},
+                        {"delay_ms": 250},
+                        {"mouse_up": "left"},
+                        {"delay_ms": 300},
+                        {"key_press": 70},
+                        {"delay_ms": 300},
+                        {"key_press": 70},
+                        {"delay_ms": 300},
+                        {"key_press": 70},
+                        {"delay_ms": 300},
+                        {"key_press": 70},
+                        {"delay_ms": 300},
+                        {"mouse_move": [0, -120]},
+                        {"mouse_down": "right"},
+                        {"delay_ms": 300},
+                        {"mouse_up": "right"},
+                        {"delay_ms": 300},
+                        {"key_press": 90}
+                    ],
+                    "restore_delay_ms": 500
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 3000,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[调停挂机] 局内角色操作已完成：W↓ → 1200ms → W↑ → 左键↓ → 250ms → 左键↑ → 300ms → F → 300ms → F → 300ms → F → 300ms → F → 300ms → 鼠标1秒↑120px → 右键↓ → 300ms → 右键↑ → 300ms → Z",
+                "display": ["log"]
+            }
+        },
+        "next": ["MediationAFKInsideMonitor"]
+    },
+    "MediationAFKInsideMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 1000000000,
+        "next": [
+            "MediationAFKInsideGate",
+            "MediationAFKCompletedAgain",
+            "MediationAFKInsideMonitor"
+        ]
+    },
+    "MediationAFKInsideGate": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MediationAFKInsideMonitor"],
+        "on_error": ["MediationAFKCompletedAgain", "MediationAFKInsideMonitor"]
+    },
+    "MediationAFKCompletedAgain": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [800, 560, 300, 130],
+                "threshold": 0.8
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MediationAFKRoundQuota"]
+    },
+    "MediationAFKRoundQuota": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "mediation_afk_log_round",
+                "custom_action_param": {"total": 1}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "max_hit": 1,
+        "next": ["MediationAFKRoundLog"]
+    },
+    "MediationAFKRoundLog": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MediationAFKRoundDecision"]
+    },
+    "MediationAFKRoundDecision": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "mediation_afk_decide_restart",
+                "custom_action_param": {"total": 1}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MediationAFKFinished"]
+    },
+    "MediationAFKRestartAgain": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [800, 560, 300, 130],
+                "threshold": 0.8
+            }
+        },
+        "action": {"type": "Click", "param": {"target": [920, 640]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["MediationAFKAgainClick2"]
+    },
+    "MediationAFKRestartAgainRetry": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [800, 560, 300, 130],
+                "threshold": 0.8
+            }
+        },
+        "action": {"type": "Click", "param": {"target": [920, 640]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["MediationAFKAgainClick2"]
+    },
+    "MediationAFKAgainClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [920, 640]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["MediationAFKAgainClick3"]
+    },
+    "MediationAFKAgainClick3": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [920, 640]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[调停挂机] “再次进行”已点击",
+                "display": ["log"]
+            }
+        },
+        "next": ["MediationAFKAgainClick3Finalize"]
+    },
+    "MediationAFKAgainClick3Finalize": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_finalize",
+                "custom_action_param": {"restore_delay_ms": 100}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MediationAFKRestartMonitor"]
+    },
+    "MediationAFKRestartMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "MediationAFKRestartAgainRetry",
+            "MediationAFKSpaceStart",
+            "MediationAFKCombatHudFrame1",
+            "MediationAFKRestartMonitor"
+        ]
+    },
+    "MediationAFKFinished": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "StopTask"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[调停挂机] 副本轮次已完成，任务结束",
+                "display": ["log", "toast"]
+            }
+        }
+    }
+}

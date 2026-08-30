@@ -18,7 +18,7 @@
         {
             "name": "NormalAFK",
             "label": "普通挂机",
-            "description": "先启动进度监控，再执行普通无尽加速任务。",
+            "description": "先启动进度监控，默认执行普通无尽加速；调停挂机已加入但默认关闭，需要时请关闭普通无尽并启用调停。",
             "task": [
                 {
                     "name": "ProgressMonitor",
@@ -27,6 +27,10 @@
                 {
                     "name": "NormalEndlessBoost",
                     "enabled": true
+                },
+                {
+                    "name": "MediationAFK",
+                    "enabled": false
                 }
             ]
         }

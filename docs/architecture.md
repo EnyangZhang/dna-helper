@@ -33,7 +33,7 @@ DNA Helper 由四层组成：
 
 ## 用户任务和预设
 
-当前有四个用户任务：三个游戏任务位于“日常挂机”分组，一个可独立保活或自动让行的监听启动任务位于“监控”分组：
+当前有六个用户任务：五个游戏任务位于“日常挂机”分组，一个可独立保活或自动让行的监听启动任务位于“监控”分组：
 
 | 任务 | 模式 | 轮次 | 技能 | 高台判断 |
 |---|---|---:|---:|---:|
@@ -43,14 +43,16 @@ DNA Helper 由四层组成：
 | 普通无尽加速 | 无尽 | 无 | 无 | 无 |
 | 普通无尽加速 | 驱离 | 1–9999，默认 1 | 可选 | 可选 |
 | 皎皎币挂机 | 自动循环 | 1–999，默认 1 | 固定按键序列 | 目标小地图必选 |
+| 调停挂机 | 自动循环 | 1–999，默认 1 | 固定 W/左键/四 F/鼠标/右键/Z 输入 | 无 |
+| 挂机钓鱼 | 大世界钓鱼 | 1–9999，默认 120 | 提示驱动输入 | 无 |
 | 进度监控 | 无 | 无 | 无 | 无 |
 
 新建配置提供两个互斥用途的独立预设：
 
 - `CipherAFK` / “密函挂机”：先加入 `ProgressMonitor`，再加入 `CipherEndlessBoost`。
-- `NormalAFK` / “普通挂机”：先加入 `ProgressMonitor`，再加入 `NormalEndlessBoost`。
+- `NormalAFK` / “普通挂机”：先加入 `ProgressMonitor`，再加入启用的 `NormalEndlessBoost`，并加入默认关闭的 `MediationAFK` 供用户二选一。
 
-`ProgressMonitor` 在预设中必须排在对应游戏任务之前。MXU 会先把每项 `Calling post_task: entry=...` 与返回的 `task_id` 写入当前 `debug/mxu-tauri.log`；Agent 用自身 `task_id` 定位本轮监控提交记录，并在最多 500ms 的只读重试窗口内检查其后的已提交入口。若存在 `RewardConfirmEntry`、`NormalEndlessEntry` 或 `CoinAFKEntry`，它把 `ProgressMonitorLog.next` 动态覆盖为空；否则保留基础 Pipeline 的保活路径。该判断不调用 `MaaTaskerGetTaskDetail`、不访问不存在的 Maa 任务 ID、不依赖任务选项，因此已保存的旧预设无需迁移。预设仍不得同时启用两个游戏任务，否则排在第一位的长期任务不会自然结束。预设定义在 `resource/tasks/preset/AFK.json`，不得通过修改用户生成的 `config/` 实现。
+`ProgressMonitor` 在预设中必须排在对应游戏任务之前。MXU 会先把每项 `Calling post_task: entry=...` 与返回的 `task_id` 写入当前 `debug/mxu-tauri.log`；Agent 用自身 `task_id` 定位本轮监控提交记录，并在最多 500ms 的只读重试窗口内检查其后的已提交入口。若存在 `RewardConfirmEntry`、`NormalEndlessEntry`、`CoinAFKEntry`、`MediationAFKEntry` 或 `FishingEntry`，它把 `ProgressMonitorLog.next` 动态覆盖为空；否则保留基础 Pipeline 的保活路径。该判断不调用 `MaaTaskerGetTaskDetail`、不访问不存在的 Maa 任务 ID、不依赖任务选项，因此已保存的旧预设无需迁移。预设仍不得同时启用两个游戏任务，否则排在第一位的长期任务不会自然结束。预设定义在 `resource/tasks/preset/AFK.json`，不得通过修改用户生成的 `config/` 实现。
 
 用户可见的新能力必须：
 
@@ -59,7 +61,7 @@ DNA Helper 由四层组成：
 - 不显示未解析的本地化键。
 - 不通过 `default_check: true` 绕过新建配置的预设选择。
 
-所有新功能的连续鼠标点击统一采用普通扼守式快速链：首节点识别并执行 Maa 原生 `Click`，后续点击均使用 `DirectHit + Click`；三连击的前两段各使用 50ms `post_delay`，第三击后以 `0ms` 进入 `DirectHit + focus_guard_finalize`。收尾动作只恢复窗口和鼠标并记录逻辑事件，绝不发送游戏输入。逻辑进度、轮次和成功日志只允许在收尾节点触发一次。禁止 Agent 发送鼠标点击，也禁止用单个 Agent 自定义动作内部的 `repeat` 代替该结构。普通扼守的主局内分支与技能后局内分支、密函和皎皎币现有点击链均遵守此结构；校验器枚举检查这些链，并全局拒绝基础 Pipeline 与任务覆盖中的任何 `kind: click`。任何不同次数或延迟的例外都必须记录原因并由校验器或测试固定。
+所有新功能的连续鼠标点击统一采用普通扼守式快速链：首节点识别并执行 Maa 原生 `Click`，后续点击均使用 `DirectHit + Click`；三连击的前两段各使用 50ms `post_delay`，第三击后以 `0ms` 进入 `DirectHit + focus_guard_finalize`。收尾动作只恢复窗口和鼠标并记录逻辑事件，绝不发送游戏输入。逻辑进度、轮次和成功日志只允许在收尾节点触发一次。禁止 Agent 发送鼠标点击，也禁止用单个 Agent 自定义动作内部的 `repeat` 代替该结构。普通扼守的主局内分支与技能后局内分支、密函、皎皎币和调停现有点击链均遵守此结构；校验器枚举检查这些链，并全局拒绝基础 Pipeline 与任务覆盖中的任何 `kind: click`。任何不同次数或延迟的例外都必须记录原因并由校验器或测试固定。
 
 所有 Pipeline 节点还必须显式声明 `rate_limit`、`pre_delay`、`post_delay`，禁止继承 MaaFramework 默认时序。即时路由、状态门控、输入代理和完成决策使用 `0 / 0 / 0`；长期或边界未知空闲轮询使用 `0 / 0 / 50`；连续 HUD 确认的前两帧使用 `0 / 0 / 50`、最后一帧使用 `0 / 0 / 0`。用户配置等待和限时识别窗口可以使用其他非负值，但必须写全三个字段并由文档及校验或测试说明。这个约束同时控制“页面出现到第一次点击”的延迟和点击链内部间隔，不能只验证后者。`tools/validate_project.py` 对全部节点强制检查字段存在且为非负数。
 
@@ -74,11 +76,15 @@ assets/resource/base/pipeline/
   CharacterControl.json       # HUD、高台判断、E/Q 与输入代理
   ProgressMonitor.json        # 启动 Telegram 监听并按队列自动保活/让行
   CoinAFK.json                # 皎皎币委托启动、地图筛选、放弃和 99 局循环
+  MediationAFK.json           # 调停 Space 启动、HUD 门控、固定角色输入和结算重开
+  Fishing.json               # 大世界钓鱼提示识别与输入
 
 assets/resource/tasks/
   CipherEndlessBoost.json     # 密函模式和技能开关覆盖
   NormalEndlessBoost.json     # 普通模式、轮次和技能覆盖
   CoinAFK.json                # 皎皎币挂机任务与轮次覆盖
+  MediationAFK.json           # 调停挂机任务与轮次覆盖
+  Fishing.json               # 挂机钓鱼任务与数量覆盖
   ProgressMonitor.json        # “监控”分组的正式任务定义
   LiseExpelSkillCast.json     # 共享技能选项
   preset/AFK.json             # 监控在前、游戏任务在后的两个挂机预设
@@ -93,7 +99,7 @@ Telegram 监听使用 `config/agent-processes/.telegram-owner.json` 维护跨进
 UI 的“监控”分组提供正式任务“进度监控”，它会自动选择两种运行方式：
 
 - 独立运行：`ProgressMonitorLog` 转入自循环的 `ProgressMonitorKeepAlive`，任务保持运行，直到 UI 停止。
-- 队列引导：Agent 从 MXU 的当前提交日志确认后续 `RewardConfirmEntry`、`NormalEndlessEntry` 或 `CoinAFKEntry`，把 `ProgressMonitorLog.next` 覆盖为空并完成当前任务。
+- 队列引导：Agent 从 MXU 的当前提交日志确认后续 `RewardConfirmEntry`、`NormalEndlessEntry`、`CoinAFKEntry`、`MediationAFKEntry` 或 `FishingEntry`，把 `ProgressMonitorLog.next` 覆盖为空并完成当前任务。
 
 两个内置预设都把它作为第一个启用任务，后面才是对应的密函或普通长期任务：
 
@@ -162,10 +168,15 @@ Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有
 | 普通驱离＋技能开启 | 血条、高台小地图 | 再次进行、开始挑战 |
 | 普通驱离＋技能关闭 | 无 | 再次进行、开始挑战 |
 | 皎皎币挂机 | 血条、目标小地图、继续挑战、确认选择 | 再次进行、扼守/无尽委托卡片、委托页开始挑战、Space 开始挑战；错误地图时使用放弃挑战和确定 |
+| 调停挂机 | 血条、固定 W/左键/四 F/鼠标/右键/Z 角色操作 | 再次进行、Space 开始挑战 |
 
 皎皎币挂机的初始入口是特例：为防止从错误页面接管，它只识别委托页右下角的“开始挑战”。点击委托页和弹窗的两个开始按钮后，连续 3 帧血条确认局内并记录当前副本第 1 局，再在 1500ms 窗口内检查 `CoinAFK/target_minimap.png`。命中后先在同一 Agent 角色操作集中等待 3000ms，让战斗输入层稳定，再执行 `E → 300ms → E → 300ms → S 600ms → Q → 3500ms → S 5000ms → D 100ms`，然后进入普通扼守式局内循环；未命中则执行 `Esc → 放弃挑战 → 确定 → 再次进行`。正常重开时，再次进行后优先识别弹窗 Space 开始挑战并进入 HUD 等待；`CoinAFKWaitSpaceStart` 本身也把三帧血条确认放在首位，因此弹窗被手动处理、自动跳过或状态误退时仍能恢复局内。Space 点击后的 `CoinAFKWaitCombatHud` 不直接接受委托页按钮：只有 `CoinAFKLobbyRecoveryCandidate` 命中后等待 1500ms，且 `CoinAFKLobbyRecoveryConfirm` 再次命中，才进入委托页点击链，防止加载开始时仍保留的旧帧以 `1.0` 匹配分数把状态机错误带回局外。同一个重开监控仍保留“扼守/无尽”委托卡片和委托页开始挑战，作为游戏确实返回委托列表或详情页时的恢复分支。错误地图主动放弃不经过 `CoinAFKRoundQuota`，因此不会污染局外完成数。结算页“再次进行”出现时无论实际局内进度是否达到 99 都进入轮次记录：不足 99 时保留真实进度、计入一次完成并继续剩余副本，同时只发送一次异常通知。
 
 皎皎币挂机的全部三连鼠标操作都不使用 Agent 鼠标输入，包括委托页开始、Space 开始、委托卡片恢复、再次进行、局内继续/确认和错误地图放弃/确定。它们统一与普通扼守保持相同的快速结构：三次均直接执行 Maa `Click`，前两个节点各等待 50ms，第三击后立即进入无输入的 `focus_guard_finalize` 恢复焦点；需要进度事件的链也只在收尾节点记录一次。这样既保留相同的原生快速连点，也不会把三次物理点击重复计算为三轮或误触发角色攻击。
+
+调停挂机的入口是 `MediationAFKInitialMonitor` 未知状态分类器：按优先级识别结算页“再次进行”、弹窗 `Space 开始挑战` 和战斗血条，不识别委托页按钮，也不接受小地图。首次命中“再次进行”直接进入 `MediationAFKRoundQuota`，按已完成副本语义计数；若配额为 1，决策节点直接结束而不再点击重开。Space 开始链完成后进入 `MediationAFKWaitCombatHud`；从已在局内启动时则直接进入同一组三帧血条确认。连续 3 帧确认后由 `MediationAFKCombatSequence` 明确等待 3000ms，再执行固定前台序列 `W↓ → 1200ms → W↑ → 左键↓ → 250ms → 左键↑ → 300ms → F → 300ms → F → 300ms → F → 300ms → F → 300ms → 鼠标1秒↑120px → 右键↓ → 300ms → 右键↑ → 300ms → Z`；序列不发送 Shift。左键按住 250ms，抬起后等待 300ms 才发送第一次 F；四次 F 之间各等待 300ms，第四次 F 后再等待 300ms。120px 位移由 6 个各 20px 的物理移动组成，5 个步间隔各 200ms，总时长约 1 秒。`focus_guard_action` 的 `input_sequence` 分支在执行前静态拒绝重复按下、未按先抬和未闭合的键盘或鼠标按钮序列，并把单轴相对移动限制为 20000px；键盘继续使用 Maa 控制器，玩法鼠标则在再次确认游戏前台后使用 Windows 物理相对移动与左/右键转换，绕开实测只返回成功但游戏不消费的 Maa `post_relative_move / post_touch_*`。它跟踪仍按下的输入，W、左键或右键抬起失败时会在恢复焦点前再次补发抬起；右键按住 300ms，抬起后等待 300ms 再发送 Z，Z 后继续等待 500ms 才允许失焦恢复。校验器只允许 `MediationAFKCombatSequence` 使用该录制序列，页面按钮继续只允许 Maa 原生点击。随后 `MediationAFKInsideMonitor` 只维持血条边界并识别局外专属“再次进行”，不存在“继续挑战”“确认选择”或局内 99 轮计数。结算命中后 `MediationAFKRoundQuota` 记录已完成副本；未达到 1–999 配额时走三次原生“再次进行”点击并回到 Space 开始页。重开监控同时保留残留再次进行、Space 开始和三帧血条恢复候选，允许中间页面被手动处理后恢复。
+
+玩法相对鼠标移动已经形成项目级输入约束：所有新增的视角、瞄准和朝向操作都必须调用前台物理鼠标分段移动路径，执行前重新确认游戏焦点，并以明确的单步像素和步间间隔形成可观察速度。禁止改回 Maa `post_relative_move`，也禁止把总位移作为一次瞬时 `mouse_event`；前者实测会出现“框架成功、游戏无响应”，后者容易被游戏合并或丢弃。页面坐标点击不属于玩法移动，仍由 Pipeline 的 Maa 原生点击节点负责，不能复用这条 Agent 输入路径。
 
 密函驱离和普通扼守/驱离支持从局内或局外任意页面启动。任务入口在状态未知时允许一次性同时探测血条和结算按钮；完成首次分类后严格使用分区监控。边界未知节点只能加入当前模式合法的局内按钮：普通扼守保留“继续挑战 / 确认选择”，普通驱离不加入任何扼守按钮，密函驱离保留第一页确认。技能结束后使用独立的 post-skill 边界节点并保留本副本技能锁：血条重新出现只恢复监控，不会再次进入技能链。密函无尽和普通无尽本身没有局外流程，保持原有纯局内链。
 
@@ -383,7 +394,7 @@ E 连续点击的每次底层按键成功后都会记录 `第 N / 总次数`；E
 
 `focus_guard_start` 会对每个新 Maa 游戏任务重新判定初始前台窗口：若初始前台就是控制器绑定的游戏窗口，则清空跨任务保留的非游戏窗口和鼠标快照，避免快捷键从游戏前台启动时错误切回旧窗口。Agent 键盘动作在发送输入前再次检查当前前台；当前仍是游戏时返回空恢复目标，动作结束只释放 `ClipCursor`，不调用窗口切换。原生鼠标点击链的 `focus_guard_finalize` 仍允许使用点击前由 watcher 保存的非游戏快照，因为它执行时游戏前台通常是自动点击造成的，不能按同一规则清除。
 
-E/Q 仍由 `focus_guard_action` 调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKeyProxy`，但四个共享技能节点都带 `skill_input_group: true`。第一项实际 E/Q 会按 Maa `task_id` 创建输入组、记录一次恢复目标并只切入游戏一次；后续 E/Q 复用该组，直到 `LiseSkillCastEnd` 的 `skill_input_group_complete` 才恢复用户窗口和鼠标。E 次数与间隔继续由 Pipeline 外层 `repeat / repeat_delay` 控制，每次重复动作只发送一次 E 并通过任务级索引逐次记录日志；因为输入组保持打开，焦点恢复耗时不会插入两次 E 之间。E 后的 Q 业务间隔仍由节点 `post_delay` 控制，Q 三连也在同一组内以 100ms 间隔执行。任务选项是按顺序提交的独立 Pipeline 覆盖，嵌套 `custom_action_param` 不会深合并，因此 E 间隔选项只能覆写 `repeat_delay / post_delay`，严禁再次写入 `action`，否则会清除次数选项提供的 `kind/key/repeat/skill_input_group` 并让动作立即失败。皎皎币挂机的正式角色操作使用同一动作的 `key_sequence` 分支，但不设置技能输入组：长按 S/D 通过 Maa 控制器的 `post_key_down` / `post_key_up` 实现，E/Q 复用既有按键代理，序列中的等待由 Agent 精确执行；整套序列同样只恢复一次焦点。
+E/Q 仍由 `focus_guard_action` 调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKeyProxy`，但四个共享技能节点都带 `skill_input_group: true`。第一项实际 E/Q 会按 Maa `task_id` 创建输入组、记录一次恢复目标并只切入游戏一次；后续 E/Q 复用该组，直到 `LiseSkillCastEnd` 的 `skill_input_group_complete` 才恢复用户窗口和鼠标。E 次数与间隔继续由 Pipeline 外层 `repeat / repeat_delay` 控制，每次重复动作只发送一次 E 并通过任务级索引逐次记录日志；因为输入组保持打开，焦点恢复耗时不会插入两次 E 之间。E 后的 Q 业务间隔仍由节点 `post_delay` 控制，Q 三连也在同一组内以 100ms 间隔执行。任务选项是按顺序提交的独立 Pipeline 覆盖，嵌套 `custom_action_param` 不会深合并，因此 E 间隔选项只能覆写 `repeat_delay / post_delay`，严禁再次写入 `action`，否则会清除次数选项提供的 `kind/key/repeat/skill_input_group` 并让动作立即失败。皎皎币挂机的正式角色操作使用同一动作的 `key_sequence` 分支，但不设置技能输入组：长按 S/D 通过 Maa 控制器的 `post_key_down` / `post_key_up` 实现，E/Q 复用既有按键代理，序列中的等待由 Agent 精确执行；整套序列同样只恢复一次焦点。调停使用更严格的 `input_sequence` 分支：Maa 控制器负责 W、F 和 Z 键盘输入，Windows 前台物理鼠标事件负责左键按住、分步相对移动和右键按住；整组序列共享一次前台生命周期、失败释放和最终焦点恢复。
 
 只有密函驱离和普通驱离在技能开启后会显示默认关闭的“首次副本前台，后续副本后台”；普通扼守固定使用默认前台技能输入。启用此项时，任务选项把四个 E/Q 节点的自定义动作切换为 `hybrid_skill_action`，并把整套技能公共出口 `LiseSkillCastEnd` 切换为 `hybrid_skill_dungeon_complete`。`focus_guard_start` 为每个新 Maa 游戏任务先关闭遗留输入组，再清除混合输入就绪标记。就绪标记为空期间，首个副本的首项实际 E/Q 通过 `_ForegroundPrimingSkillAction` 创建前台组，以 `_restore_window(game_hwnd)` 把游戏置于前台并等待 100ms；该副本后续全部 E/Q 复用同一组，公共出口才调用 `_restore_window_and_cursor()` 一次并标记当前游戏窗口允许后台输入。首个 E/Q 成功不能提前设置就绪标记。
 
@@ -407,7 +418,7 @@ E/Q 仍由 `focus_guard_action` 调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKey
 进度维度遵循 README 的业务定义：
 
 - 普通扼守与皎皎币的有限副本在三帧战斗 HUD 确认后由 `progress_dungeon_entered` 幂等记录第 1 局，之后每次成功完成逻辑“继续挑战”才加 1；第 99 局不依赖不存在的下一次“继续挑战”。普通无尽在任务入口即以当前第 1 局初始化。密函无尽仍按完整结算循环推进。每组三连击只记录一次；普通模式的 `continue_challenge` 事件使用 5 秒去重窗口，按钮动画残影导致的快速重试不会再次增加进度。
-- 局外副本轮次是“已完成副本数”，由普通扼守、普通驱离、密函驱离和皎皎币的 `RoundLogger` 在识别到“再次进行”后写入。`complete_round()` 不得改写 `stage_count`；若已观察到局内且结算时不足 `stage_total`，返回提前结算结果。Logger 仍计入本次完成并在尚有配额时继续重开，通过独立一次性发送器向手机通知一次真实进度；相同 hit count 的重复识别不得重复通知。从结算页直接接管且没有局内观测时不误报提前结算。
+- 局外副本轮次是“已完成副本数”，由普通扼守、普通驱离、密函驱离、皎皎币和调停的 `RoundLogger` 在识别到“再次进行”后写入。`complete_round()` 不得改写 `stage_count`；若已观察到局内且结算时不足 `stage_total`，返回提前结算结果。Logger 仍计入本次完成并在尚有配额时继续重开，通过独立一次性发送器向手机通知一次真实进度；相同 hit count 的重复识别不得重复通知。从结算页直接接管且没有局内观测时不误报提前结算。调停的 `stage_total` 固定为 0，不建立局内计数；HUD 恢复只把等待下一轮状态切回运行。
 - `Start Challenge` 成功后只把状态切回运行、清零局内进度并等待 HUD 重新记录第 1 局，不增加局外副本轮次。
 - 密函驱离的 Space 确认只表示已重新进入下一轮，不重复增加已完成数。
 
@@ -417,7 +428,7 @@ E/Q 仍由 `focus_guard_action` 调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKey
 
 授权账号发送 `disconnect`、`/disconnect` 或带 Bot 用户名后缀的 `/disconnect@name` 时，轮询线程先同步发送一条关闭确认，再以当前 `update_id + 1` 发出零超时 `getUpdates`，明确消费终止命令，避免 Agent 重启后 Telegram 重放同一条命令；随后发布新的全局停止代次并调用 `telegram_bot.stop(reset_progress=False)`。本实例成功从运行态切换到停止态后必须打印 `[进度监控] disconnect 已执行，本机全部监控通讯已关闭；当前任务继续运行`；其他实例收到新代次时打印全局通讯已停止日志。本实例立即关闭接收、发送、定时状态和所有权线程并释放 owner 文件，其他当前版本实例最多约 2 秒后处理同一代次；全部实例都不重置 `progress_state`，因此正在运行的副本轮次、钓鱼目标和技能状态机不受影响。这里严禁从 Telegram 线程直接调用 `AgentServer.shut_down()`，也严禁保存自定义动作中的临时 `Context.tasker` 后跨线程调用 `post_stop()`：前者会让 `AgentServer.join()` 抛出 `0xe06d7363` 并使后续节点出现 `server is not alive`，后者在反向调用会话结束后抛出 `OSError`。确认、消费或广播失败使用 `finally` 保证至少关闭当前实例；未授权 Chat ID 在命令分支之前即被拒绝。
 
-`ProgressMonitorLifecycle` 通过 MaaFramework 的 `TaskerEventSink` 接收 UI 任务生命周期。独立运行时，`ProgressMonitorEntry` 收到 `Tasker.Task.Failed` 表示用户从 UI 停止任务，此时关闭监控；队列引导正常完成产生的 `Succeeded` 必须忽略，否则后续游戏任务无法使用监听。`RewardConfirmEntry`、`NormalEndlessEntry`、`CoinAFKEntry` 和 `FishingEntry` 都属于受监控游戏任务；收到 `Tasker.Task.Succeeded` 时，从 `progress_state` 读取当前模式和完成原因。通常生成包含正式任务名和模式的“任务已完成”消息；若完成原因为 `fishing_pool_empty`，则只生成“鱼池已空。”。最终消息作为 `telegram_bot.stop(final_message=...)` 的终止通知；`Tasker.Task.Failed`（包括 UI 停止）只调用无最终消息的停止，不得误报完成。只有停止调用确实从运行态切到停止态时才打印“监听已停止”，因此未选择监控时结束游戏任务不会产生消息或误导日志。当前运行实例的停止事件立即唤醒可中断等待并清空未发送队列；最终完成消息使用配置快照和独立的一次性守护线程发送，不依赖已停止的主发送队列，也不阻塞 Maa 生命周期回调。已经进入系统网络调用的请求允许在自身超时内返回，但停止后不再处理其结果。每次重新开始时创建新的停止事件和线程，避免快速停止后重启复用旧线程。UI/MXU 父进程退出是独立兜底信号，不依赖 Maa 是否仍能投递任务事件，因此桌面进程突然消失时也会停止 Telegram 定时状态线程和 AgentServer。
+`ProgressMonitorLifecycle` 通过 MaaFramework 的 `TaskerEventSink` 接收 UI 任务生命周期。独立运行时，`ProgressMonitorEntry` 收到 `Tasker.Task.Failed` 表示用户从 UI 停止任务，此时关闭监控；队列引导正常完成产生的 `Succeeded` 必须忽略，否则后续游戏任务无法使用监听。`RewardConfirmEntry`、`NormalEndlessEntry`、`CoinAFKEntry`、`MediationAFKEntry` 和 `FishingEntry` 都属于受监控游戏任务；收到 `Tasker.Task.Succeeded` 时，从 `progress_state` 读取当前模式和完成原因。通常生成包含正式任务名和模式的“任务已完成”消息；若完成原因为 `fishing_pool_empty`，则只生成“鱼池已空。”。最终消息作为 `telegram_bot.stop(final_message=...)` 的终止通知；`Tasker.Task.Failed`（包括 UI 停止）只调用无最终消息的停止，不得误报完成。只有停止调用确实从运行态切到停止态时才打印“监听已停止”，因此未选择监控时结束游戏任务不会产生消息或误导日志。当前运行实例的停止事件立即唤醒可中断等待并清空未发送队列；最终完成消息使用配置快照和独立的一次性守护线程发送，不依赖已停止的主发送队列，也不阻塞 Maa 生命周期回调。已经进入系统网络调用的请求允许在自身超时内返回，但停止后不再处理其结果。每次重新开始时创建新的停止事件和线程，避免快速停止后重启复用旧线程。UI/MXU 父进程退出是独立兜底信号，不依赖 Maa 是否仍能投递任务事件，因此桌面进程突然消失时也会停止 Telegram 定时状态线程和 AgentServer。
 
 ## 坐标与识别约束
 
@@ -458,7 +469,7 @@ E/Q 仍由 `focus_guard_action` 调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKey
 `tools/validate_project.py` 中的 `DYNAMIC_PIPELINE_TARGETS` 是 Agent 动态节点的显式清单，覆盖：
 
 - `focus_restore.py` 通过 `Context.run_action` 调用的点击和按键代理。
-- `round_logger.py` 通过 `Context.override_pipeline` 选择的普通重开入口。
+- `round_logger.py` 通过 `Context.override_pipeline` 选择的普通、皎皎币和调停重开入口。
 - 皎皎币挂机的五个点击代理、Esc 代理和正常完成后的动态重开入口。
 
 `progress_monitor.py` 注册 `progress_monitor_start` 自定义动作，但不通过 `Context.run_action` 跳转其他节点；它只覆盖 `ProgressMonitorLog` 的本次日志内容并始终成功返回。
@@ -508,6 +519,8 @@ dist/DNAHelper/
 ```
 
 桌面壳基于固定的 MXU v2.1.3 提交，通过 `tools/mxu-v2.1.3-log-retention.patch` 维护项目定制。补丁以零上下文格式生成，构建脚本只有在 HEAD 精确匹配固定基线提交后才使用 `git apply --unidiff-zero` 正向应用或反向核验，避免补丁文件中的空白上下文损坏，同时不扩大到其他 MXU 版本。`tools/build_custom_mxu.ps1` 负责验证基线、应用补丁并生成 release 可执行文件；`build_ui.py` 不允许静默回退到没有这些定制命令的官方 MXU。
+
+桌面壳最先注册 `tauri-plugin-single-instance`。第二次启动同一应用标识的可执行文件时，新进程只把启动事件转发给已有实例；已有实例对 `main` 窗口依次执行 `show`、`unminimize` 和 `set_focus`，因此托盘隐藏窗口会直接恢复，当前 UI 状态、任务和 Agent 均不重建。该插件必须排在其他 Tauri 插件之前注册，避免第二实例执行后续应用初始化。
 
 构建会保留 `config/` 和 `debug/`，但会先删除旧 `agent/`、`maafw/`、`resource/` 再复制新文件，因此不是事务式构建。DLL 被正在运行的 UI 占用时可能中途失败并留下半成品。构建前必须退出 UI；构建失败后应重新完整构建。
 

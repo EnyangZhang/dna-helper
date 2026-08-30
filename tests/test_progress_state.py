@@ -166,6 +166,17 @@ class ProgressStateTest(unittest.TestCase):
         self.assertIn("局外副本轮次（已完成）：1 / 4", message)
         self.assertNotIn("无上限", message)
 
+    def test_zero_stage_mode_returns_to_running_when_hud_is_confirmed(self) -> None:
+        progress_state.start_task("调停挂机", 3, 0, task_id=109)
+        progress_state.complete_round(1, 3, "调停挂机")
+
+        self.assertEqual(progress_state.snapshot()["status"], "waiting_next_round")
+        self.assertTrue(progress_state.mark_dungeon_entered())
+        self.assertEqual(progress_state.snapshot()["status"], "running")
+        message = progress_state.format_status()
+        self.assertIn("局外副本轮次（已完成）：1 / 3", message)
+        self.assertNotIn("局内轮次", message)
+
     def test_formats_status_message(self) -> None:
         progress_state.start_task("普通扼守", 6, 99)
         progress_state.mark_dungeon_entered()

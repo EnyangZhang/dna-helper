@@ -136,6 +136,9 @@ def mark_dungeon_entered() -> bool:
         if _state["status"] not in {"running", "waiting_next_round"}:
             return False
         if not int(_state["stage_total"]):
+            _state["status"] = "running"
+            _state["updated_at"] = time.time()
+            _persist_locked()
             return True
         if bool(_state.get("stage_tracking_active", False)):
             return True

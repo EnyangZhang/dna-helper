@@ -59,6 +59,14 @@ _user32.GetCursorPos.argtypes = [ctypes.POINTER(_POINT)]
 _user32.GetCursorPos.restype = wintypes.BOOL
 _user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
 _user32.SetCursorPos.restype = wintypes.BOOL
+_user32.mouse_event.argtypes = [
+    wintypes.DWORD,
+    wintypes.DWORD,
+    wintypes.DWORD,
+    wintypes.DWORD,
+    ctypes.c_void_p,
+]
+_user32.mouse_event.restype = None
 _user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
 _user32.MapVirtualKeyW.restype = wintypes.UINT
 _user32.PostMessageW.argtypes = [
@@ -78,6 +86,13 @@ _WM_KEYUP = 0x0101
 _MAPVK_VK_TO_VSC = 0
 _BACKGROUND_KEY_HOLD_SECONDS = 0.03
 _MAX_KEY_HOLD_MS = 10000
+_MOUSEEVENTF_MOVE = 0x0001
+_MOUSEEVENTF_LEFTDOWN = 0x0002
+_MOUSEEVENTF_LEFTUP = 0x0004
+_MOUSEEVENTF_RIGHTDOWN = 0x0008
+_MOUSEEVENTF_RIGHTUP = 0x0010
+_FOREGROUND_MOUSE_MOVE_STEP_PX = 20
+_FOREGROUND_MOUSE_MOVE_INTERVAL_SECONDS = 1.0 / 5
 _state_lock = threading.Lock()
 _fallback_hwnd = 0
 _fallback_cursor_position: tuple[int, int] | None = None
@@ -138,6 +153,51 @@ def _cursor_position() -> tuple[int, int] | None:
     if not _user32.GetCursorPos(ctypes.byref(point)):
         return None
     return int(point.x), int(point.y)
+
+
+def _send_foreground_mouse_move(dx: int, dy: int) -> bool:
+    """Send visible, evenly paced relative gameplay-camera movement."""
+    remaining_x, remaining_y = dx, dy
+    while remaining_x or remaining_y:
+        step_x = max(
+            -_FOREGROUND_MOUSE_MOVE_STEP_PX,
+            min(_FOREGROUND_MOUSE_MOVE_STEP_PX, remaining_x),
+        )
+        step_y = max(
+            -_FOREGROUND_MOUSE_MOVE_STEP_PX,
+            min(_FOREGROUND_MOUSE_MOVE_STEP_PX, remaining_y),
+        )
+        ctypes.set_last_error(0)
+        _user32.mouse_event(
+            _MOUSEEVENTF_MOVE,
+            step_x & 0xFFFFFFFF,
+            step_y & 0xFFFFFFFF,
+            0,
+            None,
+        )
+        if ctypes.get_last_error() != 0:
+            return False
+        remaining_x -= step_x
+        remaining_y -= step_y
+        if remaining_x or remaining_y:
+            time.sleep(_FOREGROUND_MOUSE_MOVE_INTERVAL_SECONDS)
+    return True
+
+
+def _send_foreground_mouse_button(button: str, pressed: bool) -> bool:
+    """Send a physical mouse button transition while the game owns focus."""
+    flags = {
+        ("left", True): _MOUSEEVENTF_LEFTDOWN,
+        ("left", False): _MOUSEEVENTF_LEFTUP,
+        ("right", True): _MOUSEEVENTF_RIGHTDOWN,
+        ("right", False): _MOUSEEVENTF_RIGHTUP,
+    }
+    flag = flags.get((button, pressed))
+    if flag is None:
+        return False
+    ctypes.set_last_error(0)
+    _user32.mouse_event(flag, 0, 0, 0, None)
+    return ctypes.get_last_error() == 0
 
 
 def _remember_restore_target(
@@ -509,7 +569,10 @@ class FocusGuardAction(CustomAction):
         )
         skill_input_group = bool(params.get("skill_input_group", False))
         background_key_input = bool(self.background_key_input and kind == "key")
-        force_game_foreground = bool(self.force_game_foreground and kind == "key")
+        force_game_foreground = bool(
+            (self.force_game_foreground and kind == "key")
+            or kind == "input_sequence"
+        )
         should_restore = (
             bool(params.get("restore", True))
             and not background_key_input
@@ -579,6 +642,75 @@ class FocusGuardAction(CustomAction):
                     return CustomAction.RunResult(success=False)
                 key_sequence.append(("key", step_key, step_proxy))
             proxy_node = None
+        elif kind == "input_sequence":
+            raw_steps = params.get("steps")
+            if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= 30:
+                return CustomAction.RunResult(success=False)
+            input_sequence = []
+            parsed_keys_down: set[int] = set()
+            parsed_mouse_down: set[str] = set()
+            for step in raw_steps:
+                if not isinstance(step, dict) or len(step) != 1:
+                    return CustomAction.RunResult(success=False)
+                if "delay_ms" in step:
+                    delay_ms = step.get("delay_ms")
+                    if not isinstance(delay_ms, int) or not 0 <= delay_ms <= 10000:
+                        return CustomAction.RunResult(success=False)
+                    input_sequence.append(("delay", delay_ms))
+                    continue
+                if "key_down" in step:
+                    step_key = step.get("key_down")
+                    if (
+                        not isinstance(step_key, int)
+                        or not 1 <= step_key <= 255
+                        or step_key in parsed_keys_down
+                    ):
+                        return CustomAction.RunResult(success=False)
+                    parsed_keys_down.add(step_key)
+                    input_sequence.append(("key_down", step_key))
+                    continue
+                if "key_up" in step:
+                    step_key = step.get("key_up")
+                    if not isinstance(step_key, int) or step_key not in parsed_keys_down:
+                        return CustomAction.RunResult(success=False)
+                    parsed_keys_down.remove(step_key)
+                    input_sequence.append(("key_up", step_key))
+                    continue
+                if "key_press" in step:
+                    step_key = step.get("key_press")
+                    if not isinstance(step_key, int) or not 1 <= step_key <= 255:
+                        return CustomAction.RunResult(success=False)
+                    input_sequence.append(("key_press", step_key))
+                    continue
+                if "mouse_move" in step:
+                    movement = step.get("mouse_move")
+                    if (
+                        not isinstance(movement, list)
+                        or len(movement) != 2
+                        or not all(isinstance(value, int) for value in movement)
+                        or not all(-20000 <= value <= 20000 for value in movement)
+                    ):
+                        return CustomAction.RunResult(success=False)
+                    input_sequence.append(("mouse_move", tuple(movement)))
+                    continue
+                if "mouse_down" in step:
+                    button = step.get("mouse_down")
+                    if button not in {"left", "right"} or button in parsed_mouse_down:
+                        return CustomAction.RunResult(success=False)
+                    parsed_mouse_down.add(button)
+                    input_sequence.append(("mouse_down", button))
+                    continue
+                if "mouse_up" in step:
+                    button = step.get("mouse_up")
+                    if button not in parsed_mouse_down:
+                        return CustomAction.RunResult(success=False)
+                    parsed_mouse_down.remove(button)
+                    input_sequence.append(("mouse_up", button))
+                    continue
+                return CustomAction.RunResult(success=False)
+            if parsed_keys_down or parsed_mouse_down:
+                return CustomAction.RunResult(success=False)
+            proxy_node = None
         else:
             return CustomAction.RunResult(success=False)
 
@@ -607,6 +739,8 @@ class FocusGuardAction(CustomAction):
                 _foreground_window(), game_hwnd, keep_game_focused=True
             )
             if force_game_foreground and not _activate_game_for_skill(game_hwnd):
+                if should_restore:
+                    _restore_window_and_cursor(restore_hwnd, restore_cursor_position)
                 return CustomAction.RunResult(success=False)
         succeeded = True
 
@@ -640,7 +774,67 @@ class FocusGuardAction(CustomAction):
                         continue
                     detail = context.run_action(detail_value)
                     succeeded = succeeded and detail is not None and detail.success
-            for index in range(repeat if kind not in {"key_hold", "key_sequence"} else 0):
+            elif kind == "input_sequence":
+                controller = context.tasker.controller
+                held_inputs: list[tuple[str, int | str]] = []
+                try:
+                    for operation, value in input_sequence:
+                        if operation == "delay":
+                            if value:
+                                time.sleep(int(value) / 1000)
+                            continue
+                        if operation == "key_down":
+                            key_down = controller.post_key_down(value).wait().succeeded
+                            succeeded = succeeded and key_down
+                            if key_down:
+                                held_inputs.append(("key", value))
+                        elif operation == "key_up":
+                            key_up = controller.post_key_up(value).wait().succeeded
+                            succeeded = succeeded and key_up
+                            if key_up:
+                                held_inputs.remove(("key", value))
+                        elif operation == "key_press":
+                            succeeded = (
+                                succeeded
+                                and controller.post_click_key(value).wait().succeeded
+                            )
+                        elif operation == "mouse_move":
+                            mouse_move = _activate_game_for_skill(
+                                game_hwnd
+                            ) and _send_foreground_mouse_move(*value)
+                            succeeded = succeeded and mouse_move
+                        elif operation == "mouse_down":
+                            mouse_down = _activate_game_for_skill(
+                                game_hwnd
+                            ) and _send_foreground_mouse_button(
+                                value, True
+                            )
+                            succeeded = succeeded and mouse_down
+                            if mouse_down:
+                                held_inputs.append(("mouse", value))
+                        else:
+                            mouse_up = _send_foreground_mouse_button(value, False)
+                            succeeded = succeeded and mouse_up
+                            if mouse_up:
+                                held_inputs.remove(("mouse", value))
+                        if not succeeded:
+                            break
+                finally:
+                    for held_kind, held_value in reversed(held_inputs):
+                        if held_kind == "key":
+                            released = (
+                                controller.post_key_up(held_value).wait().succeeded
+                            )
+                        else:
+                            released = _send_foreground_mouse_button(
+                                str(held_value), False
+                            )
+                        succeeded = succeeded and released
+            for index in range(
+                repeat
+                if kind not in {"key_hold", "key_sequence", "input_sequence"}
+                else 0
+            ):
                 if kind == "key" and key == 69 and track_e_sequence:
                     log_proxy = (
                         "FocusGuardEBackgroundLogProxy"

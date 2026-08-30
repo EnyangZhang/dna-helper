@@ -79,7 +79,7 @@ class FocusRestoreTest(unittest.TestCase):
         restore.assert_called_once_with(101, (300, 400))
         progress.assert_called_once_with(argv.custom_action_param)
 
-    def test_focus_guard_action_rejects_agent_mouse_input(self) -> None:
+    def test_focus_guard_action_rejects_agent_page_click_input(self) -> None:
         result = focus_restore.FocusGuardAction().run(
             Mock(),
             SimpleNamespace(
@@ -90,6 +90,24 @@ class FocusRestoreTest(unittest.TestCase):
         )
 
         self.assertFalse(result.success)
+
+    def test_input_sequence_rejects_unbalanced_key_state_before_activation(self) -> None:
+        context = SimpleNamespace(
+            tasker=SimpleNamespace(controller=SimpleNamespace(info={"hwnd": 202}))
+        )
+        argv = SimpleNamespace(
+            custom_action_param={
+                "kind": "input_sequence",
+                "steps": [{"key_down": 87}, {"delay_ms": 323}],
+            },
+            task_detail=SimpleNamespace(task_id=1),
+            node_name="MediationAFKCombatSequence",
+        )
+        with patch.object(focus_restore, "_activate_game_for_skill") as activate:
+            result = focus_restore.FocusGuardAction().run(context, argv)
+
+        self.assertFalse(result.success)
+        activate.assert_not_called()
 
     def test_remembers_window_and_multimonitor_cursor_position(self) -> None:
         with (
@@ -623,6 +641,395 @@ class FocusRestoreTest(unittest.TestCase):
                 ("restore", None),
             ],
         )
+
+    def test_mediation_input_sequence_preserves_key_timing(self) -> None:
+        events = []
+        key_job = Mock()
+        key_job.wait.return_value = key_job
+        key_job.succeeded = True
+
+        def post_key_down(key: int):
+            events.append(("down", key))
+            return key_job
+
+        def post_key_up(key: int):
+            events.append(("up", key))
+            return key_job
+
+        def post_click_key(key: int):
+            events.append(("press", key))
+            return key_job
+
+        controller = SimpleNamespace(
+            info={"hwnd": 202},
+            post_key_down=Mock(side_effect=post_key_down),
+            post_key_up=Mock(side_effect=post_key_up),
+            post_click_key=Mock(side_effect=post_click_key),
+        )
+        context = SimpleNamespace(tasker=SimpleNamespace(controller=controller))
+        argv = SimpleNamespace(
+            custom_action_param={
+                "kind": "input_sequence",
+                "steps": [
+                    {"key_down": 87},
+                    {"delay_ms": 1200},
+                    {"key_up": 87},
+                    {"mouse_down": "left"},
+                    {"delay_ms": 250},
+                    {"mouse_up": "left"},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"mouse_move": [0, -120]},
+                    {"mouse_down": "right"},
+                    {"delay_ms": 300},
+                    {"mouse_up": "right"},
+                    {"delay_ms": 300},
+                    {"key_press": 90},
+                ],
+                "restore_delay_ms": 500,
+            },
+            task_detail=SimpleNamespace(task_id=1),
+            node_name="MediationAFKCombatSequence",
+        )
+        with (
+            patch.object(
+                focus_restore,
+                "_remember_restore_target",
+                return_value=(101, (300, 400)),
+            ),
+            patch.object(focus_restore, "_activate_game_for_skill", return_value=True),
+            patch.object(
+                focus_restore,
+                "_send_foreground_mouse_move",
+                side_effect=lambda dx, dy: events.append(("move", (dx, dy))) or True,
+            ),
+            patch.object(
+                focus_restore,
+                "_send_foreground_mouse_button",
+                side_effect=lambda button, pressed: events.append(
+                    ("mouse_down" if pressed else "mouse_up", button)
+                )
+                or True,
+            ),
+            patch.object(
+                focus_restore.time,
+                "sleep",
+                side_effect=lambda seconds: events.append(("sleep", seconds)),
+            ),
+            patch.object(
+                focus_restore,
+                "_restore_window_and_cursor",
+                side_effect=lambda *_: events.append(("restore", None)),
+            ),
+        ):
+            result = focus_restore.FocusGuardAction().run(context, argv)
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            events,
+            [
+                ("down", 87),
+                ("sleep", 1.2),
+                ("up", 87),
+                ("mouse_down", "left"),
+                ("sleep", 0.25),
+                ("mouse_up", "left"),
+                ("sleep", 0.3),
+                ("press", 70),
+                ("sleep", 0.3),
+                ("press", 70),
+                ("sleep", 0.3),
+                ("press", 70),
+                ("sleep", 0.3),
+                ("press", 70),
+                ("sleep", 0.3),
+                ("move", (0, -120)),
+                ("mouse_down", "right"),
+                ("sleep", 0.3),
+                ("mouse_up", "right"),
+                ("sleep", 0.3),
+                ("press", 90),
+                ("sleep", 0.5),
+                ("restore", None),
+            ],
+        )
+
+    def test_mediation_large_mouse_move_is_evenly_paced(self) -> None:
+        with (
+            patch.object(focus_restore._user32, "mouse_event") as mouse_event,
+            patch.object(focus_restore.ctypes, "get_last_error", return_value=0),
+            patch.object(focus_restore.time, "sleep") as sleep,
+        ):
+            result = focus_restore._send_foreground_mouse_move(0, -120)
+
+        self.assertTrue(result)
+        self.assertEqual(mouse_event.call_count, 6)
+        self.assertEqual(sleep.call_count, 5)
+        mouse_event.assert_called_with(
+            focus_restore._MOUSEEVENTF_MOVE,
+            0,
+            (-20) & 0xFFFFFFFF,
+            0,
+            None,
+        )
+        sleep.assert_called_with(
+            focus_restore._FOREGROUND_MOUSE_MOVE_INTERVAL_SECONDS
+        )
+
+    def test_mediation_physical_mouse_buttons_support_left_and_right(self) -> None:
+        with (
+            patch.object(focus_restore._user32, "mouse_event") as mouse_event,
+            patch.object(focus_restore.ctypes, "get_last_error", return_value=0),
+        ):
+            self.assertTrue(
+                focus_restore._send_foreground_mouse_button("left", True)
+            )
+            self.assertTrue(
+                focus_restore._send_foreground_mouse_button("left", False)
+            )
+            self.assertTrue(
+                focus_restore._send_foreground_mouse_button("right", True)
+            )
+            self.assertTrue(
+                focus_restore._send_foreground_mouse_button("right", False)
+            )
+
+        self.assertEqual(
+            mouse_event.call_args_list,
+            [
+                unittest.mock.call(
+                    focus_restore._MOUSEEVENTF_LEFTDOWN, 0, 0, 0, None
+                ),
+                unittest.mock.call(
+                    focus_restore._MOUSEEVENTF_LEFTUP, 0, 0, 0, None
+                ),
+                unittest.mock.call(
+                    focus_restore._MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, None
+                ),
+                unittest.mock.call(
+                    focus_restore._MOUSEEVENTF_RIGHTUP, 0, 0, 0, None
+                ),
+            ],
+        )
+
+    def test_mediation_input_failure_releases_held_w(self) -> None:
+        succeeded_job = Mock()
+        succeeded_job.wait.return_value = succeeded_job
+        succeeded_job.succeeded = True
+        failed_job = Mock()
+        failed_job.wait.return_value = failed_job
+        failed_job.succeeded = False
+        controller = SimpleNamespace(
+            info={"hwnd": 202},
+            post_key_down=Mock(return_value=succeeded_job),
+            post_key_up=Mock(side_effect=[failed_job, succeeded_job]),
+            post_click_key=Mock(return_value=succeeded_job),
+        )
+        context = SimpleNamespace(tasker=SimpleNamespace(controller=controller))
+        argv = SimpleNamespace(
+            custom_action_param={
+                "kind": "input_sequence",
+                "steps": [
+                    {"key_down": 87},
+                    {"delay_ms": 1200},
+                    {"key_up": 87},
+                    {"mouse_down": "left"},
+                    {"delay_ms": 250},
+                    {"mouse_up": "left"},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"mouse_move": [0, -120]},
+                    {"mouse_down": "right"},
+                    {"delay_ms": 300},
+                    {"mouse_up": "right"},
+                    {"delay_ms": 300},
+                    {"key_press": 90},
+                ],
+                "restore_delay_ms": 100,
+            },
+            task_detail=SimpleNamespace(task_id=1),
+            node_name="MediationAFKCombatSequence",
+        )
+        with (
+            patch.object(
+                focus_restore,
+                "_remember_restore_target",
+                return_value=(101, (300, 400)),
+            ),
+            patch.object(focus_restore, "_activate_game_for_skill", return_value=True),
+            patch.object(focus_restore.time, "sleep"),
+            patch.object(focus_restore, "_restore_window_and_cursor") as restore,
+        ):
+            result = focus_restore.FocusGuardAction().run(context, argv)
+
+        self.assertFalse(result.success)
+        self.assertEqual(
+            [call.args[0] for call in controller.post_key_up.call_args_list],
+            [87, 87],
+        )
+        controller.post_click_key.assert_not_called()
+        restore.assert_called_once_with(101, (300, 400))
+
+    def test_mediation_input_failure_releases_held_left_button(self) -> None:
+        key_job = Mock()
+        key_job.wait.return_value = key_job
+        key_job.succeeded = True
+        controller = SimpleNamespace(
+            info={"hwnd": 202},
+            post_key_down=Mock(return_value=key_job),
+            post_key_up=Mock(return_value=key_job),
+            post_click_key=Mock(return_value=key_job),
+        )
+        context = SimpleNamespace(tasker=SimpleNamespace(controller=controller))
+        argv = SimpleNamespace(
+            custom_action_param={
+                "kind": "input_sequence",
+                "steps": [
+                    {"key_down": 87},
+                    {"delay_ms": 1200},
+                    {"key_up": 87},
+                    {"mouse_down": "left"},
+                    {"delay_ms": 250},
+                    {"mouse_up": "left"},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"mouse_move": [0, -120]},
+                    {"mouse_down": "right"},
+                    {"delay_ms": 300},
+                    {"mouse_up": "right"},
+                    {"delay_ms": 300},
+                    {"key_press": 90},
+                ],
+                "restore_delay_ms": 100,
+            },
+            task_detail=SimpleNamespace(task_id=1),
+            node_name="MediationAFKCombatSequence",
+        )
+        with (
+            patch.object(
+                focus_restore,
+                "_remember_restore_target",
+                return_value=(101, (300, 400)),
+            ),
+            patch.object(focus_restore, "_activate_game_for_skill", return_value=True),
+            patch.object(
+                focus_restore,
+                "_send_foreground_mouse_button",
+                side_effect=[True, False, True],
+            ) as mouse_button,
+            patch.object(focus_restore.time, "sleep"),
+            patch.object(focus_restore, "_restore_window_and_cursor") as restore,
+        ):
+            result = focus_restore.FocusGuardAction().run(context, argv)
+
+        self.assertFalse(result.success)
+        self.assertEqual(
+            mouse_button.call_args_list,
+            [
+                unittest.mock.call("left", True),
+                unittest.mock.call("left", False),
+                unittest.mock.call("left", False),
+            ],
+        )
+        controller.post_click_key.assert_not_called()
+        restore.assert_called_once_with(101, (300, 400))
+
+    def test_mediation_input_failure_releases_held_right_button(self) -> None:
+        key_job = Mock()
+        key_job.wait.return_value = key_job
+        key_job.succeeded = True
+        controller = SimpleNamespace(
+            info={"hwnd": 202},
+            post_key_down=Mock(return_value=key_job),
+            post_key_up=Mock(return_value=key_job),
+            post_click_key=Mock(return_value=key_job),
+        )
+        context = SimpleNamespace(tasker=SimpleNamespace(controller=controller))
+        argv = SimpleNamespace(
+            custom_action_param={
+                "kind": "input_sequence",
+                "steps": [
+                    {"key_down": 87},
+                    {"delay_ms": 1200},
+                    {"key_up": 87},
+                    {"mouse_down": "left"},
+                    {"delay_ms": 250},
+                    {"mouse_up": "left"},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"key_press": 70},
+                    {"delay_ms": 300},
+                    {"mouse_move": [0, -120]},
+                    {"mouse_down": "right"},
+                    {"delay_ms": 300},
+                    {"mouse_up": "right"},
+                    {"delay_ms": 300},
+                    {"key_press": 90},
+                ],
+                "restore_delay_ms": 100,
+            },
+            task_detail=SimpleNamespace(task_id=1),
+            node_name="MediationAFKCombatSequence",
+        )
+        with (
+            patch.object(
+                focus_restore,
+                "_remember_restore_target",
+                return_value=(101, (300, 400)),
+            ),
+            patch.object(focus_restore, "_activate_game_for_skill", return_value=True),
+            patch.object(
+                focus_restore, "_send_foreground_mouse_move", return_value=True
+            ),
+            patch.object(
+                focus_restore,
+                "_send_foreground_mouse_button",
+                side_effect=[True, True, True, False, True],
+            ) as mouse_button,
+            patch.object(focus_restore.time, "sleep"),
+            patch.object(focus_restore, "_restore_window_and_cursor") as restore,
+        ):
+            result = focus_restore.FocusGuardAction().run(context, argv)
+
+        self.assertFalse(result.success)
+        self.assertEqual(
+            mouse_button.call_args_list,
+            [
+                unittest.mock.call("left", True),
+                unittest.mock.call("left", False),
+                unittest.mock.call("right", True),
+                unittest.mock.call("right", False),
+                unittest.mock.call("right", False),
+            ],
+        )
+        self.assertEqual(controller.post_click_key.call_count, 4)
+        restore.assert_called_once_with(101, (300, 400))
 
     def test_normal_key_run_still_restores_focus(self) -> None:
         context = SimpleNamespace(

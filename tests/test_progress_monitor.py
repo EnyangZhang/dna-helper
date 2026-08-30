@@ -86,6 +86,24 @@ class ProgressMonitorTest(unittest.TestCase):
                     progress_monitor._has_queued_game_task_from_log(200000020)
                 )
 
+    def test_queue_detection_accepts_mediation_afk_entry(self) -> None:
+        content = (
+            b"Calling post_task: entry=ProgressMonitorEntry, override=[]\n"
+            b"post_task returned task_id: 200000030\n"
+            b"Calling post_task: entry=MediationAFKEntry, override=[]\n"
+            b"post_task returned task_id: 200000031\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "mxu-tauri.log"
+            log_path.write_bytes(content)
+            with (
+                patch("progress_monitor._MXU_LOG_PATH", log_path),
+                patch("progress_monitor._QUEUE_LOG_WAIT_SECONDS", 0),
+            ):
+                self.assertTrue(
+                    progress_monitor._has_queued_game_task_from_log(200000030)
+                )
+
     @patch("progress_monitor._has_queued_game_task_from_log", return_value=False)
     @patch("progress_monitor.telegram_bot.notify_monitor_started")
     @patch("progress_monitor.telegram_bot.start", return_value=True)

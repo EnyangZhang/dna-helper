@@ -6,6 +6,34 @@ index 0000000..5ed0b5a
 @@ -0,0 +1,2 @@
 +allowBuilds:
 +  esbuild: true
+diff --git a/src-tauri/Cargo.lock b/src-tauri/Cargo.lock
+index 322246c..ad09ed2 100644
+--- a/src-tauri/Cargo.lock
++++ b/src-tauri/Cargo.lock
+@@ -2654,0 +2655 @@ dependencies = [
++ "tauri-plugin-single-instance",
+@@ -5052,0 +5054,15 @@ dependencies = [
++[[package]]
++name = "tauri-plugin-single-instance"
++version = "2.3.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "acba6b5ca527a96cdfcc96ae09b09ccb91ddff5e33978ca6873b96ea16bb404c"
++dependencies = [
++ "serde",
++ "serde_json",
++ "tauri",
++ "thiserror 2.0.17",
++ "tracing",
++ "windows-sys 0.60.2",
++ "zbus",
++]
++
+diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
+index 61df4ad..2a61431 100644
+--- a/src-tauri/Cargo.toml
++++ b/src-tauri/Cargo.toml
+@@ -27,0 +28 @@ tauri-plugin-process = "2"
++tauri-plugin-single-instance = "2"
 diff --git a/src-tauri/src/commands/file_ops.rs b/src-tauri/src/commands/file_ops.rs
 index df32e84..28d59ed 100644
 --- a/src-tauri/src/commands/file_ops.rs
@@ -1308,10 +1336,19 @@ index 4a76d36..f557612 100644
 +        eprintln!("拒绝或无法清空日志目录: {}", error);
 +    }
 +
-@@ -242,0 +248,2 @@ pub fn run() {
+@@ -27,0 +33,8 @@ pub fn run() {
++        // 必须最先注册：再次启动同一程序时只唤醒现有主窗口。
++        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
++            if let Some(window) = app.get_webview_window("main") {
++                let _ = window.show();
++                let _ = window.unminimize();
++                let _ = window.set_focus();
++            }
++        }))
+@@ -242,0 +256,2 @@ pub fn run() {
 +            commands::file_ops::cleanup_old_debug_entries,
 +            commands::file_ops::schedule_full_debug_clear,
-@@ -293,0 +301,2 @@ pub fn run() {
+@@ -293,0 +309,2 @@ pub fn run() {
 +            // DNA Helper 监控通讯停止命令
 +            commands::process_control::disconnect_all_dna_helper_monitors,
 diff --git a/src/App.tsx b/src/App.tsx

@@ -1,0 +1,73 @@
+{
+    "task": [
+        {
+            "name": "MediationAFK",
+            "label": "调停挂机",
+            "description": "可从结算页、弹窗 Space“开始挑战”页面或已进入的副本接管。连续确认战斗 HUD 后等待 3000ms，再执行固定的 W、双 F、鼠标上移、右键蓄力与 Z 操作；不处理局内“继续挑战 / 确认选择”，结算页识别“再次进行”后累计副本轮次并自动重开。",
+            "entry": "MediationAFKEntry",
+            "option": [
+                "MediationAFKRestartCount"
+            ],
+            "group": [
+                "DailyAFK"
+            ],
+            "controller": [
+                "Win32-Foreground"
+            ]
+        }
+    ],
+    "option": {
+        "MediationAFKRestartCount": {
+            "type": "input",
+            "label": "副本轮次",
+            "description": "设置需要完成多少次调停副本，范围 1–999。只有识别到结算页“再次进行”才计入一次完成。",
+            "inputs": [
+                {
+                    "name": "count",
+                    "label": "轮次",
+                    "default": "1",
+                    "pipeline_type": "int",
+                    "verify": "^[1-9]\\d{0,2}$"
+                }
+            ],
+            "pipeline_override": {
+                "MediationAFKEntry": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "focus_guard_start",
+                            "custom_action_param": {
+                                "progress_mode": "调停挂机",
+                                "progress_total": "{count}",
+                                "progress_stage_total": 0
+                            }
+                        }
+                    }
+                },
+                "MediationAFKRoundQuota": {
+                    "max_hit": "{count}",
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "mediation_afk_log_round",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                },
+                "MediationAFKRoundDecision": {
+                    "action": {
+                        "type": "Custom",
+                        "param": {
+                            "custom_action": "mediation_afk_decide_restart",
+                            "custom_action_param": {
+                                "total": "{count}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

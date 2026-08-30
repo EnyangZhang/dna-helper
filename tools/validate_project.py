@@ -12,6 +12,7 @@ TASK_GROUP_REQUIREMENTS = {
     "CipherEndlessBoost": "DailyAFK",
     "NormalEndlessBoost": "DailyAFK",
     "CoinAFK": "DailyAFK",
+    "MediationAFK": "DailyAFK",
     "Fishing": "DailyAFK",
     "ProgressMonitor": "Monitor",
 }
@@ -27,6 +28,7 @@ DYNAMIC_PIPELINE_TARGETS = {
     "NormalEndlessRestartByClick",
     "CoinAFKEscapeProxy",
     "CoinAFKRestartAgain",
+    "MediationAFKRestartAgain",
     "FishingSpaceKeyProxy",
     "FishingEKeyProxy",
     "FishingEscapeKeyProxy",
@@ -156,6 +158,12 @@ def validate_monitor_disconnect_contract() -> None:
     patch_source = require_source_fragments(
         ROOT / "tools" / "mxu-v2.1.3-log-retention.patch",
         (
+            'tauri-plugin-single-instance = "2"',
+            "tauri_plugin_single_instance::init",
+            'app.get_webview_window("main")',
+            "window.show()",
+            "window.unminimize()",
+            "window.set_focus()",
             "pub async fn disconnect_all_dna_helper_monitors()",
             "MonitorDisconnectSummary",
             'serde(rename_all = "camelCase")',
@@ -431,7 +439,7 @@ def main() -> None:
 
     required_preset_tasks = {
         "CipherAFK": ["ProgressMonitor", "CipherEndlessBoost"],
-        "NormalAFK": ["ProgressMonitor", "NormalEndlessBoost"],
+        "NormalAFK": ["ProgressMonitor", "NormalEndlessBoost", "MediationAFK"],
     }
     presets_by_name = {preset["name"]: preset for _, preset in presets}
     for preset_name, expected_tasks in required_preset_tasks.items():
@@ -444,8 +452,19 @@ def main() -> None:
                 f"{preset_name} tasks must be ordered as {expected_tasks!r}, "
                 f"got {actual_tasks!r}"
             )
-        if not all(item.get("enabled") is True for item in preset.get("task", [])):
-            raise SystemExit(f"{preset_name} tasks must all be enabled")
+        expected_enabled = (
+            [True, True, False]
+            if preset_name == "NormalAFK"
+            else [True] * len(expected_tasks)
+        )
+        actual_enabled = [
+            item.get("enabled") is True for item in preset.get("task", [])
+        ]
+        if actual_enabled != expected_enabled:
+            raise SystemExit(
+                f"{preset_name} enabled states must be {expected_enabled!r}, "
+                f"got {actual_enabled!r}"
+            )
         monitor_preset = preset.get("task", [])[0]
         if "option" in monitor_preset:
             raise SystemExit(
@@ -710,7 +729,20 @@ def main() -> None:
             ["CoinAFKAbortOutsideMonitor"],
         ),
     )
-    fast_click_chains = established_fast_click_chains + coin_fast_click_chains
+    mediation_fast_click_chains = (
+        (
+            "MediationAFKSpaceStart",
+            "MediationAFKSpaceStartClick2",
+            "MediationAFKSpaceStartClick3",
+            [770, 520],
+            ["MediationAFKWaitCombatHud"],
+        ),
+    )
+    fast_click_chains = (
+        established_fast_click_chains
+        + coin_fast_click_chains
+        + mediation_fast_click_chains
+    )
     for first, second, third, target, final_next in fast_click_chains:
         for node_name, next_name in ((first, second), (second, third)):
             node = pipeline_nodes.get(node_name, {})
@@ -756,7 +788,14 @@ def main() -> None:
             .get("custom_action_param", {})
         )
         if custom_param.get("kind") == "click":
-            raise SystemExit(f"{node_name}: Agent actions must never send mouse clicks")
+            raise SystemExit(f"{node_name}: Agent actions must never click page buttons")
+        if (
+            custom_param.get("kind") == "input_sequence"
+            and node_name != "MediationAFKCombatSequence"
+        ):
+            raise SystemExit(
+                f"{node_name}: only MediationAFK may use the recorded role input sequence"
+            )
     for relative, override in pipeline_overrides:
         for node_name, node_override in override.items():
             custom_param = (
@@ -767,6 +806,10 @@ def main() -> None:
             if custom_param.get("kind") == "click":
                 raise SystemExit(
                     f"{relative}: {node_name} override must not send Agent mouse clicks"
+                )
+            if custom_param.get("kind") == "input_sequence":
+                raise SystemExit(
+                    f"{relative}: recorded role input sequences must not be overridden"
                 )
     for first in (
         "CoinAFKRestartAgain",
@@ -832,6 +875,130 @@ def main() -> None:
     coin_inputs = all_options.get("CoinAFKRestartCount", {}).get("inputs", [])
     if len(coin_inputs) != 1 or coin_inputs[0].get("verify") != "^[1-9]\\d{0,2}$":
         raise SystemExit("CoinAFK round count must remain in the 1-999 range")
+
+    mediation_entry = pipeline_nodes.get("MediationAFKEntry", {})
+    if mediation_entry.get("next") != ["MediationAFKInitialMonitor"]:
+        raise SystemExit("MediationAFK must start from the unknown-state monitor")
+    if pipeline_nodes.get("MediationAFKInitialMonitor", {}).get("next") != [
+        "MediationAFKCompletedAgain",
+        "MediationAFKSpaceStart",
+        "MediationAFKCombatHudFrame1",
+        "MediationAFKInitialMonitor",
+    ]:
+        raise SystemExit(
+            "MediationAFK initial monitor must classify settlement, Space start, and combat HUD"
+        )
+    if pipeline_nodes.get("MediationAFKCombatHudReady", {}).get("action") != (
+        expected_dungeon_entry_action
+    ):
+        raise SystemExit("MediationAFK must confirm three combat HUD frames before input")
+    mediation_fill = (
+        pipeline_nodes.get("MediationAFKCombatSequence", {})
+        .get("action", {})
+        .get("param", {})
+    )
+    expected_mediation_sequence = {
+        "kind": "input_sequence",
+        "steps": [
+            {"key_down": 87},
+            {"delay_ms": 1200},
+            {"key_up": 87},
+            {"mouse_down": "left"},
+            {"delay_ms": 250},
+            {"mouse_up": "left"},
+            {"delay_ms": 300},
+            {"key_press": 70},
+            {"delay_ms": 300},
+            {"key_press": 70},
+            {"delay_ms": 300},
+            {"key_press": 70},
+            {"delay_ms": 300},
+            {"key_press": 70},
+            {"delay_ms": 300},
+            {"mouse_move": [0, -120]},
+            {"mouse_down": "right"},
+            {"delay_ms": 300},
+            {"mouse_up": "right"},
+            {"delay_ms": 300},
+            {"key_press": 90},
+        ],
+        "restore_delay_ms": 500,
+    }
+    expected_mediation_log = (
+        "[调停挂机] 局内角色操作已完成：W↓ → 1200ms → W↑ → "
+        "左键↓ → 250ms → 左键↑ → 300ms → F → 300ms → F → 300ms → "
+        "F → 300ms → F → 300ms → 鼠标1秒↑120px → 右键↓ → 300ms → "
+        "右键↑ → 300ms → Z"
+    )
+    mediation_log = (
+        pipeline_nodes.get("MediationAFKCombatSequence", {})
+        .get("focus", {})
+        .get("Node.Action.Succeeded", {})
+        .get("content")
+    )
+    if (
+        pipeline_nodes.get("MediationAFKCombatSequence", {}).get("pre_delay")
+        != 3000
+        or mediation_fill
+        != {
+            "custom_action": "focus_guard_action",
+            "custom_action_param": expected_mediation_sequence,
+        }
+        or mediation_log != expected_mediation_log
+    ):
+        raise SystemExit(
+            "MediationAFK must wait 3000ms and preserve the recorded role input sequence and log"
+        )
+    mediation_nodes = set(pipeline_nodes)
+    forbidden_mediation_nodes = {
+        "MediationAFKContinueChallenge",
+        "MediationAFKConfirmChoice",
+        "MediationAFKTargetMapDetected",
+    }
+    if mediation_nodes & forbidden_mediation_nodes:
+        raise SystemExit("MediationAFK must not detect map or in-dungeon confirm buttons")
+    for first in ("MediationAFKRestartAgain", "MediationAFKRestartAgainRetry"):
+        first_node = pipeline_nodes.get(first, {})
+        if (
+            first_node.get("action", {}).get("type") != "Click"
+            or first_node.get("action", {}).get("param", {}).get("target")
+            != [920, 640]
+            or first_node.get("post_delay") != 50
+            or first_node.get("next") != ["MediationAFKAgainClick2"]
+        ):
+            raise SystemExit(f"{first} must enter the native again-click chain")
+    mediation_again_second = pipeline_nodes.get("MediationAFKAgainClick2", {})
+    mediation_again_third = pipeline_nodes.get("MediationAFKAgainClick3", {})
+    mediation_again_finalize = pipeline_nodes.get(
+        "MediationAFKAgainClick3Finalize", {}
+    )
+    if (
+        mediation_again_second.get("action", {}).get("type") != "Click"
+        or mediation_again_second.get("action", {}).get("param", {}).get("target")
+        != [920, 640]
+        or mediation_again_second.get("post_delay") != 50
+        or mediation_again_second.get("next") != ["MediationAFKAgainClick3"]
+        or mediation_again_third.get("action", {}).get("type") != "Click"
+        or mediation_again_third.get("action", {}).get("param", {}).get("target")
+        != [920, 640]
+        or mediation_again_third.get("post_delay") != 0
+        or mediation_again_third.get("next")
+        != ["MediationAFKAgainClick3Finalize"]
+        or mediation_again_finalize.get("action", {})
+        .get("param", {})
+        .get("custom_action")
+        != "focus_guard_finalize"
+        or mediation_again_finalize.get("next") != ["MediationAFKRestartMonitor"]
+    ):
+        raise SystemExit("MediationAFK again buttons must use the 50ms native chain")
+    mediation_inputs = all_options.get("MediationAFKRestartCount", {}).get(
+        "inputs", []
+    )
+    if (
+        len(mediation_inputs) != 1
+        or mediation_inputs[0].get("verify") != "^[1-9]\\d{0,2}$"
+    ):
+        raise SystemExit("MediationAFK round count must remain in the 1-999 range")
 
     monitor_action = (
         pipeline_nodes.get("ProgressMonitorEntry", {}).get("action", {}).get("param", {})
