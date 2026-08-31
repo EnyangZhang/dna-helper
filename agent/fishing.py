@@ -265,7 +265,7 @@ class FishingTargetReachedRecognition(CustomRecognition):
         self, context: Context, argv: CustomRecognition.AnalyzeArg
     ) -> CustomRecognition.AnalyzeResult:
         state = progress_state.snapshot()
-        reached = state.get("mode") == "挂机钓鱼" and state.get("status") == "completed"
+        reached = state.get("mode") == "钓鱼挂机" and state.get("status") == "completed"
         return CustomRecognition.AnalyzeResult(
             box=[0, 0, 1, 1] if reached else None,
             detail={"target_reached": reached},
@@ -281,5 +281,5 @@ class FishingPoolEmptyAction(CustomAction):
     ) -> CustomAction.RunResult:
         success = progress_state.mark_fishing_pool_empty()
         if success:
-            print("[挂机钓鱼] 鱼池已空，任务结束", flush=True)
+            print("[钓鱼挂机] 鱼池已空，任务结束", flush=True)
         return CustomAction.RunResult(success=success)

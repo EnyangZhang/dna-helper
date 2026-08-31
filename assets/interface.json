@@ -56,6 +56,7 @@
         "resource/tasks/NormalEndlessBoost.json",
         "resource/tasks/CoinAFK.json",
         "resource/tasks/MediationAFK.json",
+        "resource/tasks/MoonHunterAFK.json",
         "resource/tasks/Fishing.json",
         "resource/tasks/ProgressMonitor.json",
         "resource/tasks/LiseExpelSkillCast.json",

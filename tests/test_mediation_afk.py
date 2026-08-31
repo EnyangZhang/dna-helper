@@ -54,7 +54,7 @@ class MediationAFKTest(unittest.TestCase):
                 "kind": "input_sequence",
                 "steps": [
                     {"key_down": 87},
-                    {"delay_ms": 1200},
+                    {"delay_ms": 1300},
                     {"key_up": 87},
                     {"mouse_down": "left"},
                     {"delay_ms": 250},
@@ -68,9 +68,9 @@ class MediationAFKTest(unittest.TestCase):
                     {"delay_ms": 300},
                     {"key_press": 70},
                     {"delay_ms": 300},
-                    {"mouse_move": [0, -120]},
+                    {"mouse_move": [0, -130]},
                     {"mouse_down": "right"},
-                    {"delay_ms": 300},
+                    {"delay_ms": 800},
                     {"mouse_up": "right"},
                     {"delay_ms": 300},
                     {"key_press": 90},
@@ -81,9 +81,9 @@ class MediationAFKTest(unittest.TestCase):
         self.assertEqual(
             self.pipeline["MediationAFKCombatSequence"]["focus"]
             ["Node.Action.Succeeded"]["content"],
-            "[调停挂机] 局内角色操作已完成：W↓ → 1200ms → W↑ → "
+            "[调停挂机] 局内角色操作已完成：W↓ → 1300ms → W↑ → "
             "左键↓ → 250ms → 左键↑ → 300ms → F → 300ms → F → 300ms → "
-            "F → 300ms → F → 300ms → 鼠标1秒↑120px → 右键↓ → 300ms → "
+            "F → 300ms → F → 300ms → 鼠标1秒↑130px → 右键↓ → 800ms → "
             "右键↑ → 300ms → Z",
         )
         self.assertEqual(

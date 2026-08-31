@@ -13,6 +13,7 @@ TASK_GROUP_REQUIREMENTS = {
     "NormalEndlessBoost": "DailyAFK",
     "CoinAFK": "DailyAFK",
     "MediationAFK": "DailyAFK",
+    "MoonHunterAFK": "DailyAFK",
     "Fishing": "DailyAFK",
     "ProgressMonitor": "Monitor",
 }
@@ -29,6 +30,7 @@ DYNAMIC_PIPELINE_TARGETS = {
     "CoinAFKEscapeProxy",
     "CoinAFKRestartAgain",
     "MediationAFKRestartAgain",
+    "MoonHunterAFKRestart",
     "FishingSpaceKeyProxy",
     "FishingEKeyProxy",
     "FishingEscapeKeyProxy",
@@ -439,7 +441,12 @@ def main() -> None:
 
     required_preset_tasks = {
         "CipherAFK": ["ProgressMonitor", "CipherEndlessBoost"],
-        "NormalAFK": ["ProgressMonitor", "NormalEndlessBoost", "MediationAFK"],
+        "NormalAFK": [
+            "ProgressMonitor",
+            "NormalEndlessBoost",
+            "MediationAFK",
+            "MoonHunterAFK",
+        ],
     }
     presets_by_name = {preset["name"]: preset for _, preset in presets}
     for preset_name, expected_tasks in required_preset_tasks.items():
@@ -453,7 +460,7 @@ def main() -> None:
                 f"got {actual_tasks!r}"
             )
         expected_enabled = (
-            [True, True, False]
+            [True, True, False, False]
             if preset_name == "NormalAFK"
             else [True] * len(expected_tasks)
         )
@@ -738,10 +745,20 @@ def main() -> None:
             ["MediationAFKWaitCombatHud"],
         ),
     )
+    moon_hunter_fast_click_chains = (
+        (
+            "MoonHunterAFKRestart",
+            "MoonHunterAFKRestartClick2",
+            "MoonHunterAFKRestartClick3",
+            [540, 630],
+            ["MoonHunterAFKRestartMonitor"],
+        ),
+    )
     fast_click_chains = (
         established_fast_click_chains
         + coin_fast_click_chains
         + mediation_fast_click_chains
+        + moon_hunter_fast_click_chains
     )
     for first, second, third, target, final_next in fast_click_chains:
         for node_name, next_name in ((first, second), (second, third)):
@@ -791,10 +808,11 @@ def main() -> None:
             raise SystemExit(f"{node_name}: Agent actions must never click page buttons")
         if (
             custom_param.get("kind") == "input_sequence"
-            and node_name != "MediationAFKCombatSequence"
+            and node_name
+            not in {"MediationAFKCombatSequence", "MoonHunterAFKCombatSequence"}
         ):
             raise SystemExit(
-                f"{node_name}: only MediationAFK may use the recorded role input sequence"
+                f"{node_name}: recorded role input sequence is not approved for this task"
             )
     for relative, override in pipeline_overrides:
         for node_name, node_override in override.items():
@@ -901,7 +919,7 @@ def main() -> None:
         "kind": "input_sequence",
         "steps": [
             {"key_down": 87},
-            {"delay_ms": 1200},
+            {"delay_ms": 1300},
             {"key_up": 87},
             {"mouse_down": "left"},
             {"delay_ms": 250},
@@ -915,9 +933,9 @@ def main() -> None:
             {"delay_ms": 300},
             {"key_press": 70},
             {"delay_ms": 300},
-            {"mouse_move": [0, -120]},
+            {"mouse_move": [0, -130]},
             {"mouse_down": "right"},
-            {"delay_ms": 300},
+            {"delay_ms": 800},
             {"mouse_up": "right"},
             {"delay_ms": 300},
             {"key_press": 90},
@@ -925,9 +943,9 @@ def main() -> None:
         "restore_delay_ms": 500,
     }
     expected_mediation_log = (
-        "[调停挂机] 局内角色操作已完成：W↓ → 1200ms → W↑ → "
+        "[调停挂机] 局内角色操作已完成：W↓ → 1300ms → W↑ → "
         "左键↓ → 250ms → 左键↑ → 300ms → F → 300ms → F → 300ms → "
-        "F → 300ms → F → 300ms → 鼠标1秒↑120px → 右键↓ → 300ms → "
+        "F → 300ms → F → 300ms → 鼠标1秒↑130px → 右键↓ → 800ms → "
         "右键↑ → 300ms → Z"
     )
     mediation_log = (
@@ -999,6 +1017,126 @@ def main() -> None:
         or mediation_inputs[0].get("verify") != "^[1-9]\\d{0,2}$"
     ):
         raise SystemExit("MediationAFK round count must remain in the 1-999 range")
+
+    moon_hunter_entry = pipeline_nodes.get("MoonHunterAFKEntry", {})
+    if moon_hunter_entry.get("next") != ["MoonHunterAFKInitialMonitor"]:
+        raise SystemExit("MoonHunterAFK must start from the unknown-state monitor")
+    if pipeline_nodes.get("MoonHunterAFKInitialMonitor", {}).get("next") != [
+        "MoonHunterAFKCompletedRestart",
+        "MoonHunterAFKCombatHudFrame1",
+        "MoonHunterAFKInitialMonitor",
+    ]:
+        raise SystemExit(
+            "MoonHunterAFK initial monitor must classify restart and combat HUD only"
+        )
+    if pipeline_nodes.get("MoonHunterAFKCombatHudReady", {}).get("action") != (
+        expected_dungeon_entry_action
+    ):
+        raise SystemExit("MoonHunterAFK must confirm three combat HUD frames before input")
+    moon_hunter_action = (
+        pipeline_nodes.get("MoonHunterAFKCombatSequence", {})
+        .get("action", {})
+        .get("param", {})
+    )
+    if (
+        pipeline_nodes.get("MoonHunterAFKCombatSequence", {}).get("pre_delay")
+        != 3000
+        or moon_hunter_action
+        != {
+            "custom_action": "focus_guard_action",
+            "custom_action_param": {
+                "kind": "input_sequence",
+                "steps": [
+                    {"mouse_down": "left"},
+                    {"delay_ms": 300},
+                    {"mouse_up": "left"},
+                    {"delay_ms": 300},
+                    {"mouse_down": "left"},
+                    {"delay_ms": 300},
+                    {"mouse_up": "left"},
+                    {"delay_ms": 300},
+                    {"mouse_down": "left"},
+                    {"delay_ms": 300},
+                    {"mouse_up": "left"},
+                    {"delay_ms": 300},
+                    {"delay_ms": 300},
+                    {"key_press": 81},
+                    {"delay_ms": 3500},
+                ],
+                "skill_input_group": True,
+            },
+        }
+        or pipeline_nodes.get("MoonHunterAFKCombatSequence", {}).get("next")
+        != ["MoonHunterAFKInsideMonitor"]
+    ):
+        raise SystemExit("MoonHunterAFK must preserve the three-left-hold/Q opening sequence")
+    moon_hunter_e = pipeline_nodes.get("MoonHunterAFKPressE", {})
+    if (
+        moon_hunter_e.get("action", {}).get("param", {})
+        != {
+            "custom_action": "focus_guard_action",
+            "custom_action_param": {
+                "kind": "key",
+                "key": 69,
+                "repeat": 1,
+                "skill_input_group": True,
+                "track_e_sequence": False,
+            },
+        }
+        or moon_hunter_e.get("post_delay") != 300
+        or moon_hunter_e.get("next") != ["MoonHunterAFKInsideMonitor"]
+        or pipeline_nodes.get("MoonHunterAFKInsideMonitor", {}).get("next")
+        != ["MoonHunterAFKCompletedRestart", "MoonHunterAFKPressE"]
+    ):
+        raise SystemExit("MoonHunterAFK must press E every 300ms until restart appears")
+    restart_action = pipeline_nodes.get("MoonHunterAFKCompletedRestart", {}).get(
+        "action", {}
+    )
+    if restart_action != {
+        "type": "Custom",
+        "param": {
+            "custom_action": "skill_input_group_complete",
+            "custom_action_param": {"restore_delay_ms": 100},
+        },
+    }:
+        raise SystemExit("MoonHunterAFK must close its input group at settlement")
+    restart_recognition = pipeline_nodes.get("MoonHunterAFKCompletedRestart", {}).get(
+        "recognition", {}
+    )
+    if (
+        restart_recognition.get("type") != "TemplateMatch"
+        or restart_recognition.get("param", {}).get("template")
+        != "MoonHunterAFK/restart.png"
+        or restart_recognition.get("param", {}).get("roi")
+        != [420, 580, 250, 90]
+        or pipeline_nodes.get("MoonHunterAFKCompletedRestart", {}).get("next")
+        != ["MoonHunterAFKRoundQuota"]
+    ):
+        raise SystemExit("MoonHunterAFK must count only the lower-left restart page")
+    if pipeline_nodes.get("MoonHunterAFKRestartMonitor", {}).get("next") != [
+        "MoonHunterAFKRestartRetry",
+        "MoonHunterAFKCombatHudFrame1",
+        "MoonHunterAFKRestartMonitor",
+    ]:
+        raise SystemExit("MoonHunterAFK restart must recover through restart or combat HUD")
+    retry_node = pipeline_nodes.get("MoonHunterAFKRestartRetry", {})
+    if (
+        retry_node.get("action", {}).get("type") != "Click"
+        or retry_node.get("action", {}).get("param", {}).get("target")
+        != [540, 630]
+        or retry_node.get("post_delay") != 50
+        or retry_node.get("next") != ["MoonHunterAFKRestartClick2"]
+    ):
+        raise SystemExit("MoonHunterAFK restart retry must reuse the native fast-click chain")
+    moon_hunter_inputs = all_options.get("MoonHunterAFKRestartCount", {}).get(
+        "inputs", []
+    )
+    if (
+        len(moon_hunter_inputs) != 1
+        or moon_hunter_inputs[0].get("default") != "1"
+        or moon_hunter_inputs[0].get("verify") != "^[1-9]\\d{0,3}$"
+    ):
+        raise SystemExit("MoonHunterAFK round count must remain in the 1-9999 range")
 
     monitor_action = (
         pipeline_nodes.get("ProgressMonitorEntry", {}).get("action", {}).get("param", {})
@@ -1375,7 +1513,7 @@ def main() -> None:
         "param": {
             "custom_action": "focus_guard_start",
             "custom_action_param": {
-                "progress_mode": "挂机钓鱼",
+                "progress_mode": "钓鱼挂机",
                 "progress_total": "{count}",
                 "progress_stage_total": 0,
             },

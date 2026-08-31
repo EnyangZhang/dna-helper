@@ -21,6 +21,7 @@ _GAME_TASK_ENTRIES = {
     "NormalEndlessEntry",
     "CoinAFKEntry",
     "MediationAFKEntry",
+    "MoonHunterAFKEntry",
     "FishingEntry",
 }
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent

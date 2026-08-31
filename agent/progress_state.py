@@ -153,7 +153,7 @@ def mark_dungeon_entered() -> bool:
 def record_fishing_catch() -> bool:
     """Count one successful fishing key and complete at the configured target."""
     with _lock:
-        if _state["mode"] != "挂机钓鱼" or _state["status"] != "running":
+        if _state["mode"] != "钓鱼挂机" or _state["status"] != "running":
             return False
         target = int(_state["total_rounds"])
         next_count = int(_state["stage_count"]) + 1
@@ -169,7 +169,7 @@ def mark_fishing_pool_empty() -> bool:
     """Complete an active fishing task because the game reports no fish."""
 
     with _lock:
-        if _state["mode"] != "挂机钓鱼" or _state["status"] != "running":
+        if _state["mode"] != "钓鱼挂机" or _state["status"] != "running":
             return False
         _state["status"] = "completed"
         _state["completion_reason"] = "fishing_pool_empty"
@@ -271,7 +271,7 @@ def format_status(now: float | None = None) -> str:
     stage_total = int(state["stage_total"])
     stage_count = int(state["stage_count"])
     lines = [f"{mode}：{labels.get(status, status)}"]
-    if mode == "挂机钓鱼":
+    if mode == "钓鱼挂机":
         lines.append(
             f"钓鱼数量：{stage_count} / {total}" if total else f"钓鱼数量：{stage_count}"
         )

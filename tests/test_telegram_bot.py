@@ -217,8 +217,19 @@ class TelegramBotTest(unittest.TestCase):
 
     @patch(
         "telegram_bot.progress_state.snapshot",
+        return_value={"mode": "狩月人之阶挂机"},
+    )
+    def test_moon_hunter_afk_completion_uses_formal_task_label(self, snapshot) -> None:
+        self.assertEqual(
+            telegram_bot.format_task_completed_message(),
+            "DNA Helper 任务已完成\n任务：狩月人之阶挂机\n模式：自动循环",
+        )
+        snapshot.assert_called_once_with()
+
+    @patch(
+        "telegram_bot.progress_state.snapshot",
         return_value={
-            "mode": "挂机钓鱼",
+            "mode": "钓鱼挂机",
             "completion_reason": "fishing_pool_empty",
         },
     )

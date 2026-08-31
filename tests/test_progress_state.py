@@ -14,17 +14,17 @@ import progress_state  # noqa: E402
 
 class ProgressStateTest(unittest.TestCase):
     def test_fishing_status_omits_dungeon_counters(self) -> None:
-        progress_state.start_task("挂机钓鱼", 10, 0, task_id=700)
+        progress_state.start_task("钓鱼挂机", 10, 0, task_id=700)
         self.assertTrue(progress_state.record_fishing_catch())
         self.assertTrue(progress_state.record_fishing_catch())
         message = progress_state.format_status()
-        self.assertIn("挂机钓鱼：进行中", message)
+        self.assertIn("钓鱼挂机：进行中", message)
         self.assertIn("钓鱼数量：2 / 10", message)
         self.assertNotIn("副本轮次", message)
         self.assertNotIn("局内轮次", message)
 
     def test_fishing_completes_exactly_at_configured_target(self) -> None:
-        progress_state.start_task("挂机钓鱼", 2, 0, task_id=701)
+        progress_state.start_task("钓鱼挂机", 2, 0, task_id=701)
         self.assertTrue(progress_state.record_fishing_catch())
         self.assertEqual(progress_state.snapshot()["status"], "running")
         self.assertTrue(progress_state.record_fishing_catch())
@@ -35,7 +35,7 @@ class ProgressStateTest(unittest.TestCase):
         self.assertIn("钓鱼数量：2 / 2", progress_state.format_status())
 
     def test_fishing_pool_empty_records_terminal_reason_without_incrementing(self) -> None:
-        progress_state.start_task("挂机钓鱼", 120, 0, task_id=702)
+        progress_state.start_task("钓鱼挂机", 120, 0, task_id=702)
 
         self.assertTrue(progress_state.mark_fishing_pool_empty())
         state = progress_state.snapshot()

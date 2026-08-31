@@ -254,13 +254,13 @@ class FishingRecognitionTest(unittest.TestCase):
         with patch.object(
             fishing.progress_state,
             "snapshot",
-            return_value={"mode": "挂机钓鱼", "status": "running"},
+            return_value={"mode": "钓鱼挂机", "status": "running"},
         ):
             running = recognition.analyze(SimpleNamespace(), SimpleNamespace())
         with patch.object(
             fishing.progress_state,
             "snapshot",
-            return_value={"mode": "挂机钓鱼", "status": "completed"},
+            return_value={"mode": "钓鱼挂机", "status": "completed"},
         ):
             completed = recognition.analyze(SimpleNamespace(), SimpleNamespace())
 

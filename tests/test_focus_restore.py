@@ -459,7 +459,7 @@ class FocusRestoreTest(unittest.TestCase):
             )
 
         log.assert_called_once_with(
-            "[挂机钓鱼] Space 已发送（后台）",
+            "[钓鱼挂机] Space 已发送（后台）",
             flush=True,
         )
 
@@ -488,11 +488,11 @@ class FocusRestoreTest(unittest.TestCase):
             log.call_args_list,
             [
                 unittest.mock.call(
-                    "[挂机钓鱼] Esc 已发送（前台），钓鱼数量：100 / 100",
+                    "[钓鱼挂机] Esc 已发送（前台），钓鱼数量：100 / 100",
                     flush=True,
                 ),
                 unittest.mock.call(
-                    "[挂机钓鱼] 已达到设定数量：100 / 100，任务完成",
+                    "[钓鱼挂机] 已达到设定数量：100 / 100，任务完成",
                     flush=True,
                 ),
             ],
@@ -504,7 +504,7 @@ class FocusRestoreTest(unittest.TestCase):
                 {"fishing_log_key": "E"}, background=True
             )
 
-        log.assert_called_once_with("[挂机钓鱼] E 已发送（后台）", flush=True)
+        log.assert_called_once_with("[钓鱼挂机] E 已发送（后台）", flush=True)
 
     def test_fishing_log_failure_does_not_fail_the_action_path(self) -> None:
         with patch("builtins.print", side_effect=OSError("closed")):
@@ -672,7 +672,7 @@ class FocusRestoreTest(unittest.TestCase):
                 "kind": "input_sequence",
                 "steps": [
                     {"key_down": 87},
-                    {"delay_ms": 1200},
+                    {"delay_ms": 1300},
                     {"key_up": 87},
                     {"mouse_down": "left"},
                     {"delay_ms": 250},
@@ -686,9 +686,9 @@ class FocusRestoreTest(unittest.TestCase):
                     {"delay_ms": 300},
                     {"key_press": 70},
                     {"delay_ms": 300},
-                    {"mouse_move": [0, -120]},
+                    {"mouse_move": [0, -130]},
                     {"mouse_down": "right"},
-                    {"delay_ms": 300},
+                    {"delay_ms": 800},
                     {"mouse_up": "right"},
                     {"delay_ms": 300},
                     {"key_press": 90},
@@ -736,7 +736,7 @@ class FocusRestoreTest(unittest.TestCase):
             events,
             [
                 ("down", 87),
-                ("sleep", 1.2),
+                ("sleep", 1.3),
                 ("up", 87),
                 ("mouse_down", "left"),
                 ("sleep", 0.25),
@@ -750,9 +750,9 @@ class FocusRestoreTest(unittest.TestCase):
                 ("sleep", 0.3),
                 ("press", 70),
                 ("sleep", 0.3),
-                ("move", (0, -120)),
+                ("move", (0, -130)),
                 ("mouse_down", "right"),
-                ("sleep", 0.3),
+                ("sleep", 0.8),
                 ("mouse_up", "right"),
                 ("sleep", 0.3),
                 ("press", 90),
@@ -838,7 +838,7 @@ class FocusRestoreTest(unittest.TestCase):
                 "kind": "input_sequence",
                 "steps": [
                     {"key_down": 87},
-                    {"delay_ms": 1200},
+                    {"delay_ms": 1300},
                     {"key_up": 87},
                     {"mouse_down": "left"},
                     {"delay_ms": 250},
@@ -852,9 +852,9 @@ class FocusRestoreTest(unittest.TestCase):
                     {"delay_ms": 300},
                     {"key_press": 70},
                     {"delay_ms": 300},
-                    {"mouse_move": [0, -120]},
+                    {"mouse_move": [0, -130]},
                     {"mouse_down": "right"},
-                    {"delay_ms": 300},
+                    {"delay_ms": 800},
                     {"mouse_up": "right"},
                     {"delay_ms": 300},
                     {"key_press": 90},
@@ -900,7 +900,7 @@ class FocusRestoreTest(unittest.TestCase):
                 "kind": "input_sequence",
                 "steps": [
                     {"key_down": 87},
-                    {"delay_ms": 1200},
+                    {"delay_ms": 1300},
                     {"key_up": 87},
                     {"mouse_down": "left"},
                     {"delay_ms": 250},
@@ -914,9 +914,9 @@ class FocusRestoreTest(unittest.TestCase):
                     {"delay_ms": 300},
                     {"key_press": 70},
                     {"delay_ms": 300},
-                    {"mouse_move": [0, -120]},
+                    {"mouse_move": [0, -130]},
                     {"mouse_down": "right"},
-                    {"delay_ms": 300},
+                    {"delay_ms": 800},
                     {"mouse_up": "right"},
                     {"delay_ms": 300},
                     {"key_press": 90},
@@ -971,7 +971,7 @@ class FocusRestoreTest(unittest.TestCase):
                 "kind": "input_sequence",
                 "steps": [
                     {"key_down": 87},
-                    {"delay_ms": 1200},
+                    {"delay_ms": 1300},
                     {"key_up": 87},
                     {"mouse_down": "left"},
                     {"delay_ms": 250},
@@ -985,9 +985,9 @@ class FocusRestoreTest(unittest.TestCase):
                     {"delay_ms": 300},
                     {"key_press": 70},
                     {"delay_ms": 300},
-                    {"mouse_move": [0, -120]},
+                    {"mouse_move": [0, -130]},
                     {"mouse_down": "right"},
-                    {"delay_ms": 300},
+                    {"delay_ms": 800},
                     {"mouse_up": "right"},
                     {"delay_ms": 300},
                     {"key_press": 90},

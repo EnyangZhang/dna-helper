@@ -474,18 +474,18 @@ def _log_fishing_action(params: dict, background: bool) -> None:
         return
     input_mode = "后台" if background else "前台"
     if params.get("progress_event") != "fishing_caught":
-        _safe_user_log(f"[挂机钓鱼] {key_label} 已发送（{input_mode}）")
+        _safe_user_log(f"[钓鱼挂机] {key_label} 已发送（{input_mode}）")
         return
     state = progress_state.snapshot()
     current = int(state.get("stage_count", 0))
     total = int(state.get("total_rounds", 0))
     _safe_user_log(
-        f"[挂机钓鱼] {key_label} 已发送（{input_mode}），"
+        f"[钓鱼挂机] {key_label} 已发送（{input_mode}），"
         f"钓鱼数量：{current} / {total}"
     )
     if state.get("status") == "completed":
         _safe_user_log(
-            f"[挂机钓鱼] 已达到设定数量：{current} / {total}，任务完成"
+            f"[钓鱼挂机] 已达到设定数量：{current} / {total}，任务完成"
         )
 
 
@@ -510,10 +510,10 @@ class FocusGuardStart(CustomAction):
             _reset_hybrid_skill_ready()
             _reset_hybrid_fishing_ready()
             telegram_bot.notify_task_started(progress_mode)
-            if progress_mode == "挂机钓鱼":
+            if progress_mode == "钓鱼挂机":
                 state = progress_state.snapshot()
                 _safe_user_log(
-                    "[挂机钓鱼] 任务已启动，钓鱼数量："
+                    "[钓鱼挂机] 任务已启动，钓鱼数量："
                     f"{int(state.get('stage_count', 0))} / "
                     f"{int(state.get('total_rounds', 0))}"
                 )

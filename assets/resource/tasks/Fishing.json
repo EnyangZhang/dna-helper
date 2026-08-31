@@ -2,7 +2,7 @@
     "task": [
         {
             "name": "Fishing",
-            "label": "挂机钓鱼",
+            "label": "钓鱼挂机",
             "description": "用于大世界钓鱼地点。识别鱼竿图标发送 Space、鱼形图标发送 E、关闭提示发送 Esc；达到设定数量，或识别到“水中暂时无鱼”时自动结束，后者会通知 Telegram 鱼池已空。",
             "entry": "FishingEntry",
             "option": ["FishingCount", "FishingBackgroundInput"],
@@ -31,7 +31,7 @@
                         "param": {
                             "custom_action": "focus_guard_start",
                             "custom_action_param": {
-                                "progress_mode": "挂机钓鱼",
+                                "progress_mode": "钓鱼挂机",
                                 "progress_total": "{count}",
                                 "progress_stage_total": 0
                             }

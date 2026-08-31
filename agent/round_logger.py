@@ -232,6 +232,49 @@ class MediationAFKRoundDecision(CustomAction):
         return CustomAction.RunResult(success=succeeded)
 
 
+@AgentServer.custom_action("moon_hunter_afk_log_round")
+class MoonHunterAFKRoundLogger(CustomAction):
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
+        total = max(1, int(params.get("total", 1)))
+        current = max(1, context.get_hit_count("MoonHunterAFKRoundQuota"))
+        progress_state.complete_round(current, total, "狩月人之阶挂机")
+        succeeded = context.override_pipeline(
+            {
+                "MoonHunterAFKRoundLog": {
+                    "focus": {
+                        "Node.Action.Succeeded": {
+                            "content": f"[狩月人之阶挂机] 已完成第 {current} / {total} 次副本",
+                            "display": ["log"],
+                        }
+                    }
+                }
+            }
+        )
+        return CustomAction.RunResult(success=succeeded)
+
+
+@AgentServer.custom_action("moon_hunter_afk_decide_restart")
+class MoonHunterAFKRoundDecision(CustomAction):
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
+        total = max(1, int(params.get("total", 1)))
+        current = max(1, context.get_hit_count("MoonHunterAFKRoundQuota"))
+        next_node = (
+            "MoonHunterAFKRestart"
+            if current < total
+            else "MoonHunterAFKFinished"
+        )
+        succeeded = context.override_pipeline(
+            {"MoonHunterAFKRoundDecision": {"next": [next_node]}}
+        )
+        return CustomAction.RunResult(success=succeeded)
+
+
 def _parse_params(raw: object) -> dict:
     if isinstance(raw, dict):
         return raw

@@ -1,0 +1,327 @@
+{
+    "MoonHunterAFKEntry": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_start",
+                "custom_action_param": {
+                    "progress_mode": "狩月人之阶挂机",
+                    "progress_total": 1,
+                    "progress_stage_total": 0
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[狩月人之阶挂机] 任务已启动，等待副本状态确认",
+                "display": ["log"]
+            }
+        },
+        "next": ["MoonHunterAFKInitialMonitor"]
+    },
+    "MoonHunterAFKInitialMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "MoonHunterAFKCompletedRestart",
+            "MoonHunterAFKCombatHudFrame1",
+            "MoonHunterAFKInitialMonitor"
+        ]
+    },
+    "MoonHunterAFKWaitCombatHud": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "MoonHunterAFKCombatHudFrame1",
+            "MoonHunterAFKRestartRetry",
+            "MoonHunterAFKWaitCombatHud"
+        ]
+    },
+    "MoonHunterAFKCombatHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["MoonHunterAFKCombatHudFrame2"],
+        "on_error": ["MoonHunterAFKWaitCombatHud"]
+    },
+    "MoonHunterAFKCombatHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["MoonHunterAFKCombatHudReady"],
+        "on_error": ["MoonHunterAFKWaitCombatHud"]
+    },
+    "MoonHunterAFKCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {"custom_action": "progress_dungeon_entered"}
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "on_error": ["MoonHunterAFKWaitCombatHud"],
+        "next": ["MoonHunterAFKCombatSequence"]
+    },
+    "MoonHunterAFKCombatSequence": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "input_sequence",
+                    "steps": [
+                        {"mouse_down": "left"},
+                        {"delay_ms": 300},
+                        {"mouse_up": "left"},
+                        {"delay_ms": 300},
+                        {"mouse_down": "left"},
+                        {"delay_ms": 300},
+                        {"mouse_up": "left"},
+                        {"delay_ms": 300},
+                        {"mouse_down": "left"},
+                        {"delay_ms": 300},
+                        {"mouse_up": "left"},
+                        {"delay_ms": 300},
+                        {"delay_ms": 300},
+                        {"key_press": 81},
+                        {"delay_ms": 3500}
+                    ],
+                    "skill_input_group": true
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 3000,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[狩月人之阶挂机] 起手动作已完成：左键蓄力 300ms + 等待 300ms × 3 → 额外 300ms → Q → 3500ms",
+                "display": ["log"]
+            }
+        },
+        "next": ["MoonHunterAFKInsideMonitor"]
+    },
+    "MoonHunterAFKInsideMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "max_hit": 1000000000,
+        "next": [
+            "MoonHunterAFKCompletedRestart",
+            "MoonHunterAFKPressE"
+        ]
+    },
+    "MoonHunterAFKPressE": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "key",
+                    "key": 69,
+                    "repeat": 1,
+                    "skill_input_group": true,
+                    "track_e_sequence": false
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 300,
+        "next": ["MoonHunterAFKInsideMonitor"]
+    },
+    "MoonHunterAFKCompletedRestart": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "MoonHunterAFK/restart.png",
+                "roi": [420, 580, 250, 90],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "skill_input_group_complete",
+                "custom_action_param": {"restore_delay_ms": 100}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MoonHunterAFKRoundQuota"]
+    },
+    "MoonHunterAFKRoundQuota": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "moon_hunter_afk_log_round",
+                "custom_action_param": {"total": 1}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "max_hit": 1,
+        "next": ["MoonHunterAFKRoundLog"]
+    },
+    "MoonHunterAFKRoundLog": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MoonHunterAFKRoundDecision"]
+    },
+    "MoonHunterAFKRoundDecision": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "moon_hunter_afk_decide_restart",
+                "custom_action_param": {"total": 1}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MoonHunterAFKFinished"]
+    },
+    "MoonHunterAFKRestart": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "MoonHunterAFK/restart.png",
+                "roi": [420, 580, 250, 90],
+                "threshold": 0.8
+            }
+        },
+        "action": {"type": "Click", "param": {"target": [540, 630]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["MoonHunterAFKRestartClick2"]
+    },
+    "MoonHunterAFKRestartRetry": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "MoonHunterAFK/restart.png",
+                "roi": [420, 580, 250, 90],
+                "threshold": 0.8
+            }
+        },
+        "action": {"type": "Click", "param": {"target": [540, 630]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["MoonHunterAFKRestartClick2"]
+    },
+    "MoonHunterAFKRestartClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [540, 630]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["MoonHunterAFKRestartClick3"]
+    },
+    "MoonHunterAFKRestartClick3": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [540, 630]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[狩月人之阶挂机] “重新开始”已点击",
+                "display": ["log"]
+            }
+        },
+        "next": ["MoonHunterAFKRestartClick3Finalize"]
+    },
+    "MoonHunterAFKRestartClick3Finalize": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_finalize",
+                "custom_action_param": {"restore_delay_ms": 100}
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["MoonHunterAFKRestartMonitor"]
+    },
+    "MoonHunterAFKRestartMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "MoonHunterAFKRestartRetry",
+            "MoonHunterAFKCombatHudFrame1",
+            "MoonHunterAFKRestartMonitor"
+        ]
+    },
+    "MoonHunterAFKFinished": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "StopTask"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Starting": {
+                "content": "[狩月人之阶挂机] 副本轮次已完成，任务结束",
+                "display": ["log", "toast"]
+            }
+        }
+    }
+}
