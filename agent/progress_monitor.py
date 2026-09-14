@@ -23,6 +23,7 @@ _GAME_TASK_ENTRIES = {
     "MediationAFKEntry",
     "MoonHunterAFKEntry",
     "FishingEntry",
+    "TheatreAFKEntry",
 }
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _MXU_LOG_PATH = _PROJECT_ROOT / "debug" / "mxu-tauri.log"

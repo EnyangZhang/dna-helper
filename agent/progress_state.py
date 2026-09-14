@@ -275,6 +275,8 @@ def format_status(now: float | None = None) -> str:
         lines.append(
             f"钓鱼数量：{stage_count} / {total}" if total else f"钓鱼数量：{stage_count}"
         )
+    elif mode == "沉浸式戏剧挂机":
+        pass
     elif mode in {"普通无尽", "密函无尽"}:
         lines.append(f"局内轮次：{stage_count}")
     else:

@@ -672,7 +672,7 @@ class FocusRestoreTest(unittest.TestCase):
                 "kind": "input_sequence",
                 "steps": [
                     {"key_down": 87},
-                    {"delay_ms": 1300},
+                    {"delay_ms": 1500},
                     {"key_up": 87},
                     {"mouse_down": "left"},
                     {"delay_ms": 250},
@@ -685,12 +685,13 @@ class FocusRestoreTest(unittest.TestCase):
                     {"key_press": 70},
                     {"delay_ms": 300},
                     {"key_press": 70},
-                    {"delay_ms": 300},
-                    {"mouse_move": [0, -130]},
+                    {"delay_ms": 800},
+                    {"mouse_move_instant": [0, -130]},
+                    {"delay_ms": 500},
                     {"mouse_down": "right"},
                     {"delay_ms": 800},
                     {"mouse_up": "right"},
-                    {"delay_ms": 300},
+                    {"delay_ms": 800},
                     {"key_press": 90},
                 ],
                 "restore_delay_ms": 500,
@@ -707,7 +708,7 @@ class FocusRestoreTest(unittest.TestCase):
             patch.object(focus_restore, "_activate_game_for_skill", return_value=True),
             patch.object(
                 focus_restore,
-                "_send_foreground_mouse_move",
+                "_send_foreground_mouse_move_instant",
                 side_effect=lambda dx, dy: events.append(("move", (dx, dy))) or True,
             ),
             patch.object(
@@ -736,7 +737,7 @@ class FocusRestoreTest(unittest.TestCase):
             events,
             [
                 ("down", 87),
-                ("sleep", 1.3),
+                ("sleep", 1.5),
                 ("up", 87),
                 ("mouse_down", "left"),
                 ("sleep", 0.25),
@@ -749,12 +750,13 @@ class FocusRestoreTest(unittest.TestCase):
                 ("press", 70),
                 ("sleep", 0.3),
                 ("press", 70),
-                ("sleep", 0.3),
+                ("sleep", 0.8),
                 ("move", (0, -130)),
+                ("sleep", 0.5),
                 ("mouse_down", "right"),
                 ("sleep", 0.8),
                 ("mouse_up", "right"),
-                ("sleep", 0.3),
+                ("sleep", 0.8),
                 ("press", 90),
                 ("sleep", 0.5),
                 ("restore", None),
@@ -782,6 +784,24 @@ class FocusRestoreTest(unittest.TestCase):
         sleep.assert_called_with(
             focus_restore._FOREGROUND_MOUSE_MOVE_INTERVAL_SECONDS
         )
+
+    def test_mediation_instant_mouse_move_uses_one_event(self) -> None:
+        with (
+            patch.object(focus_restore._user32, "mouse_event") as mouse_event,
+            patch.object(focus_restore.ctypes, "get_last_error", return_value=0),
+            patch.object(focus_restore.time, "sleep") as sleep,
+        ):
+            result = focus_restore._send_foreground_mouse_move_instant(0, -130)
+
+        self.assertTrue(result)
+        mouse_event.assert_called_once_with(
+            focus_restore._MOUSEEVENTF_MOVE,
+            0,
+            (-130) & 0xFFFFFFFF,
+            0,
+            None,
+        )
+        sleep.assert_not_called()
 
     def test_mediation_physical_mouse_buttons_support_left_and_right(self) -> None:
         with (
@@ -838,7 +858,7 @@ class FocusRestoreTest(unittest.TestCase):
                 "kind": "input_sequence",
                 "steps": [
                     {"key_down": 87},
-                    {"delay_ms": 1300},
+                    {"delay_ms": 1500},
                     {"key_up": 87},
                     {"mouse_down": "left"},
                     {"delay_ms": 250},
@@ -851,12 +871,13 @@ class FocusRestoreTest(unittest.TestCase):
                     {"key_press": 70},
                     {"delay_ms": 300},
                     {"key_press": 70},
-                    {"delay_ms": 300},
-                    {"mouse_move": [0, -130]},
+                    {"delay_ms": 800},
+                    {"mouse_move_instant": [0, -130]},
+                    {"delay_ms": 500},
                     {"mouse_down": "right"},
                     {"delay_ms": 800},
                     {"mouse_up": "right"},
-                    {"delay_ms": 300},
+                    {"delay_ms": 800},
                     {"key_press": 90},
                 ],
                 "restore_delay_ms": 100,
@@ -900,7 +921,7 @@ class FocusRestoreTest(unittest.TestCase):
                 "kind": "input_sequence",
                 "steps": [
                     {"key_down": 87},
-                    {"delay_ms": 1300},
+                    {"delay_ms": 1500},
                     {"key_up": 87},
                     {"mouse_down": "left"},
                     {"delay_ms": 250},
@@ -913,12 +934,13 @@ class FocusRestoreTest(unittest.TestCase):
                     {"key_press": 70},
                     {"delay_ms": 300},
                     {"key_press": 70},
-                    {"delay_ms": 300},
-                    {"mouse_move": [0, -130]},
+                    {"delay_ms": 800},
+                    {"mouse_move_instant": [0, -130]},
+                    {"delay_ms": 500},
                     {"mouse_down": "right"},
                     {"delay_ms": 800},
                     {"mouse_up": "right"},
-                    {"delay_ms": 300},
+                    {"delay_ms": 800},
                     {"key_press": 90},
                 ],
                 "restore_delay_ms": 100,
@@ -971,7 +993,7 @@ class FocusRestoreTest(unittest.TestCase):
                 "kind": "input_sequence",
                 "steps": [
                     {"key_down": 87},
-                    {"delay_ms": 1300},
+                    {"delay_ms": 1500},
                     {"key_up": 87},
                     {"mouse_down": "left"},
                     {"delay_ms": 250},
@@ -984,12 +1006,13 @@ class FocusRestoreTest(unittest.TestCase):
                     {"key_press": 70},
                     {"delay_ms": 300},
                     {"key_press": 70},
-                    {"delay_ms": 300},
-                    {"mouse_move": [0, -130]},
+                    {"delay_ms": 800},
+                    {"mouse_move_instant": [0, -130]},
+                    {"delay_ms": 500},
                     {"mouse_down": "right"},
                     {"delay_ms": 800},
                     {"mouse_up": "right"},
-                    {"delay_ms": 300},
+                    {"delay_ms": 800},
                     {"key_press": 90},
                 ],
                 "restore_delay_ms": 100,
@@ -1005,7 +1028,9 @@ class FocusRestoreTest(unittest.TestCase):
             ),
             patch.object(focus_restore, "_activate_game_for_skill", return_value=True),
             patch.object(
-                focus_restore, "_send_foreground_mouse_move", return_value=True
+                focus_restore,
+                "_send_foreground_mouse_move_instant",
+                return_value=True,
             ),
             patch.object(
                 focus_restore,

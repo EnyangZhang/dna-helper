@@ -58,6 +58,7 @@
         "resource/tasks/MediationAFK.json",
         "resource/tasks/MoonHunterAFK.json",
         "resource/tasks/Fishing.json",
+        "resource/tasks/TheatreAFK.json",
         "resource/tasks/ProgressMonitor.json",
         "resource/tasks/LiseExpelSkillCast.json",
         "resource/tasks/preset/AFK.json"

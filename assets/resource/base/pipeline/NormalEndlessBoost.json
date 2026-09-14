@@ -1054,6 +1054,29 @@
             "NormalPostSkillOutsideMonitor"
         ]
     },
+    "NormalInfiniteAgainDetected": {
+        "enabled": false,
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/expel_again.png",
+                "roi": [800, 560, 300, 130],
+                "threshold": 0.8
+            }
+        },
+        "action": {
+            "type": "StopTask"
+        },
+        "focus": {
+            "Node.Recognition.Succeeded": {
+                "content": "[普通无尽] 检测到“再次进行”，任务结束",
+                "display": ["log"]
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    },
     "NormalEndlessAgainDetected": {
         "recognition": {
             "type": "TemplateMatch",

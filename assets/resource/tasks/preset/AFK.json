@@ -18,7 +18,7 @@
         {
             "name": "NormalAFK",
             "label": "普通挂机",
-            "description": "先启动进度监控，默认执行普通无尽加速；调停挂机和狩月人之阶挂机已加入但默认关闭，需要时请只启用一个长期游戏任务。",
+            "description": "先启动进度监控，默认执行普通无尽加速；调停挂机、狩月人之阶挂机和沉浸式戏剧挂机已加入但默认关闭，需要时请只启用一个长期游戏任务。",
             "task": [
                 {
                     "name": "ProgressMonitor",
@@ -34,6 +34,10 @@
                 },
                 {
                     "name": "MoonHunterAFK",
+                    "enabled": false
+                },
+                {
+                    "name": "TheatreAFK",
                     "enabled": false
                 }
             ]

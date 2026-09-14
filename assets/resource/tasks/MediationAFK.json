@@ -20,14 +20,14 @@
         "MediationAFKRestartCount": {
             "type": "input",
             "label": "副本轮次",
-            "description": "设置需要完成多少次调停副本，范围 1–999。只有识别到结算页“再次进行”才计入一次完成。",
+            "description": "设置需要完成多少次调停副本，范围 1–9999。只有识别到结算页“再次进行”才计入一次完成。",
             "inputs": [
                 {
                     "name": "count",
                     "label": "轮次",
                     "default": "1",
                     "pipeline_type": "int",
-                    "verify": "^[1-9]\\d{0,2}$"
+                    "verify": "^(?:[1-9]\\d{0,2}|[1-9]\\d{3})$"
                 }
             ],
             "pipeline_override": {

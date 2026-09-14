@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
+from maa.event_sink import NotificationType
+from maa.tasker import TaskerEventSink
 
 import progress_state
 import telegram_bot
@@ -184,6 +186,19 @@ def _send_foreground_mouse_move(dx: int, dy: int) -> bool:
     return True
 
 
+def _send_foreground_mouse_move_instant(dx: int, dy: int) -> bool:
+    """Send one relative gameplay-camera movement event without pacing."""
+    ctypes.set_last_error(0)
+    _user32.mouse_event(
+        _MOUSEEVENTF_MOVE,
+        dx & 0xFFFFFFFF,
+        dy & 0xFFFFFFFF,
+        0,
+        None,
+    )
+    return ctypes.get_last_error() == 0
+
+
 def _send_foreground_mouse_button(button: str, pressed: bool) -> bool:
     """Send a physical mouse button transition while the game owns focus."""
     flags = {
@@ -274,6 +289,19 @@ def _send_background_key(hwnd: int, key: int) -> bool:
         return False
     time.sleep(_BACKGROUND_KEY_HOLD_SECONDS)
     return bool(_user32.PostMessageW(hwnd, _WM_KEYUP, key, up_lparam))
+
+
+def _send_background_key_transition(hwnd: int, key: int, pressed: bool) -> bool:
+    """Post one half of a keyboard-only sequence without touching focus/cursor."""
+    if not hwnd or not _user32.IsWindow(hwnd):
+        return False
+    scan_code = int(_user32.MapVirtualKeyW(key, _MAPVK_VK_TO_VSC))
+    lparam = 1 | (scan_code << 16)
+    if not pressed:
+        lparam |= (1 << 30) | (1 << 31)
+    return bool(_user32.PostMessageW(
+        hwnd, _WM_KEYDOWN if pressed else _WM_KEYUP, key, lparam
+    ))
 
 
 def _reset_hybrid_skill_ready() -> None:
@@ -541,6 +569,21 @@ class FocusGuardFinalize(CustomAction):
         restore_delay_ms = min(
             1000, max(0, int(params.get("restore_delay_ms", 100)))
         )
+        if params.get("finish_skill_input_group", False):
+            task_id = _task_id(argv)
+            with _skill_input_group_lock:
+                group = _skill_input_groups.get(task_id)
+            if group is not None:
+                # Theatre keeps its opening and E loop grouped through native
+                # page clicks. Restore that group's original target exactly once.
+                _finish_skill_input_group(task_id, restore_delay_ms)
+                if not group.background_key_input:
+                    _apply_progress_event(params)
+                    return CustomAction.RunResult(success=True)
+                # Background keyboard groups never capture a restore target.
+                # The native Go clicks still need the ordinary watcher snapshot.
+            # A residual page can be clicked again after the group has closed;
+            # it still needs the ordinary native-click focus/cursor restoration.
         game_hwnd = _controller_hwnd(context)
         restore_hwnd, restore_cursor_position = _remember_restore_target(
             _foreground_window(), game_hwnd
@@ -552,9 +595,21 @@ class FocusGuardFinalize(CustomAction):
         return CustomAction.RunResult(success=True)
 
 
+@AgentServer.tasker_sink()
+class TheatreInputLifecycle(TaskerEventSink):
+    """Release only Theatre's persistent input context when its task ends."""
+
+    def on_tasker_task(self, tasker, noti_type, detail) -> None:
+        if detail.entry == "TheatreAFKEntry" and noti_type in {
+            NotificationType.Succeeded, NotificationType.Failed
+        }:
+            _finish_skill_input_group(int(detail.task_id), restore_delay_ms=0)
+
+
 @AgentServer.custom_action("focus_guard_action")
 class FocusGuardAction(CustomAction):
     background_key_input = False
+    background_input_sequence = False
     force_game_foreground = False
 
     def run(
@@ -568,10 +623,13 @@ class FocusGuardAction(CustomAction):
             1000, max(0, int(params.get("restore_delay_ms", 100)))
         )
         skill_input_group = bool(params.get("skill_input_group", False))
-        background_key_input = bool(self.background_key_input and kind == "key")
+        background_key_input = bool(
+            (self.background_key_input and kind == "key")
+            or (self.background_input_sequence and kind == "input_sequence")
+        )
         force_game_foreground = bool(
             (self.force_game_foreground and kind == "key")
-            or kind == "input_sequence"
+            or (kind == "input_sequence" and not background_key_input)
         )
         should_restore = (
             bool(params.get("restore", True))
@@ -682,8 +740,13 @@ class FocusGuardAction(CustomAction):
                         return CustomAction.RunResult(success=False)
                     input_sequence.append(("key_press", step_key))
                     continue
-                if "mouse_move" in step:
-                    movement = step.get("mouse_move")
+                if "mouse_move" in step or "mouse_move_instant" in step:
+                    movement_key = (
+                        "mouse_move_instant"
+                        if "mouse_move_instant" in step
+                        else "mouse_move"
+                    )
+                    movement = step.get(movement_key)
                     if (
                         not isinstance(movement, list)
                         or len(movement) != 2
@@ -691,7 +754,7 @@ class FocusGuardAction(CustomAction):
                         or not all(-20000 <= value <= 20000 for value in movement)
                     ):
                         return CustomAction.RunResult(success=False)
-                    input_sequence.append(("mouse_move", tuple(movement)))
+                    input_sequence.append((movement_key, tuple(movement)))
                     continue
                 if "mouse_down" in step:
                     button = step.get("mouse_down")
@@ -709,6 +772,11 @@ class FocusGuardAction(CustomAction):
                     continue
                 return CustomAction.RunResult(success=False)
             if parsed_keys_down or parsed_mouse_down:
+                return CustomAction.RunResult(success=False)
+            if background_key_input and any(
+                operation not in {"delay", "key_down", "key_up", "key_press"}
+                for operation, _ in input_sequence
+            ):
                 return CustomAction.RunResult(success=False)
             proxy_node = None
         else:
@@ -784,24 +852,42 @@ class FocusGuardAction(CustomAction):
                                 time.sleep(int(value) / 1000)
                             continue
                         if operation == "key_down":
-                            key_down = controller.post_key_down(value).wait().succeeded
+                            key_down = (
+                                _send_background_key_transition(game_hwnd, value, True)
+                                if background_key_input
+                                else controller.post_key_down(value).wait().succeeded
+                            )
                             succeeded = succeeded and key_down
                             if key_down:
                                 held_inputs.append(("key", value))
                         elif operation == "key_up":
-                            key_up = controller.post_key_up(value).wait().succeeded
+                            key_up = (
+                                _send_background_key_transition(game_hwnd, value, False)
+                                if background_key_input
+                                else controller.post_key_up(value).wait().succeeded
+                            )
                             succeeded = succeeded and key_up
                             if key_up:
                                 held_inputs.remove(("key", value))
                         elif operation == "key_press":
-                            succeeded = (
-                                succeeded
-                                and controller.post_click_key(value).wait().succeeded
-                            )
-                        elif operation == "mouse_move":
+                            if background_key_input:
+                                succeeded = _send_background_key_transition(game_hwnd, value, True)
+                                if succeeded:
+                                    held_inputs.append(("key", value))
+                                    time.sleep(_BACKGROUND_KEY_HOLD_SECONDS)
+                                    succeeded = _send_background_key_transition(game_hwnd, value, False)
+                                    if succeeded:
+                                        held_inputs.remove(("key", value))
+                            else:
+                                succeeded = controller.post_click_key(value).wait().succeeded
+                        elif operation in {"mouse_move", "mouse_move_instant"}:
                             mouse_move = _activate_game_for_skill(
                                 game_hwnd
-                            ) and _send_foreground_mouse_move(*value)
+                            ) and (
+                                _send_foreground_mouse_move_instant(*value)
+                                if operation == "mouse_move_instant"
+                                else _send_foreground_mouse_move(*value)
+                            )
                             succeeded = succeeded and mouse_move
                         elif operation == "mouse_down":
                             mouse_down = _activate_game_for_skill(
@@ -823,7 +909,9 @@ class FocusGuardAction(CustomAction):
                     for held_kind, held_value in reversed(held_inputs):
                         if held_kind == "key":
                             released = (
-                                controller.post_key_up(held_value).wait().succeeded
+                                _send_background_key_transition(game_hwnd, held_value, False)
+                                if background_key_input
+                                else controller.post_key_up(held_value).wait().succeeded
                             )
                         else:
                             released = _send_foreground_mouse_button(
@@ -895,6 +983,43 @@ class _BackgroundSkillAction(FocusGuardAction):
     """Use background messages; grouped E/Q keeps that mode to its boundary."""
 
     background_key_input = True
+
+
+class _BackgroundKeyboardSequenceAction(FocusGuardAction):
+    """Opt-in backend for balanced keyboard sequences, never gameplay mouse."""
+
+    background_input_sequence = True
+
+
+@AgentServer.custom_action("theatre_background_keyboard_sequence")
+class TheatreBackgroundKeyboardSequenceAction(CustomAction):
+    """Send Theatre's entire keyboard chain in background, including first entry."""
+
+    def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
+        params = _parse_params(argv.custom_action_param)
+        if argv.node_name not in {"TheatreAFKCombatSequence", "TheatreAFKPressE"}:
+            return CustomAction.RunResult(success=False)
+        if params.get("kind") != "input_sequence" or not params.get("skill_input_group"):
+            return CustomAction.RunResult(success=False)
+        steps = params.get("steps")
+        if not isinstance(steps, list) or any(
+            not isinstance(step, dict)
+            or len(step) != 1
+            or not set(step) <= {"delay_ms", "key_down", "key_up", "key_press"}
+            for step in steps
+        ):
+            return CustomAction.RunResult(success=False)
+        sustained_e = argv.node_name == "TheatreAFKPressE"
+        if sustained_e and steps != [{"key_press": 69}]:
+            return CustomAction.RunResult(success=False)
+        # Do not consult or modify expel/fishing priming state. The user handles
+        # any window activation the game needs before accepting these messages.
+        result = _BackgroundKeyboardSequenceAction().run(context, argv)
+        if not result.success:
+            # Replaying a partially delivered W/D/F opening would change position.
+            # Unlike single-key expel actions, never fall back and replay this group.
+            _safe_user_log("[沉浸式戏剧挂机] 后台输入失败，已尝试释放按键；停止任务，不切换前台或重放动作链。")
+        return result
 
 
 @AgentServer.custom_action("hybrid_skill_action")

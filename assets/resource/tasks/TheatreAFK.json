@@ -1,0 +1,138 @@
+{
+    "task": [
+        {
+            "name": "TheatreAFK",
+            "label": "沉浸式戏剧挂机",
+            "description": "首次手动进入副本，连续3帧确认血条并等待3000ms后，执行选定方案的 W/D/F/Q 起手；伊薇每500ms按一次 E，伊薇（不持续 E）只等待局外。识别右下“前往”后快速点击3次，等待下一副本。不检测小地图、不进行局内加速或计数；未知中间页面保持等待。",
+            "entry": "TheatreAFKEntry",
+            "option": [
+                "TheatreAFKCharacterProfile",
+                "TheatreAFKBackgroundInput"
+            ],
+            "group": [
+                "DailyAFK"
+            ],
+            "controller": [
+                "Win32-Foreground"
+            ]
+        }
+    ],
+    "option": {
+        "TheatreAFKCharacterProfile": {
+            "type": "select",
+            "label": "角色方案",
+            "description": "两种伊薇方案共用相同的 W/D/F/Q 起手与全部时间参数。伊薇在 Q 后每500ms按 E；伊薇（不持续 E）在 Q 后不再按 E，只等待“前往”。均支持全程后台输入开关。",
+            "default_case": "CoinDefault",
+            "cases": [
+                {
+                    "name": "CoinDefault",
+                    "label": "伊薇",
+                    "pipeline_override": {
+                        "TheatreAFKEntry": {
+                            "focus": {
+                                "Node.Action.Succeeded": {
+                                    "content": "[沉浸式戏剧挂机] 任务已启动，已选角色方案：伊薇，正在等待战斗血条连续3帧确认。",
+                                    "display": [
+                                        "log"
+                                    ]
+                                }
+                            }
+                        },
+                        "TheatreAFKProfileEntry": {
+                            "next": [
+                                "TheatreAFKCombatSequence"
+                            ]
+                        },
+                        "TheatreAFKCombatSequence": {
+                            "focus": {
+                                "Node.Action.Succeeded": {
+                                    "content": "[沉浸式戏剧挂机] 角色方案「伊薇」起手动作链已完成：等待3000ms → W长按1000ms → D长按1000ms → F → 200ms → F → 200ms → F → Q一次 → 等待1000ms；进入每500ms一次的 E 循环，检测到“前往”后停止。",
+                                    "display": ["log"]
+                                }
+                            }
+                        },
+                        "TheatreAFKInsideMonitor": {
+                            "next": ["TheatreAFKGo", "TheatreAFKPressE"]
+                        },
+                        "TheatreAFKGoClick3Finalize": {
+                            "focus": {
+                                "Node.Action.Succeeded": {
+                                    "content": "[沉浸式戏剧挂机] E 循环已停止，“前往”已完成 3 次点击，等待下一副本血条；未知中间页面需手动处理或补充截图",
+                                    "display": ["log"]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "YiweiNoE",
+                    "label": "伊薇（不持续 E）",
+                    "pipeline_override": {
+                        "TheatreAFKEntry": {
+                            "focus": {
+                                "Node.Action.Succeeded": {
+                                    "content": "[沉浸式戏剧挂机] 任务已启动，已选角色方案：伊薇（不持续 E），正在等待战斗血条连续3帧确认。",
+                                    "display": ["log"]
+                                }
+                            }
+                        },
+                        "TheatreAFKProfileEntry": {
+                            "next": ["TheatreAFKCombatSequence"]
+                        },
+                        "TheatreAFKCombatSequence": {
+                            "focus": {
+                                "Node.Action.Succeeded": {
+                                    "content": "[沉浸式戏剧挂机] 角色方案「伊薇（不持续 E）」起手动作链已完成：等待3000ms → W长按1000ms → D长按1000ms → F → 200ms → F → 200ms → F → Q一次 → 等待1000ms；不再发送 E，等待局外“前往”。",
+                                    "display": ["log"]
+                                }
+                            }
+                        },
+                        "TheatreAFKInsideMonitor": {
+                            "next": ["TheatreAFKGo", "TheatreAFKWaitGo"]
+                        },
+                        "TheatreAFKGoClick3Finalize": {
+                            "focus": {
+                                "Node.Action.Succeeded": {
+                                    "content": "[沉浸式戏剧挂机] 角色方案「伊薇（不持续 E）」：“前往”已完成 3 次点击，等待下一副本血条；未知中间页面需手动处理或补充截图",
+                                    "display": ["log"]
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "TheatreAFKBackgroundInput": {
+            "type": "switch",
+            "label": "全程后台输入（实验）",
+            "description": "默认关闭。开启后，从首个副本的 W/D/F/Q 起手及第一次持续 E 开始，所有副本的角色操作均使用后台窗口消息；不再首次切前台，也不在第3次 E 切换。窗口由你手动调整，确保游戏开始接收后台输入；助手不为角色输入切换窗口或移动、锁定鼠标。“前往”仍使用原有鼠标点击与焦点恢复，可能短暂切入游戏。后台消息被拒绝时停止任务，不切前台或重放已执行动作；投递成功不保证游戏一定响应。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "pipeline_override": {
+                        "TheatreAFKCombatSequence": {
+                            "action": {
+                                "param": {
+                                    "custom_action": "theatre_background_keyboard_sequence"
+                                }
+                            }
+                        },
+                        "TheatreAFKPressE": {
+                            "action": {
+                                "param": {
+                                    "custom_action": "theatre_background_keyboard_sequence"
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭"
+                }
+            ]
+        }
+    }
+}

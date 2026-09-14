@@ -1,0 +1,328 @@
+{
+    "TheatreAFKEntry": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_start",
+                "custom_action_param": {
+                    "progress_mode": "沉浸式戏剧挂机",
+                    "progress_total": 0,
+                    "progress_stage_total": 0
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[沉浸式戏剧挂机] 任务已启动，已选角色方案：伊薇，正在等待战斗血条连续3帧确认。",
+                "display": [
+                    "log"
+                ]
+            }
+        },
+        "next": ["TheatreAFKWaitCombatHud"]
+    },
+    "TheatreAFKWaitCombatHud": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 10000000,
+        "next": [
+            "TheatreAFKCombatHudFrame1",
+            "TheatreAFKWaitCombatHud"
+        ]
+    },
+    "TheatreAFKCombatHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["TheatreAFKCombatHudFrame2"],
+        "on_error": ["TheatreAFKWaitCombatHud"]
+    },
+    "TheatreAFKCombatHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["TheatreAFKCombatHudReady"],
+        "on_error": ["TheatreAFKWaitCombatHud"]
+    },
+    "TheatreAFKCombatHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "timeout": 120,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[沉浸式戏剧挂机] 战斗 HUD 血条已连续确认3帧，已确认进入副本",
+                "display": ["log"]
+            }
+        },
+        "next": ["TheatreAFKProfileEntry"],
+        "on_error": ["TheatreAFKWaitCombatHud"]
+    },
+    "TheatreAFKProfileEntry": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TheatreAFKCombatSequence"
+        ]
+    },
+    "TheatreAFKCombatSequence": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "input_sequence",
+                    "steps": [
+                        {"delay_ms": 3000},
+                        {"key_down": 87},
+                        {"delay_ms": 1000},
+                        {"key_up": 87},
+                        {"key_down": 68},
+                        {"delay_ms": 1000},
+                        {"key_up": 68},
+                        {"key_press": 70},
+                        {"delay_ms": 200},
+                        {"key_press": 70},
+                        {"delay_ms": 200},
+                        {"key_press": 70},
+                        {"key_press": 81},
+                        {"delay_ms": 1000}
+                    ],
+                    "skill_input_group": true
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[沉浸式戏剧挂机] 角色方案「伊薇」起手动作链已完成：等待3000ms → W长按1000ms → D长按1000ms → F → 200ms → F → 200ms → F → Q一次 → 等待1000ms；进入每500ms一次的 E 循环，检测到“前往”后停止。",
+                "display": ["log"]
+            }
+        },
+        "next": ["TheatreAFKInsideMonitor"]
+    },
+    "TheatreAFKInsideMonitor": {
+        "recognition": {
+            "type": "DirectHit"
+        },
+        "action": {
+            "type": "DoNothing"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "max_hit": 1000000000,
+        "next": ["TheatreAFKGo", "TheatreAFKPressE"]
+    },
+    "TheatreAFKPressE": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_action",
+                "custom_action_param": {
+                    "kind": "input_sequence",
+                    "steps": [{"key_press": 69}],
+                    "skill_input_group": true
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 500,
+        "next": ["TheatreAFKInsideMonitor"]
+    },
+    "TheatreAFKWaitGo": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 1000000000,
+        "next": ["TheatreAFKInsideMonitor"]
+    },
+    "TheatreAFKGo": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "TheatreAFK/go.png",
+                "roi": [1080, 640, 190, 65],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "Click", "param": {"target": [1172, 673]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["TheatreAFKGoClick2"]
+    },
+    "TheatreAFKGoClick2": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [1172, 673]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["TheatreAFKGoClick3"]
+    },
+    "TheatreAFKGoClick3": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "Click", "param": {"target": [1172, 673]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": ["TheatreAFKGoClick3Finalize"]
+    },
+    "TheatreAFKGoClick3Finalize": {
+        "recognition": {"type": "DirectHit"},
+        "action": {
+            "type": "Custom",
+            "param": {
+                "custom_action": "focus_guard_finalize",
+                "custom_action_param": {
+                    "restore_delay_ms": 100,
+                    "finish_skill_input_group": true
+                }
+            }
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[沉浸式戏剧挂机] E 循环已停止，“前往”已完成 3 次点击，等待下一副本血条；未知中间页面需手动处理或补充截图",
+                "display": ["log"]
+            }
+        },
+        "next": ["TheatreAFKRestartMonitor"]
+    },
+    "TheatreAFKRestartMonitor": {
+        "recognition": {"type": "DirectHit"},
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "max_hit": 1000000000,
+        "next": [
+            "TheatreAFKGo",
+            "TheatreAFKRestartHudFrame1",
+            "TheatreAFKRestartMonitor"
+        ]
+    },
+    "TheatreAFKRestartHudFrame1": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["TheatreAFKGo", "TheatreAFKRestartHudFrame2"],
+        "on_error": ["TheatreAFKRestartMonitor"]
+    },
+    "TheatreAFKRestartHudFrame2": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "timeout": 120,
+        "next": ["TheatreAFKGo", "TheatreAFKRestartHudReady"],
+        "on_error": ["TheatreAFKRestartMonitor"]
+    },
+    "TheatreAFKRestartHudReady": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "CharacterControl/combat_health_bar.png",
+                "roi": [90, 675, 180, 40],
+                "threshold": 0.85
+            }
+        },
+        "action": {"type": "DoNothing"},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "timeout": 120,
+        "focus": {
+            "Node.Action.Succeeded": {
+                "content": "[沉浸式戏剧挂机] “前往”后战斗血条已连续确认3帧，进入下一副本",
+                "display": ["log"]
+            }
+        },
+        "next": ["TheatreAFKProfileEntry"],
+        "on_error": ["TheatreAFKRestartMonitor"]
+    }
+}

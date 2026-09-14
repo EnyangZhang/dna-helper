@@ -15,6 +15,7 @@ TASK_GROUP_REQUIREMENTS = {
     "MediationAFK": "DailyAFK",
     "MoonHunterAFK": "DailyAFK",
     "Fishing": "DailyAFK",
+    "TheatreAFK": "DailyAFK",
     "ProgressMonitor": "Monitor",
 }
 PIPELINE_EDGE_FIELDS = ("next", "on_error")
@@ -446,6 +447,7 @@ def main() -> None:
             "NormalEndlessBoost",
             "MediationAFK",
             "MoonHunterAFK",
+            "TheatreAFK",
         ],
     }
     presets_by_name = {preset["name"]: preset for _, preset in presets}
@@ -460,7 +462,7 @@ def main() -> None:
                 f"got {actual_tasks!r}"
             )
         expected_enabled = (
-            [True, True, False, False]
+            [True, True, False, False, False]
             if preset_name == "NormalAFK"
             else [True] * len(expected_tasks)
         )
@@ -626,14 +628,22 @@ def main() -> None:
             "RewardConfirmFirstPageClick2",
             "RewardConfirmFirstPageClick3",
             [620, 607],
-            ["RewardConfirmContinueChallenge", "RewardConfirmWaitContinue"],
+            [
+                "CipherEndlessAgainDetected",
+                "RewardConfirmContinueChallenge",
+                "RewardConfirmWaitContinue",
+            ],
         ),
         (
             "RewardConfirmContinueChallenge",
             "RewardConfirmContinueChallengeClick2",
             "RewardConfirmContinueChallengeClick3",
             [900, 500],
-            ["RewardConfirmThirdPageByClick", "RewardConfirmWaitThird"],
+            [
+                "CipherEndlessAgainDetected",
+                "RewardConfirmThirdPageByClick",
+                "RewardConfirmWaitThird",
+            ],
         ),
         (
             "CipherExpelAgainByClick",
@@ -754,11 +764,21 @@ def main() -> None:
             ["MoonHunterAFKRestartMonitor"],
         ),
     )
+    theatre_fast_click_chains = (
+        (
+            "TheatreAFKGo",
+            "TheatreAFKGoClick2",
+            "TheatreAFKGoClick3",
+            [1172, 673],
+            ["TheatreAFKRestartMonitor"],
+        ),
+    )
     fast_click_chains = (
         established_fast_click_chains
         + coin_fast_click_chains
         + mediation_fast_click_chains
         + moon_hunter_fast_click_chains
+        + theatre_fast_click_chains
     )
     for first, second, third, target, final_next in fast_click_chains:
         for node_name, next_name in ((first, second), (second, third)):
@@ -809,10 +829,24 @@ def main() -> None:
         if (
             custom_param.get("kind") == "input_sequence"
             and node_name
-            not in {"MediationAFKCombatSequence", "MoonHunterAFKCombatSequence"}
+            not in {
+                "MediationAFKCombatSequence", "MoonHunterAFKCombatSequence",
+                "TheatreAFKCombatSequence", "TheatreAFKPressE",
+            }
         ):
             raise SystemExit(
                 f"{node_name}: recorded role input sequence is not approved for this task"
+            )
+        steps = custom_param.get("steps", [])
+        if (
+            any(
+                isinstance(step, dict) and "mouse_move_instant" in step
+                for step in steps
+            )
+            and node_name != "MediationAFKCombatSequence"
+        ):
+            raise SystemExit(
+                f"{node_name}: instant relative mouse movement is approved only for MediationAFK"
             )
     for relative, override in pipeline_overrides:
         for node_name, node_override in override.items():
@@ -829,6 +863,109 @@ def main() -> None:
                 raise SystemExit(
                     f"{relative}: recorded role input sequences must not be overridden"
                 )
+    theatre_opening = pipeline_nodes.get("TheatreAFKCombatSequence", {})
+    theatre_e = pipeline_nodes.get("TheatreAFKPressE", {})
+    expected_theatre_steps = [
+        {"delay_ms": 3000},
+        {"key_down": 87}, {"delay_ms": 1000}, {"key_up": 87},
+        {"key_down": 68}, {"delay_ms": 1000}, {"key_up": 68},
+        {"key_press": 70}, {"delay_ms": 200},
+        {"key_press": 70}, {"delay_ms": 200},
+        {"key_press": 70}, {"key_press": 81}, {"delay_ms": 1000},
+    ]
+    for name, node, steps, delay, next_nodes in (
+        ("TheatreAFKCombatSequence", theatre_opening, expected_theatre_steps,
+         0, ["TheatreAFKInsideMonitor"]),
+        ("TheatreAFKPressE", theatre_e, [{"key_press": 69}],
+         500, ["TheatreAFKInsideMonitor"]),
+    ):
+        if (
+            node.get("action") != {
+                "type": "Custom", "param": {
+                    "custom_action": "focus_guard_action",
+                    "custom_action_param": {
+                        "kind": "input_sequence", "steps": steps,
+                        "skill_input_group": True,
+                    },
+                },
+            }
+            or [node.get(field) for field in PIPELINE_TIMING_FIELDS] != [0, 0, delay]
+            or node.get("next") != next_nodes
+        ):
+            raise SystemExit(f"{name}: preserve the grouped Theatre keyboard chain and timing")
+    if pipeline_nodes["TheatreAFKInsideMonitor"].get("next") != [
+        "TheatreAFKGo", "TheatreAFKPressE"
+    ]:
+        raise SystemExit("Theatre must detect Go before every E input")
+    theatre_wait_go = pipeline_nodes.get("TheatreAFKWaitGo", {})
+    if theatre_wait_go != {
+        "recognition": {"type": "DirectHit"}, "action": {"type": "DoNothing"},
+        "rate_limit": 0, "pre_delay": 0, "post_delay": 50,
+        "max_hit": 1000000000, "next": ["TheatreAFKInsideMonitor"],
+    }:
+        raise SystemExit("Theatre no-E profile must wait without input, HUD unlock or repeated logs")
+    theatre_profiles = all_options.get("TheatreAFKCharacterProfile", {})
+    theatre_profile_cases = {case["name"]: case for case in theatre_profiles.get("cases", [])}
+    if (
+        theatre_profiles.get("type") != "select"
+        or theatre_profiles.get("default_case") != "CoinDefault"
+        or set(theatre_profile_cases) != {"CoinDefault", "YiweiNoE"}
+    ):
+        raise SystemExit("Theatre must retain the default Yiwei profile and offer a separate no-E profile")
+    for case_name, label, fallback in (
+        ("CoinDefault", "伊薇", "TheatreAFKPressE"),
+        ("YiweiNoE", "伊薇（不持续 E）", "TheatreAFKWaitGo"),
+    ):
+        case = theatre_profile_cases[case_name]
+        overrides = case.get("pipeline_override", {})
+        expected_fields = {
+            "TheatreAFKEntry": {"focus"},
+            "TheatreAFKProfileEntry": {"next"},
+            "TheatreAFKCombatSequence": {"focus"},
+            "TheatreAFKInsideMonitor": {"next"},
+            "TheatreAFKGoClick3Finalize": {"focus"},
+        }
+        if (
+            case.get("label") != label
+            or {name: set(node) for name, node in overrides.items()} != expected_fields
+            or overrides["TheatreAFKProfileEntry"].get("next") != ["TheatreAFKCombatSequence"]
+            or overrides["TheatreAFKInsideMonitor"].get("next") != ["TheatreAFKGo", fallback]
+        ):
+            raise SystemExit(f"Theatre {case_name} must only select post-Q routing and logs, not change opening/input/clicks")
+        if case_name == "CoinDefault":
+            for name, fields in overrides.items():
+                if any(pipeline_nodes[name].get(field) != value for field, value in fields.items()):
+                    raise SystemExit("Theatre default profile must restore the original route and logs")
+    theatre_background = all_options.get("TheatreAFKBackgroundInput", {})
+    theatre_background_cases = {
+        case["name"]: case for case in theatre_background.get("cases", [])
+    }
+    if (
+        theatre_background.get("type") != "switch"
+        or theatre_background.get("label") != "全程后台输入（实验）"
+        or theatre_background.get("default_case") != "No"
+        or set(theatre_background_cases) != {"Yes", "No"}
+        or theatre_background_cases["No"].get("pipeline_override")
+        or theatre_background_cases["Yes"].get("pipeline_override") != {
+            "TheatreAFKCombatSequence": {
+                "action": {"param": {"custom_action": "theatre_background_keyboard_sequence"}}
+            },
+            "TheatreAFKPressE": {
+                "action": {"param": {"custom_action": "theatre_background_keyboard_sequence"}}
+            },
+        }
+    ):
+        raise SystemExit("Theatre background option must only switch keyboard backends, not Go completion")
+    if not pipeline_nodes["TheatreAFKGoClick3Finalize"]["action"]["param"][
+        "custom_action_param"
+    ].get("finish_skill_input_group"):
+        raise SystemExit("Theatre native clicks must close their persistent input group")
+    for name in (
+        "TheatreAFKEntry", "TheatreAFKWaitCombatHud", "TheatreAFKCombatHudFrame1",
+        "TheatreAFKCombatHudFrame2", "TheatreAFKCombatHudReady",
+    ):
+        if "TheatreAFKGo" in pipeline_nodes[name].get("next", []):
+            raise SystemExit("Theatre global Go debugging must not bypass initial combat entry")
     for first in (
         "CoinAFKRestartAgain",
         "CoinAFKRestartAgainRetry",
@@ -919,7 +1056,7 @@ def main() -> None:
         "kind": "input_sequence",
         "steps": [
             {"key_down": 87},
-            {"delay_ms": 1300},
+            {"delay_ms": 1500},
             {"key_up": 87},
             {"mouse_down": "left"},
             {"delay_ms": 250},
@@ -932,21 +1069,22 @@ def main() -> None:
             {"key_press": 70},
             {"delay_ms": 300},
             {"key_press": 70},
-            {"delay_ms": 300},
-            {"mouse_move": [0, -130]},
+            {"delay_ms": 800},
+            {"mouse_move_instant": [0, -130]},
+            {"delay_ms": 500},
             {"mouse_down": "right"},
             {"delay_ms": 800},
             {"mouse_up": "right"},
-            {"delay_ms": 300},
+            {"delay_ms": 800},
             {"key_press": 90},
         ],
         "restore_delay_ms": 500,
     }
     expected_mediation_log = (
-        "[调停挂机] 局内角色操作已完成：W↓ → 1300ms → W↑ → "
+        "[调停挂机] 局内角色操作已完成：W↓ → 1500ms → W↑ → "
         "左键↓ → 250ms → 左键↑ → 300ms → F → 300ms → F → 300ms → "
-        "F → 300ms → F → 300ms → 鼠标1秒↑130px → 右键↓ → 800ms → "
-        "右键↑ → 300ms → Z"
+        "F → 300ms → F → 800ms → 鼠标瞬时↑130px → 500ms → 右键↓ → 800ms → "
+        "右键↑ → 800ms → Z"
     )
     mediation_log = (
         pipeline_nodes.get("MediationAFKCombatSequence", {})
@@ -1014,9 +1152,10 @@ def main() -> None:
     )
     if (
         len(mediation_inputs) != 1
-        or mediation_inputs[0].get("verify") != "^[1-9]\\d{0,2}$"
+        or mediation_inputs[0].get("verify")
+        != "^(?:[1-9]\\d{0,2}|[1-9]\\d{3})$"
     ):
-        raise SystemExit("MediationAFK round count must remain in the 1-999 range")
+        raise SystemExit("MediationAFK round count must remain in the 1-9999 range")
 
     moon_hunter_entry = pipeline_nodes.get("MoonHunterAFKEntry", {})
     if moon_hunter_entry.get("next") != ["MoonHunterAFKInitialMonitor"]:
@@ -1757,6 +1896,23 @@ def main() -> None:
         "密函无尽", 0, 0
     ):
         raise SystemExit("RewardConfirmEntry must initialize cipher endless progress")
+    cipher_endless_again = pipeline_nodes.get("CipherEndlessAgainDetected", {})
+    cipher_endless_again_recognition = cipher_endless_again.get("recognition", {})
+    if (
+        cipher_endless_again_recognition.get("type") != "TemplateMatch"
+        or cipher_endless_again_recognition.get("param", {}).get("template")
+        != "RewardConfirm/expel_again.png"
+        or cipher_endless_again.get("action", {}).get("type") != "StopTask"
+        or pipeline_nodes.get("RewardConfirmEntry", {}).get("next", [None])[0]
+        != "CipherEndlessAgainDetected"
+        or pipeline_nodes.get("RewardConfirmWaitContinue", {}).get("next", [None])[0]
+        != "CipherEndlessAgainDetected"
+        or pipeline_nodes.get("RewardConfirmWaitThird", {}).get("next", [None])[0]
+        != "CipherEndlessAgainDetected"
+    ):
+        raise SystemExit(
+            "Cipher endless must stop successfully when the again button appears"
+        )
     if pipeline_nodes.get("NormalEndlessEntry", {}).get("action") != progress_start_action(
         "普通扼守", 1, 99
     ):
@@ -1849,13 +2005,27 @@ def main() -> None:
     )
 
     infinite_mode = option_case(normal_mode, "Infinite")
+    infinite_stop = pipeline_nodes.get("NormalInfiniteAgainDetected", {})
+    if (
+        infinite_stop.get("enabled") is not False
+        or infinite_stop.get("recognition")
+        != pipeline_nodes["NormalEndlessAgainDetected"]["recognition"]
+        or infinite_stop.get("action") != {"type": "StopTask"}
+        or infinite_stop.get("next")
+        or infinite_stop.get("on_error")
+        or any(infinite_stop.get(field) != 0 for field in ("rate_limit", "pre_delay", "post_delay"))
+    ):
+        raise SystemExit("Normal infinite must use an isolated, no-input StopTask detector")
+    require_override(
+        "NormalMode", infinite_mode, "NormalInfiniteAgainDetected", {"enabled": True}
+    )
     require_override(
         "NormalMode",
         infinite_mode,
         "NormalEndlessEntry",
         {
             "action": progress_start_action("普通无尽", 0, 0),
-            "next": ["NormalEndlessMonitor"],
+            "next": ["NormalInfiniteAgainDetected", "NormalEndlessMonitor"],
         },
     )
     require_override(
@@ -1864,6 +2034,7 @@ def main() -> None:
         "NormalEndlessMonitor",
         {
             "next": [
+                "NormalInfiniteAgainDetected",
                 "NormalEndlessContinueChallenge",
                 "NormalEndlessConfirmChoice",
                 "NormalEndlessIdle",
@@ -1874,8 +2045,16 @@ def main() -> None:
         "NormalMode",
         infinite_mode,
         "NormalEndlessIdle",
-        {"next": ["NormalEndlessMonitor"]},
+        {"next": ["NormalInfiniteAgainDetected", "NormalEndlessMonitor"]},
     )
+    for finalizer, fallback in (
+        ("NormalEndlessContinueChallengeClick3Finalize", "NormalContinueTransition"),
+        ("NormalEndlessConfirmChoiceClick3Finalize", "NormalEndlessMonitor"),
+    ):
+        require_override(
+            "NormalMode", infinite_mode, finalizer,
+            {"next": ["NormalInfiniteAgainDetected", fallback]},
+        )
     infinite_override = infinite_mode.get("pipeline_override", {})
     for inherited_click_node in (
         "NormalEndlessContinueChallenge",
@@ -1889,7 +2068,7 @@ def main() -> None:
         "NormalMode",
         infinite_mode,
         "NormalContinueTransition",
-        {"next": ["NormalEndlessConfirmChoice", "NormalEndlessMonitor"]},
+        {"next": ["NormalInfiniteAgainDetected", "NormalEndlessConfirmChoice", "NormalEndlessMonitor"]},
     )
 
     expel_mode = option_case(normal_mode, "Expel")

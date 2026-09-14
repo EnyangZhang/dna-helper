@@ -3,7 +3,7 @@
         {
             "name": "NormalEndlessBoost",
             "label": "普通无尽加速",
-            "description": "自动处理普通副本循环。扼守和驱离按设定副本轮次运行；无尽模式仅快速点击局内的“继续挑战”和“确认选择”并记录局内轮次；扼守与驱离均可通过“是否开启技能”启用角色 E、Q 技能组合。",
+            "description": "自动处理普通副本循环。扼守和驱离按设定副本轮次运行；无尽模式快速点击局内的“继续挑战”和“确认选择”并记录局内轮次，检测到“再次进行”后结束任务，已开启监控时发送完成通知并停止监听；扼守与驱离均可通过“是否开启技能”启用角色 E、Q 技能组合。",
             "entry": "NormalEndlessEntry",
             "option": [
                 "NormalMode"
@@ -20,7 +20,7 @@
         "NormalMode": {
             "type": "select",
             "label": "模式",
-            "description": "选择普通副本的执行模式。扼守和驱离按副本轮次运行；无尽模式仅监听并快速点击局内的“继续挑战”和“确认选择”，记录局内轮次但不处理副本轮次或角色技能；扼守与驱离可分别开启角色技能设置。",
+            "description": "选择普通副本的执行模式。扼守和驱离按副本轮次运行；无尽模式快速点击局内的“继续挑战”和“确认选择”，记录局内轮次，检测到“再次进行”后直接结束，不点击、不重开、不增加轮次，也不释放角色技能；扼守与驱离可分别开启角色技能设置。",
             "default_case": "Endless",
             "cases": [
                 {
@@ -87,6 +87,9 @@
                     "name": "Infinite",
                     "label": "无尽",
                     "pipeline_override": {
+                        "NormalInfiniteAgainDetected": {
+                            "enabled": true
+                        },
                         "NormalEndlessEntry": {
                             "action": {
                                 "type": "Custom",
@@ -100,24 +103,40 @@
                                 }
                             },
                             "next": [
+                                "NormalInfiniteAgainDetected",
                                 "NormalEndlessMonitor"
                             ]
                         },
                         "NormalEndlessMonitor": {
                             "next": [
+                                "NormalInfiniteAgainDetected",
                                 "NormalEndlessContinueChallenge",
                                 "NormalEndlessConfirmChoice",
                                 "NormalEndlessIdle"
                             ]
                         },
+                        "NormalEndlessContinueChallengeClick3Finalize": {
+                            "next": [
+                                "NormalInfiniteAgainDetected",
+                                "NormalContinueTransition"
+                            ]
+                        },
+                        "NormalEndlessConfirmChoiceClick3Finalize": {
+                            "next": [
+                                "NormalInfiniteAgainDetected",
+                                "NormalEndlessMonitor"
+                            ]
+                        },
                         "NormalContinueTransition": {
                             "next": [
+                                "NormalInfiniteAgainDetected",
                                 "NormalEndlessConfirmChoice",
                                 "NormalEndlessMonitor"
                             ]
                         },
                         "NormalEndlessIdle": {
                             "next": [
+                                "NormalInfiniteAgainDetected",
                                 "NormalEndlessMonitor"
                             ]
                         }
