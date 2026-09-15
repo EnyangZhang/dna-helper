@@ -773,12 +773,33 @@ def main() -> None:
             ["TheatreAFKRestartMonitor"],
         ),
     )
+    cipher_reward_click_chains = tuple(
+        (
+            f"CipherEndlessRewardSelect{slot}",
+            f"CipherEndlessRewardSelect{slot}Click2",
+            f"CipherEndlessRewardSelect{slot}Click3",
+            [x, 519],
+            ["CipherEndlessAgainDetected", "CipherEndlessRewardConfirm", "CipherEndlessRewardWait"],
+        )
+        for slot, x in ((1, 456), (2, 640), (3, 823))
+    ) + ((
+        "CipherEndlessRewardConfirm", "CipherEndlessRewardConfirmClick2",
+        "CipherEndlessRewardConfirmClick3", [620, 607],
+        ["CipherEndlessAgainDetected", "CipherEndlessRewardPage",
+         "RewardConfirmContinueChallenge", "RewardConfirmWaitContinue"],
+    ),)
+    cipher_reward_click_chains += ((
+        "CipherEndlessRewardDefault", "RewardConfirmFirstPageClick2",
+        "RewardConfirmFirstPageClick3", [620, 607],
+        ["CipherEndlessAgainDetected", "RewardConfirmContinueChallenge", "RewardConfirmWaitContinue"],
+    ),)
     fast_click_chains = (
         established_fast_click_chains
         + coin_fast_click_chains
         + mediation_fast_click_chains
         + moon_hunter_fast_click_chains
         + theatre_fast_click_chains
+        + cipher_reward_click_chains
     )
     for first, second, third, target, final_next in fast_click_chains:
         for node_name, next_name in ((first, second), (second, third)):
@@ -904,6 +925,32 @@ def main() -> None:
         "max_hit": 1000000000, "next": ["TheatreAFKInsideMonitor"],
     }:
         raise SystemExit("Theatre no-E profile must wait without input, HUD unlock or repeated logs")
+    scene_monitors = {
+        2: ("TheatreAFKSceneMonitor2", "TheatreAFKSceneWait2"),
+        3: ("TheatreAFKSceneMonitor3", "TheatreAFKSceneWait3"),
+        4: ("TheatreAFKSceneMonitor4", "TheatreAFKSceneWait4"),
+        5: ("TheatreAFKSceneMonitor5", "TheatreAFKSceneWait5"),
+    }
+    for scene, (monitor, wait) in scene_monitors.items():
+        node = pipeline_nodes.get(monitor, {})
+        expected_monitor_next = ["TheatreAFKGo"] + [f"TheatreAFKScene{n}Detected" for n in range(scene, 6)] + [wait]
+        if node.get("rate_limit") != 0 or node.get("pre_delay") != 0 or node.get("post_delay") != 0 or node.get("next") != expected_monitor_next:
+            raise SystemExit(f"Theatre scene {scene} monitor must be explicit and return through its wait node")
+        wait_node = pipeline_nodes.get(wait, {})
+        if (wait_node.get("rate_limit"), wait_node.get("pre_delay"), wait_node.get("post_delay")) != (0, 0, 50) or wait_node.get("next") != [monitor]:
+            raise SystemExit(f"Theatre scene {scene} wait must use 0/0/50ms")
+        detected = pipeline_nodes.get(f"TheatreAFKScene{scene}Detected", {})
+        recognition = detected.get("recognition", {})
+        if (detected.get("post_delay") != 3000 or detected.get("next") != ["TheatreAFKGo", f"TheatreAFKScene{scene}MouseHold"] or recognition.get("type") != "Custom" or recognition.get("param", {}).get("custom_recognition") != "theatre_scene" or recognition.get("param", {}).get("custom_recognition_param", {}).get("scene") != scene):
+            raise SystemExit(f"Theatre scene {scene} detection must delay then allow Go-priority hold")
+        hold = pipeline_nodes.get(f"TheatreAFKScene{scene}MouseHold", {})
+        hold_param = hold.get("action", {}).get("param", {}).get("custom_action_param", {})
+        expected_hold_next = [f"TheatreAFKSceneMonitor{scene + 1}"] if scene < 5 else ["TheatreAFKInsideMonitor"]
+        if hold.get("action", {}).get("param", {}).get("custom_action") != "theatre_scene_mouse_hold" or hold_param != {"hold_ms": 300} or hold.get("next") != expected_hold_next or (hold.get("rate_limit"), hold.get("pre_delay"), hold.get("post_delay")) != (0, 0, 0):
+            raise SystemExit(f"Theatre scene {scene} hold contract changed")
+        asset = ASSETS / "resource" / "base" / "image" / "TheatreAFK" / f"scene{scene}.png"
+        if not asset.is_file():
+            raise SystemExit(f"Missing Theatre scene asset: {asset.relative_to(ROOT)}")
     theatre_profiles = all_options.get("TheatreAFKCharacterProfile", {})
     theatre_profile_cases = {case["name"]: case for case in theatre_profiles.get("cases", [])}
     if (
@@ -921,7 +968,7 @@ def main() -> None:
         expected_fields = {
             "TheatreAFKEntry": {"focus"},
             "TheatreAFKProfileEntry": {"next"},
-            "TheatreAFKCombatSequence": {"focus"},
+            "TheatreAFKCombatSequence": {"focus", "next"},
             "TheatreAFKInsideMonitor": {"next"},
             "TheatreAFKGoClick3Finalize": {"focus"},
         }
@@ -930,32 +977,18 @@ def main() -> None:
             or {name: set(node) for name, node in overrides.items()} != expected_fields
             or overrides["TheatreAFKProfileEntry"].get("next") != ["TheatreAFKCombatSequence"]
             or overrides["TheatreAFKInsideMonitor"].get("next") != ["TheatreAFKGo", fallback]
+            or (case_name == "YiweiNoE" and overrides["TheatreAFKCombatSequence"].get("next") != ["TheatreAFKSceneMonitor2"])
         ):
             raise SystemExit(f"Theatre {case_name} must only select post-Q routing and logs, not change opening/input/clicks")
         if case_name == "CoinDefault":
             for name, fields in overrides.items():
                 if any(pipeline_nodes[name].get(field) != value for field, value in fields.items()):
                     raise SystemExit("Theatre default profile must restore the original route and logs")
-    theatre_background = all_options.get("TheatreAFKBackgroundInput", {})
-    theatre_background_cases = {
-        case["name"]: case for case in theatre_background.get("cases", [])
-    }
-    if (
-        theatre_background.get("type") != "switch"
-        or theatre_background.get("label") != "全程后台输入（实验）"
-        or theatre_background.get("default_case") != "No"
-        or set(theatre_background_cases) != {"Yes", "No"}
-        or theatre_background_cases["No"].get("pipeline_override")
-        or theatre_background_cases["Yes"].get("pipeline_override") != {
-            "TheatreAFKCombatSequence": {
-                "action": {"param": {"custom_action": "theatre_background_keyboard_sequence"}}
-            },
-            "TheatreAFKPressE": {
-                "action": {"param": {"custom_action": "theatre_background_keyboard_sequence"}}
-            },
-        }
-    ):
-        raise SystemExit("Theatre background option must only switch keyboard backends, not Go completion")
+    if "TheatreAFKBackgroundInput" in all_options:
+        raise SystemExit("Theatre background control has been removed")
+    for name in ("TheatreAFKCombatSequence", "TheatreAFKPressE"):
+        if pipeline_nodes[name]["action"]["param"]["custom_action"] != "focus_guard_action":
+            raise SystemExit("Both Theatre profiles must use foreground input")
     if not pipeline_nodes["TheatreAFKGoClick3Finalize"]["action"]["param"][
         "custom_action_param"
     ].get("finish_skill_input_group"):
@@ -1897,6 +1930,51 @@ def main() -> None:
     ):
         raise SystemExit("RewardConfirmEntry must initialize cipher endless progress")
     cipher_endless_again = pipeline_nodes.get("CipherEndlessAgainDetected", {})
+    reward_page = "CipherEndlessRewardPage"
+    reward_wait = "CipherEndlessRewardWait"
+    reward_ready = "CipherEndlessRewardConfirm"
+    reward_default = "CipherEndlessRewardDefault"
+    if pipeline_nodes["RewardConfirmEntry"]["next"] != ["CipherEndlessAgainDetected", reward_page, reward_default, "RewardConfirmIdle"]:
+        raise SystemExit("Cipher endless must select exactly one reward path by switch")
+    reward_option = all_options.get("CipherEndlessRedReward", {})
+    if (reward_option.get("type") != "switch"
+            or reward_option.get("label") != "优先选择红色方块奖励"
+            or reward_option.get("default_case") != "No"):
+        raise SystemExit("Cipher red reward selection must be an opt-in Chinese switch")
+    for case_name, enabled in (("Yes", True), ("No", False)):
+        case = option_case(reward_option, case_name)
+        if case.get("pipeline_override") != {
+            reward_page: {"enabled": enabled}, reward_default: {"enabled": not enabled}
+        }:
+            raise SystemExit("Reward switch must only toggle isolated endless gates")
+    mode = all_options["CipherMode"]
+    if (option_case(mode, "Endless").get("option") != ["CipherEndlessRedReward"]
+            or "CipherEndlessRedReward" in option_case(mode, "Expel").get("option", [])):
+        raise SystemExit("Reward switch must only be visible in endless mode")
+    direct_reward = dict(pipeline_nodes[reward_default])
+    if (direct_reward.pop("enabled", None) is not True
+            or pipeline_nodes[reward_page].get("enabled") is not False
+            or direct_reward != pipeline_nodes["RewardConfirmByClick"]):
+        raise SystemExit("Disabled reward selection must retain the original direct-confirm path")
+    expected_reward_recognitions = {reward_page: {"mode": "page"}, reward_ready: {"mode": "ready"}}
+    expected_reward_recognitions.update({f"CipherEndlessRewardSelect{i}": {"mode": "select", "slot": i} for i in (1, 2, 3)})
+    for name, params in expected_reward_recognitions.items():
+        if pipeline_nodes.get(name, {}).get("recognition") != {"type": "Custom", "param": {
+            "custom_recognition": "cipher_reward", "custom_recognition_param": params,
+        }}:
+            raise SystemExit(f"{name} must use the scoped, fresh-frame reward recognizer")
+    if (pipeline_nodes[reward_page]["next"] != ["CipherEndlessAgainDetected", reward_ready,
+            "CipherEndlessRewardSelect1", "CipherEndlessRewardSelect2", "CipherEndlessRewardSelect3", reward_wait]
+            or pipeline_nodes[reward_wait]["next"] != ["CipherEndlessAgainDetected", reward_page, "RewardConfirmContinueChallenge", reward_wait]
+            or pipeline_nodes[reward_wait]["post_delay"] != 50
+            or pipeline_nodes[reward_page]["action"] != {"type": "DoNothing"}
+            or pipeline_nodes[reward_wait]["action"] != {"type": "DoNothing"}
+            or pipeline_nodes["RewardConfirmWaitContinue"]["next"] != ["CipherEndlessAgainDetected", reward_page, "RewardConfirmContinueChallenge", "RewardConfirmWaitContinue"]):
+        raise SystemExit("Cipher reward waits must retain termination, selection retry and page recovery")
+    for name in ("reward_title.png", "reward_header1.png", "reward_header2.png", "reward_header3.png", "reward_red_cube.png", "reward_selected.png"):
+        template_paths.add(f"RewardConfirm/{name}")
+    if 'import cipher_rewards' not in (ROOT / "agent/main.py").read_text(encoding="utf-8"):
+        raise SystemExit("Cipher reward recognizer must be registered by the deployed Agent")
     cipher_endless_again_recognition = cipher_endless_again.get("recognition", {})
     if (
         cipher_endless_again_recognition.get("type") != "TemplateMatch"

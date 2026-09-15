@@ -10,6 +10,8 @@ from maa.agent.agent_server import AgentServer
 
 import focus_restore  # noqa: F401  Registers foreground-window restore actions.
 import fishing  # noqa: F401  Registers background-resistant fishing recognition.
+import theatre_scenes  # noqa: F401  Registers Theatre scene recognition.
+import cipher_rewards  # noqa: F401  Registers endless cipher reward selection.
 import parent_watchdog
 import progress_monitor  # noqa: F401  Registers the monitor bootstrap action.
 import round_logger  # noqa: F401  Registers the custom action.

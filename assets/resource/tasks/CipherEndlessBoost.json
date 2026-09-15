@@ -3,7 +3,7 @@
         {
             "name": "CipherEndlessBoost",
             "label": "密函无尽加速",
-            "description": "自动处理密函探险结算流程。无尽模式持续完成结算循环，检测到“再次进行”时结束任务并通过进度监控发送 Telegram 完成通知；驱离模式按设定副本轮次运行并重新开启副本，开启“是否开启技能”后才检测并执行角色 E、Q 技能组合。",
+            "description": "自动处理密函探险结算流程。无尽模式默认直接确认奖励，可开启优先选择红色方块奖励；检测到“再次进行”时结束并通过进度监控发送 Telegram 完成通知。驱离模式保持原有奖励确认、轮次重开和可选角色 E、Q 技能组合。",
             "entry": "RewardConfirmEntry",
             "option": [
                 "CipherMode"
@@ -20,12 +20,15 @@
         "CipherMode": {
             "type": "select",
             "label": "模式",
-            "description": "选择密函探险的执行模式。无尽模式完成结算后继续下一轮，检测到“再次进行”时结束；驱离模式按副本轮次完成结算并重新开启副本，可通过“是否开启技能”启用角色技能设置。",
+            "description": "无尽模式默认直接确认当前奖励，可用独立开关优先选择红色方块；检测到“再次进行”时结束。驱离模式保持原有奖励确认、按副本轮次重开及可选技能设置。",
             "default_case": "Endless",
             "cases": [
                 {
                     "name": "Endless",
-                    "label": "无尽"
+                    "label": "无尽",
+                    "option": [
+                        "CipherEndlessRedReward"
+                    ]
                 },
                 {
                     "name": "Expel",
@@ -167,6 +170,38 @@
                                 "RewardConfirmThirdPageByClick",
                                 "CipherExpelInsideIdle"
                             ]
+                        }
+                    }
+                }
+            ]
+        },
+        "CipherEndlessRedReward": {
+            "type": "switch",
+            "label": "优先选择红色方块奖励",
+            "description": "默认关闭，直接确认当前奖励，不识别或改选奖励卡。开启后，在三张奖励卡中识别并选中红色方块后再确认；没有该奖励时继续确认默认奖励。仅适用于密函无尽，不影响驱离。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "pipeline_override": {
+                        "CipherEndlessRewardPage": {
+                            "enabled": true
+                        },
+                        "CipherEndlessRewardDefault": {
+                            "enabled": false
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "pipeline_override": {
+                        "CipherEndlessRewardPage": {
+                            "enabled": false
+                        },
+                        "CipherEndlessRewardDefault": {
+                            "enabled": true
                         }
                     }
                 }

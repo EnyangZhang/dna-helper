@@ -51,6 +51,8 @@ _user32.AttachThreadInput.argtypes = [
 _user32.AttachThreadInput.restype = wintypes.BOOL
 _user32.ClipCursor.argtypes = [ctypes.POINTER(wintypes.RECT)]
 _user32.ClipCursor.restype = wintypes.BOOL
+_user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+_user32.GetClientRect.restype = wintypes.BOOL
 
 
 class _POINT(ctypes.Structure):
@@ -85,6 +87,9 @@ _SW_RESTORE = 9
 _SKILL_FOREGROUND_SETTLE_SECONDS = 0.1
 _WM_KEYDOWN = 0x0100
 _WM_KEYUP = 0x0101
+_WM_LBUTTONDOWN = 0x0201
+_WM_LBUTTONUP = 0x0202
+_MK_LBUTTON = 0x0001
 _MAPVK_VK_TO_VSC = 0
 _BACKGROUND_KEY_HOLD_SECONDS = 0.03
 _MAX_KEY_HOLD_MS = 10000
@@ -302,6 +307,35 @@ def _send_background_key_transition(hwnd: int, key: int, pressed: bool) -> bool:
     return bool(_user32.PostMessageW(
         hwnd, _WM_KEYDOWN if pressed else _WM_KEYUP, key, lparam
     ))
+
+
+def _client_center(hwnd: int) -> tuple[int, int] | None:
+    if not hwnd or not _user32.IsWindow(hwnd):
+        return None
+    rect = wintypes.RECT()
+    if not _user32.GetClientRect(hwnd, ctypes.byref(rect)):
+        return None
+    width = int(rect.right - rect.left)
+    height = int(rect.bottom - rect.top)
+    if width <= 0 or height <= 0:
+        return None
+    x = width // 2
+    y = height // 2
+    if x <= 0 or y <= 0:
+        return None
+    return x, y
+
+
+def _send_background_mouse_transition(
+    hwnd: int, x: int, y: int, pressed: bool
+) -> bool:
+    """Post one mouse transition to the game window client center."""
+    if not hwnd or not _user32.IsWindow(hwnd):
+        return False
+    w_param = _MK_LBUTTON if pressed else 0
+    lparam = (y & 0xFFFF) << 16 | (x & 0xFFFF)
+    message = _WM_LBUTTONDOWN if pressed else _WM_LBUTTONUP
+    return bool(_user32.PostMessageW(hwnd, message, w_param, lparam))
 
 
 def _reset_hybrid_skill_ready() -> None:
@@ -991,9 +1025,136 @@ class _BackgroundKeyboardSequenceAction(FocusGuardAction):
     background_input_sequence = True
 
 
+def _get_existing_scene_group(
+    context: Context, argv: CustomAction.RunArg
+) -> _SkillInputGroup | None:
+    task_id = _task_id(argv)
+    game_hwnd = _controller_hwnd(context)
+    if not game_hwnd or not _user32.IsWindow(game_hwnd):
+        return None
+    with _skill_input_group_lock:
+        group = _skill_input_groups.get(task_id)
+    if group is None or group.game_hwnd != game_hwnd or not _user32.IsWindow(
+        group.game_hwnd
+    ):
+        return None
+    return group
+
+
+def _send_foreground_scene_hold(hold_seconds: float) -> bool:
+    succeeded = True
+    down_attempted = False
+    try:
+        down_attempted = True
+        down_succeeded = bool(_send_foreground_mouse_button("left", True))
+        succeeded = down_succeeded
+        if down_succeeded:
+            time.sleep(hold_seconds)
+    except Exception:
+        succeeded = False
+    finally:
+        if down_attempted:
+            # Always attempt release after a DOWN call, including false/exception.
+            # A failed first UP gets one best-effort retry; never replay DOWN.
+            release_succeeded = False
+            release_attempts_succeeded = True
+            for _ in range(2):
+                try:
+                    release_succeeded = bool(
+                        _send_foreground_mouse_button("left", False)
+                    )
+                except Exception:
+                    release_succeeded = False
+                release_attempts_succeeded = (
+                    release_attempts_succeeded and release_succeeded
+                )
+                if release_succeeded:
+                    break
+            succeeded = succeeded and release_attempts_succeeded
+    return succeeded
+
+
+def _send_background_scene_hold(hwnd: int, hold_seconds: float) -> bool:
+    center = _client_center(hwnd)
+    if not center:
+        return False
+    x, y = center
+    succeeded = True
+    down_attempted = False
+    try:
+        down_attempted = True
+        down_succeeded = bool(_send_background_mouse_transition(hwnd, x, y, True))
+        succeeded = down_succeeded
+        if down_succeeded:
+            time.sleep(hold_seconds)
+    except Exception:
+        succeeded = False
+    finally:
+        if down_attempted:
+            release_succeeded = False
+            release_attempts_succeeded = True
+            for _ in range(2):
+                try:
+                    release_succeeded = bool(
+                        _send_background_mouse_transition(hwnd, x, y, False)
+                    )
+                except Exception:
+                    release_succeeded = False
+                release_attempts_succeeded = (
+                    release_attempts_succeeded and release_succeeded
+                )
+                if release_succeeded:
+                    break
+            succeeded = succeeded and release_attempts_succeeded
+    return succeeded
+
+
+@AgentServer.custom_action("theatre_scene_mouse_hold")
+class TheatreSceneMouseHoldAction(CustomAction):
+    """Send the scene transition left-hold in current Theatre AFK group."""
+
+    _ALLOWED_NODES = {
+        "TheatreAFKScene2MouseHold",
+        "TheatreAFKScene3MouseHold",
+        "TheatreAFKScene4MouseHold",
+        "TheatreAFKScene5MouseHold",
+    }
+
+    def run(
+        self, context: Context, argv: CustomAction.RunArg
+    ) -> CustomAction.RunResult:
+        if argv.node_name not in self._ALLOWED_NODES:
+            return CustomAction.RunResult(success=False)
+
+        try:
+            params = _parse_params(argv.custom_action_param)
+        except Exception:
+            return CustomAction.RunResult(success=False)
+        if params.keys() != {"hold_ms"}:
+            return CustomAction.RunResult(success=False)
+        hold_ms = params.get("hold_ms")
+        if not isinstance(hold_ms, int) or hold_ms != 300:
+            return CustomAction.RunResult(success=False)
+
+        try:
+            group = _get_existing_scene_group(context, argv)
+        except Exception:
+            return CustomAction.RunResult(success=False)
+        if group is None or group.background_key_input:
+            return CustomAction.RunResult(success=False)
+
+        hold_seconds = hold_ms / 1000
+        try:
+            activated = bool(_activate_game_for_skill(group.game_hwnd))
+            success = activated and _send_foreground_scene_hold(hold_seconds)
+        except Exception:
+            success = False
+        return CustomAction.RunResult(success=success)
+
+
 @AgentServer.custom_action("theatre_background_keyboard_sequence")
 class TheatreBackgroundKeyboardSequenceAction(CustomAction):
-    """Send Theatre's entire keyboard chain in background, including first entry."""
+    """Compatibility name for old overrides; Theatre now always uses foreground."""
 
     def run(self, context: Context, argv: CustomAction.RunArg) -> CustomAction.RunResult:
         params = _parse_params(argv.custom_action_param)
@@ -1012,13 +1173,13 @@ class TheatreBackgroundKeyboardSequenceAction(CustomAction):
         sustained_e = argv.node_name == "TheatreAFKPressE"
         if sustained_e and steps != [{"key_press": 69}]:
             return CustomAction.RunResult(success=False)
-        # Do not consult or modify expel/fishing priming state. The user handles
-        # any window activation the game needs before accepting these messages.
-        result = _BackgroundKeyboardSequenceAction().run(context, argv)
+        # Old saved overrides must not re-enable the removed background feature.
+        # Keep the same balanced sequence and shared focus lifecycle.
+        result = FocusGuardAction().run(context, argv)
         if not result.success:
             # Replaying a partially delivered W/D/F opening would change position.
             # Unlike single-key expel actions, never fall back and replay this group.
-            _safe_user_log("[沉浸式戏剧挂机] 后台输入失败，已尝试释放按键；停止任务，不切换前台或重放动作链。")
+            _safe_user_log("[沉浸式戏剧挂机] 前台输入失败，已尝试释放按键；停止任务，不重放动作链。")
         return result
 
 

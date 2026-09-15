@@ -324,5 +324,55 @@
         },
         "next": ["TheatreAFKProfileEntry"],
         "on_error": ["TheatreAFKRestartMonitor"]
+    },
+    "TheatreAFKSceneMonitor2": {
+        "recognition": {"type": "DirectHit"}, "action": {"type": "DoNothing"},
+        "rate_limit": 0, "pre_delay": 0, "post_delay": 0, "max_hit": 1000000000,
+        "next": ["TheatreAFKGo", "TheatreAFKScene2Detected", "TheatreAFKScene3Detected", "TheatreAFKScene4Detected", "TheatreAFKScene5Detected", "TheatreAFKSceneWait2"]
+    },
+    "TheatreAFKSceneMonitor3": {
+        "recognition": {"type": "DirectHit"}, "action": {"type": "DoNothing"},
+        "rate_limit": 0, "pre_delay": 0, "post_delay": 0, "max_hit": 1000000000,
+        "next": ["TheatreAFKGo", "TheatreAFKScene3Detected", "TheatreAFKScene4Detected", "TheatreAFKScene5Detected", "TheatreAFKSceneWait3"]
+    },
+    "TheatreAFKSceneMonitor4": {
+        "recognition": {"type": "DirectHit"}, "action": {"type": "DoNothing"},
+        "rate_limit": 0, "pre_delay": 0, "post_delay": 0, "max_hit": 1000000000,
+        "next": ["TheatreAFKGo", "TheatreAFKScene4Detected", "TheatreAFKScene5Detected", "TheatreAFKSceneWait4"]
+    },
+    "TheatreAFKSceneMonitor5": {
+        "recognition": {"type": "DirectHit"}, "action": {"type": "DoNothing"},
+        "rate_limit": 0, "pre_delay": 0, "post_delay": 0, "max_hit": 1000000000,
+        "next": ["TheatreAFKGo", "TheatreAFKScene5Detected", "TheatreAFKSceneWait5"]
+    },
+    "TheatreAFKScene2Detected": {
+        "recognition": {"type": "Custom", "param": {"custom_recognition": "theatre_scene", "custom_recognition_param": {"scene": 2}}},
+        "action": {"type": "DoNothing"}, "rate_limit": 0, "pre_delay": 0, "post_delay": 3000,
+        "focus":{"Node.Action.Succeeded":{"content":"[沉浸式戏剧挂机] 已识别第二试炼，等待3000ms后执行左键操作","display":["log"]}},
+        "next": ["TheatreAFKGo", "TheatreAFKScene2MouseHold"]
+    },
+    "TheatreAFKScene3Detected": {
+        "recognition": {"type": "Custom", "param": {"custom_recognition": "theatre_scene", "custom_recognition_param": {"scene": 3}}},
+        "action": {"type": "DoNothing"}, "rate_limit": 0, "pre_delay": 0, "post_delay": 3000,
+        "focus":{"Node.Action.Succeeded":{"content":"[沉浸式戏剧挂机] 已识别第三试炼，等待3000ms后执行左键操作","display":["log"]}}, "next": ["TheatreAFKGo", "TheatreAFKScene3MouseHold"]
+    },
+    "TheatreAFKScene4Detected": {
+        "recognition": {"type": "Custom", "param": {"custom_recognition": "theatre_scene", "custom_recognition_param": {"scene": 4}}},
+        "action": {"type": "DoNothing"}, "rate_limit": 0, "pre_delay": 0, "post_delay": 3000,
+        "focus":{"Node.Action.Succeeded":{"content":"[沉浸式戏剧挂机] 已识别第四试炼，等待3000ms后执行左键操作","display":["log"]}}, "next": ["TheatreAFKGo", "TheatreAFKScene4MouseHold"]
+    },
+    "TheatreAFKScene5Detected": {
+        "recognition": {"type": "Custom", "param": {"custom_recognition": "theatre_scene", "custom_recognition_param": {"scene": 5}}},
+        "action": {"type": "DoNothing"}, "rate_limit": 0, "pre_delay": 0, "post_delay": 3000,
+        "focus":{"Node.Action.Succeeded":{"content":"[沉浸式戏剧挂机] 已识别最终试炼，等待3000ms后执行左键操作","display":["log"]}}, "next": ["TheatreAFKGo", "TheatreAFKScene5MouseHold"]
+    },
+    "TheatreAFKSceneWait2": {"recognition":{"type":"DirectHit"},"action":{"type":"DoNothing"},"rate_limit":0,"pre_delay":0,"post_delay":50,"next":["TheatreAFKSceneMonitor2"]},
+    "TheatreAFKSceneWait3": {"recognition":{"type":"DirectHit"},"action":{"type":"DoNothing"},"rate_limit":0,"pre_delay":0,"post_delay":50,"next":["TheatreAFKSceneMonitor3"]},
+    "TheatreAFKSceneWait4": {"recognition":{"type":"DirectHit"},"action":{"type":"DoNothing"},"rate_limit":0,"pre_delay":0,"post_delay":50,"next":["TheatreAFKSceneMonitor4"]},
+    "TheatreAFKSceneWait5": {"recognition":{"type":"DirectHit"},"action":{"type":"DoNothing"},"rate_limit":0,"pre_delay":0,"post_delay":50,"next":["TheatreAFKSceneMonitor5"]},
+    "TheatreAFKScene2MouseHold": {"recognition":{"type":"DirectHit"},"action":{"type":"Custom","param":{"custom_action":"theatre_scene_mouse_hold","custom_action_param":{"hold_ms":300}}},"rate_limit":0,"pre_delay":0,"post_delay":0,"focus":{"Node.Action.Succeeded":{"content":"[沉浸式戏剧挂机] 第二试炼操作已完成：左键按住300ms → 松开","display":["log"]}},"next":["TheatreAFKSceneMonitor3"]},
+    "TheatreAFKScene3MouseHold": {"recognition":{"type":"DirectHit"},"action":{"type":"Custom","param":{"custom_action":"theatre_scene_mouse_hold","custom_action_param":{"hold_ms":300}}},"rate_limit":0,"pre_delay":0,"post_delay":0,"focus":{"Node.Action.Succeeded":{"content":"[沉浸式戏剧挂机] 第三试炼操作已完成：左键按住300ms → 松开","display":["log"]}},"next":["TheatreAFKSceneMonitor4"]},
+    "TheatreAFKScene4MouseHold": {"recognition":{"type":"DirectHit"},"action":{"type":"Custom","param":{"custom_action":"theatre_scene_mouse_hold","custom_action_param":{"hold_ms":300}}},"rate_limit":0,"pre_delay":0,"post_delay":0,"focus":{"Node.Action.Succeeded":{"content":"[沉浸式戏剧挂机] 第四试炼操作已完成：左键按住300ms → 松开","display":["log"]}},"next":["TheatreAFKSceneMonitor5"]},
+    "TheatreAFKScene5MouseHold": {"recognition":{"type":"DirectHit"},"action":{"type":"Custom","param":{"custom_action":"theatre_scene_mouse_hold","custom_action_param":{"hold_ms":300}}},"rate_limit":0,"pre_delay":0,"post_delay":0,"focus":{"Node.Action.Succeeded":{"content":"[沉浸式戏剧挂机] 最终试炼操作已完成：左键按住300ms → 松开","display":["log"]}},"next":["TheatreAFKInsideMonitor"]
     }
 }

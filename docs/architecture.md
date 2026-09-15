@@ -165,7 +165,7 @@ Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有
 
 | 功能 | 局内候选 | 局外候选 |
 |---|---|---|
-| 密函无尽 | 第一页确认、继续挑战、Space 确认 | 再次进行（命中后自然结束） |
+| 密函无尽 | 第一页确认、继续挑战、Space 确认；开启开关后增加红色奖励选卡核验 | 再次进行（命中后自然结束） |
 | 密函驱离＋技能开启 | 血条、高台小地图、第一页确认 | 再次进行、Space 确认 |
 | 密函驱离＋技能关闭 | 第一页确认 | 再次进行、Space 确认 |
 | 普通无尽 | 继续挑战、确认选择 | 再次进行（命中后自然结束，不点击、不重开） |
@@ -176,23 +176,27 @@ Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有
 | 皎皎币挂机 | 血条、目标小地图、继续挑战、确认选择 | 再次进行、扼守/无尽委托卡片、委托页开始挑战、Space 开始挑战；错误地图时使用放弃挑战和确定 |
 | 调停挂机 | 血条、固定 W/左键/四 F/鼠标/右键/Z 角色操作 | 再次进行、Space 开始挑战 |
 | 狩月人之阶挂机 | 血条、等待 3000ms 后执行三次左键蓄力/Q 起手、每 300ms 按一次 E | 左下“重新开始”；命中后停止输入，点击后直接等待血条 |
-| 沉浸式戏剧挂机 | 血条连续 3 帧确认、每副本一次 W/D/F/Q 起手；按 profile 持续 E 或无输入等待 | 仅“前往”；循环中优先检测，重开残留重试，未知页面安全等待 |
+| 沉浸式戏剧挂机 | 血条连续 3 帧确认、每副本一次 W/D/F/Q 起手；伊薇持续 E，伊薇（不持续 E）按场景 2–5 执行一次场景动作 | 仅“前往”；循环中优先检测，重开残留重试，未知页面安全等待 |
 
-沉浸式戏剧挂机已撤回入口的全局“前往”调试，首次入口严格为 `TheatreAFKEntry → TheatreAFKWaitCombatHud → TheatreAFKCombatHudFrame1 → TheatreAFKCombatHudFrame2 → TheatreAFKCombatHudReady → TheatreAFKProfileEntry → TheatreAFKCombatSequence → TheatreAFKInsideMonitor`。首次入口和血条确认不检测 Go；重开路径仅在观察并点击“前往”后可达。角色选项默认 case `CoinDefault` 显示为“伊薇”，保留标识兼容用户配置；新增 `YiweiNoE` 显示为“伊薇（不持续 E）”。两者均路由到戏剧独立的 `TheatreAFKCombatSequence`，复用同一 W/D/F/Q 起手参数，只选择不同的起手后等待分支与日志，不复制链或覆盖输入后端。没有旧皎皎币链的可达出口，皎皎币本身不改；所有周期经过公共 `ProfileEntry`。
+沉浸式戏剧挂机已撤回入口的全局“前往”调试，公共首次入口严格为 `TheatreAFKEntry → TheatreAFKWaitCombatHud → TheatreAFKCombatHudFrame1 → TheatreAFKCombatHudFrame2 → TheatreAFKCombatHudReady → TheatreAFKProfileEntry → TheatreAFKCombatSequence`；随后默认 `CoinDefault`（“伊薇”）进入 `TheatreAFKInsideMonitor`，`YiweiNoE`（“伊薇（不持续 E）”）进入 `SceneMonitor2`。首次入口和血条确认不检测 Go；重开路径仅在观察并点击“前往”后可达。两者复用同一 W/D/F/Q 起手参数，只选择不同的起手后动作路由与日志，不复制链或覆盖输入后端。没有旧皎皎币链的可达出口，皎皎币本身不改；所有周期经过公共 `ProfileEntry`。
 
-起手使用 `input_sequence + skill_input_group: true`，显式步骤为：`delay 3000 → W↓ → delay 1000 → W↑ → D↓ → delay 1000 → D↑ → F → delay 200 → F → delay 200 → F → Q → delay 1000`，单位均为 ms，默认前台的 Q/F 均通过控制器完整 ClickKey 发送。起手节点三项框架时序为 0，3000ms 开局等待仍在整组操作内部。循环为 `InsideMonitor.next = [TheatreAFKGo, TheatreAFKPressE]`，每次先检测 Go，未命中才由 PressE 的单步 `input_sequence [{key_press:69}]` 发送一次 E；PressE 显式 `post_delay=500` 后返回 `InsideMonitor`，监控路由自身三项时序均为 0。E 不调用带逐次日志的公共 E 代理，不产生持续刷屏，Agent 不包含无限输入循环。起手和 E 复用同一个 task_id 的输入组，每次 E 不重新记忆恢复目标；开启实验选项后，从第一局起手到全部持续 E 都建立并复用后台组，不存在首次前台预热或第 3 次 E 切换。
+起手使用 `input_sequence + skill_input_group: true`，显式步骤为：`delay 3000 → W↓ → delay 1000 → W↑ → D↓ → delay 1000 → D↑ → F → delay 200 → F → delay 200 → F → Q → delay 1000`，单位均为 ms，前台的 Q/F 均通过控制器完整 ClickKey 发送。起手节点三项框架时序为 0，3000ms 开局等待仍在整组操作内部。循环为 `InsideMonitor.next = [TheatreAFKGo, TheatreAFKPressE]`，每次先检测 Go，未命中才由 PressE 的单步 `input_sequence [{key_press:69}]` 发送一次 E；PressE 显式 `post_delay=500` 后返回 `InsideMonitor`，监控路由自身三项时序均为 0。E 不调用带逐次日志的公共 E 代理，不产生持续刷屏，Agent 不包含无限输入循环。起手和 E 复用同一个 task_id 的输入组，每次 E 不重新记忆恢复目标；两个方案始终使用前台输入组，不存在后台切换。
 
-不持续 E 分支由 `YiweiNoE` 覆盖 `InsideMonitor.next = [TheatreAFKGo, TheatreAFKWaitGo]`；`WaitGo` 严格为 `DirectHit + DoNothing`、`0/0/50ms`，返回 InsideMonitor，不包含按键、日志、血条重入或完成事件，`PressE` 从该 profile 的可达图中完全移除。两个 case 均显式覆盖相应路由和启动/起手结果/Go 收尾日志，因此切回默认方案会恢复原路由及原日志；新方案不会谎报“E 循环已停止”。其余起手和 Go 节点参数及输入组生命周期不变。
+不持续 E 分支由 `YiweiNoE` 覆盖为单调 `SceneMonitor2 → SceneMonitor3 → SceneMonitor4 → SceneMonitor5` 链；每个监控节点先检查 `Go`，再尝试当前及更高编号场景。命中后显式等待 3000ms，再调用既有输入组中的 `theatre_scene_mouse_hold` 左键长按 300ms，并转入下一编号或 `InsideMonitor`。等待期间不并发轮询 `Go`，只在延迟结束后优先检查；每个场景最多成功一次，缺失早期场景时不回放，未知场景不记录日志。默认方案的持续 E 路由不变。
 
-每副本一次的起手锁由**状态可达性**表达：InsideMonitor/PressE/WaitGo 只识别 Go、发送 E 或无输入等待，不读取血条来重入起手。Q 动画、HUD 消失恢复不会切换分支或解锁 W/D/F/Q。Go 命中即停止 E 或结束无输入等待，第一节点仍直接执行 Maa 原生 Click；随后 GoClick2/GoClick3 为 DirectHit + Click，间隔 50/50ms。GoClick3Finalize 保留无输入 `focus_guard_finalize`，仅本任务设置 `finish_skill_input_group:true`：有本任务前台输入组时移除它并恢复一次该组记录的窗口/鼠标（100ms 收尾等待），不重新采集恢复目标；后台组没有恢复目标，关闭后台组后与没有组的残留按钮重试一样走普通原生点击焦点收尾，仍然恢复窗口。默认未设置该参数的其他任务完全不改变。没有进度事件，不计轮次。`TheatreInputLifecycle` 只处理 TheatreAFKEntry 的成功/失败结束通知，关闭对应 task_id 输入组，不影响其他任务；常规输入失败已有按键抬起兜底，随后清理组，禁止失败后自动重放起手。
+`theatre_scene_mouse_hold` 只接受已有前台输入组，确认游戏前台后发送真实左键按下/抬起，不额外移动鼠标。意外的后台组安全拒绝，不投递后台鼠标消息；每场 3000ms 等待与 300ms 长按、抬起失败兜底保持不变。`Go` 仍使用 Maa 原生三连击。
 
-`TheatreAFKBackgroundInput` 是本任务独立、默认 No 的实验开关，中文名称为“全程后台输入（实验）”；保留原选项及 Yes/No 标识兼容用户配置，不复用驱离的选项标识。Yes 仅把 `TheatreAFKCombatSequence` 与 `TheatreAFKPressE` 的 `custom_action` 改为 `theatre_background_keyboard_sequence`，不覆盖 `custom_action_param`，因此选定 profile 的步骤、时间和共享输入组参数完整保留。Go 收尾不负责开启后台状态；profile 只覆盖其日志，不覆盖收尾动作。两种 profile 与后台开关只修改不同字段，任意合并顺序结果一致；`YiweiNoE` 中的 PressE 即使有后台后端覆盖也始终不可达。两个方案开启后台后均从第一次 W/D/F/Q 起手全程后台，不恢复首次前台规则。
+场景识别实现位于 `agent/theatre_scenes.py`：无每副本 Python 状态，使用缓存模板和有界 ROI；场景 2/3/4 使用文字及数字区分模板，场景 5 直接以原始 BGR 满血模板 `scene5.png` 做 `TM_SQDIFF_NORMED ≤ 0.05` 匹配，包含完整颜色及填充，不再使用红色区域、外框遮罩或残血回退，按最终试炼首次出现时满血的条件检测。所有坐标以包含游戏自绘标题栏的 `1280×720` 画面为基准，场景检测 ROI 为 `(500,220,330,100)`，Boss 检测 ROI 为 `(390,60,520,50)`；模板提取必须按原图和窗口偏移复现，不能重新缩放或扣除标题栏。测试夹具可保留更大的上下文裁剪，但不改变运行时检测 ROI。
 
-回归验证覆盖两种 profile × 前后台选项及两种覆盖顺序、切回默认方案、精确相同的起手参数、无 E 方案在 HUD 消失恢复时仅无输入等待、Go 残留重试不重放起手、多个副本仅各执行一次，以及原始三连击与其他任务图不变；校验器同时约束无输入等待节点、profile 可覆盖字段与默认路由恢复。
+每副本一次的起手锁由**状态可达性**表达：InsideMonitor/PressE/WaitGo 只识别 Go、发送 E 或无输入等待，不读取血条来重入起手。Q 动画、HUD 消失恢复不会切换分支或解锁 W/D/F/Q。Go 命中即停止 E 或结束无输入等待，第一节点仍直接执行 Maa 原生 Click；随后 GoClick2/GoClick3 为 DirectHit + Click，间隔 50/50ms。GoClick3Finalize 保留无输入 `focus_guard_finalize`，仅本任务设置 `finish_skill_input_group:true`：有本任务前台输入组时移除它并恢复一次该组记录的窗口/鼠标（100ms 收尾等待），不重新采集恢复目标；没有组的残留按钮重试走普通原生点击焦点收尾，仍然恢复窗口。默认未设置该参数的其他任务完全不改变。没有进度事件，不计轮次。`TheatreInputLifecycle` 只处理 TheatreAFKEntry 的成功/失败结束通知，关闭对应 task_id 输入组，不影响其他任务；常规输入失败已有按键抬起兜底，随后清理组，禁止失败后自动重放起手。
 
-`TheatreBackgroundKeyboardSequenceAction` 只接受戏剧的起手与持续 E 两个节点，验证其为共享组的纯键盘序列后，直接调用 `_BackgroundKeyboardSequenceAction`。不读取或写入 `_hybrid_skill_ready_hwnd`，不维护首次次数；旧的 `hybrid_keyboard_sequence` 与 `theatre_foreground_e_count` 已移除。第一局、后续副本和新任务均直接后台发送，窗口的必要激活由用户手动完成；助手不根据当前焦点自动暂停 E 或回退前台。Go 仍清理组，下一局重新建立后台组；残留按钮、HUD 消失恢复不解锁起手。手动停止或失败只关闭对应组，不进行前台预热；失败不重放起手。
+`TheatreAFKBackgroundInput` 已从任务选项及声明中删除，两种 profile 的起手和持续 E 均固定使用 `focus_guard_action`；profile 仍只覆盖日志与路由，不改变输入参数。校验器拒绝重新加入该后台选项或修改起手/E 的前台后端。
 
-`_BackgroundKeyboardSequenceAction` 的纯键盘后端不变：静态拒绝鼠标步骤，通过 `_send_background_key_transition` 向绑定 HWND 投递 WM_KEYDOWN/WM_KEYUP，长按沿用步骤延迟，完整 F/Q/E 按键保持 30ms 后抬起。不调用前台控制器或焦点/鼠标函数；后台抬起失败从 held_inputs 补发，其他失败直接结束，不回退重放。默认 `FocusGuardAction`、驱离及钓鱼规则不变。没有切换成功日志或逐次 E 日志，输入失败使用 `_safe_user_log`，日志流失败不影响动作结果。单元测试覆盖首局与后续局的相同完整后台链、失焦不暂停、关闭选项仍前台、停止重启、失败抬起、不污染驱离就绪状态以及 Go 原生点击收尾；模拟投递通过不代表游戏实机消费保证。
+回归覆盖两种 profile 的前台路由、旧后台选项不可用、旧动作入口也走前台、首个及后续副本动作参数一致、输入组保持到 Go 收尾、停止/失败清理，以及无 E 分支的场景操作、HUD 抖动和按钮残留不重放起手；其他任务图保持不变。
+
+`TheatreBackgroundKeyboardSequenceAction` 的注册名仅保留为旧配置兼容入口：仍只接受戏剧起手/持续 E 的合法纯键盘序列，但固定转发给 `FocusGuardAction`，不再调用后台后端。残留的旧覆盖不能恢复后台发送；不读写驱离或钓鱼就绪状态，失败不重放起手。
+
+公共后台输入基础设施不因剧场移除而改动，驱离与钓鱼保留原有规则。剧场不再有可达的后台键盘或鼠标路径；没有逐次 E 刷屏日志，输入错误仍记录，窗口/鼠标恢复仍按既有连续输入组生命周期执行。
 
 重开等待保持 `[TheatreAFKGo, TheatreAFKRestartHudFrame1, TheatreAFKRestartMonitor]`；后续 Frame1/Frame2 优先处理 Go 残留，Ready 直接路由 ProfileEntry。按钮重试不回任务入口、不计数、不发送 E、不执行起手。两组 HUD 均保持前两帧 `0/0/50`、末帧 `0/0/0`、`timeout=120`；确认失败返回各自等待。点击后未知页面既无 Go 也无 HUD 时保持 `0/0/50` 安全等待，不发送 E。没有 StopTask、完成通知、局内加速、小地图或未授权按钮。
 
@@ -218,7 +222,10 @@ Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有
 
 ```text
 RewardConfirmEntry
-→ 第一页“确认选择”三连击
+→ 开关关闭（默认）：CipherEndlessRewardDefault 直接确认，跳过选卡
+→ 开关开启：CipherEndlessRewardPage 检查奖励标题、三张编号卡、确认按钮
+→ 红色方块未选中：对应槽位原生三连击 → 无输入恢复 → 新帧核验勾选
+→ 红色方块已选中，或未发现目标且当前选择有效：第一页“确认选择”三连击
 → “继续挑战”三连击
 → 第三页“Space 确认选择”三连击
 → RewardConfirmEntry
@@ -232,7 +239,15 @@ RewardConfirmEntry
 | 继续挑战 | `continue_challenge.png` | `(700,400,420,150)` | `(900,500)` |
 | 第三奖励页 | `space_confirm_choice.png` | `(760,380,360,150)` | `(920,480)` |
 
-每个按钮执行三次输入，间隔 50ms。第三页点击完成后重新进入第一页监听，任务由用户手动停止。
+每个按钮执行三次 Maa 原生输入，间隔 50ms。第三页点击完成后重新进入第一页监听；任一等待阶段出现“再次进行”则自然结束并复用 Telegram 完成通知，也支持用户手动停止。
+
+奖励选卡独立定义在 `CipherRewardChoice.json`，识别器 `agent/cipher_rewards.py` 只返回图像证据，不发输入、不改计数、不保存上一次的选卡状态。其 `page` 模式要求标题、三个固定槽位的 I/II/III 标记和确认按钮同时存在；`select` 模式只接受唯一命中且尚未选中的红色方块所在槽位；`ready` 模式只接受唯一有效勾选，并要求它对应唯一红色奖励，或在没有红色目标时保留当前默认奖励。目标不固定为第二张；三个槽位点击坐标为 `(456,519)`、`(640,519)`、`(823,519)`。图标匹配采用原色归一化相关、阈值 0.85；勾选使用灰度模板、阈值 0.85；标题/确认阈值 0.80，编号阈值 0.82。客户区尺寸严格为 1280×720。
+
+每个槽位与新的无尽确认入口都有独立的 `Custom recognition + Click → DirectHit + Click → DirectHit + Click → focus_guard_finalize` 链，框架时序分别为 `0/0/50、0/0/50、0/0/0、0/0/0`，无输入收尾保留原有 100ms 焦点恢复等待。首个节点外不重复识别；选卡收尾之后在新帧核验勾选，不因原生点击返回成功就假定选中了。未选中或奖励页残留经 `CipherEndlessRewardWait` 的 50ms 空闲节点重试；仅开关开启时 `RewardConfirmWaitContinue` 才检查奖励页以恢复未成功确认的页面。各等待/收尾先检测 `CipherEndlessAgainDetected`，并允许正常推进到“继续挑战”。三连击内部保持短链，不插入识别或 Agent 页面输入。没有新轮次事件，原 `cipher_cycle_completed` 仍只在第三页收尾发送。
+
+`CipherEndlessRedReward`（“优先选择红色方块奖励”）只挂在 `CipherMode=Endless` 下，默认 No。No 显式禁用 `CipherEndlessRewardPage`、启用 `CipherEndlessRewardDefault`；Yes 相反。默认确认节点与 `RewardConfirmByClick` 的识别、坐标和时序完全一致，共用原二/三击及无输入收尾；关闭时不运行标题、红色图标或勾选识别。开关只改两个无尽专属节点的 enabled，不覆盖共享入口或驱离确认节点；即使保存过 Yes，切换驱离后两种技能分支也不可达这些节点。测试覆盖 Yes/No 来回切换及与驱离覆盖的两种合并顺序，不改变三连击、计数、99 提醒或自然完成通知。开启选卡时缺少页面证据、勾选或目标歧义仍安全等待，无红色奖励则确认默认项。
+
+`tools/extract_cipher_reward_templates.py` 从保存的 `1294×730` 原图按客户区 `(10,8,1280,720)` 无损提取六个模板及客户区回归样本；保留自绘标题栏、不缩放，排除图标数量和持有数。原图与合成槽位调换/选中状态/亮暗场景覆盖识别分支；图可达性测试覆盖驱离隔离、三连击、重试及零额外计数。
 
 ### 驱离
 

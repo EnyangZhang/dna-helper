@@ -36,8 +36,8 @@ def apply_override(pipeline, override):
 
 
 def selected_pipeline(pipeline, task, profile, background="No", *, reverse=False):
-    selections = (("TheatreAFKCharacterProfile", profile),
-                  ("TheatreAFKBackgroundInput", background))
+    # Removed saved background selection is deliberately ignored.
+    selections = (("TheatreAFKCharacterProfile", profile),)
     result = copy.deepcopy(pipeline)
     for name, selected in reversed(selections) if reverse else selections:
         case = next(case for case in task["option"][name]["cases"] if case["name"] == selected)
@@ -64,7 +64,7 @@ class TheatreGraphRunner:
         self.current = "TheatreAFKEntry"
         self.actions = [self.current]
 
-    def step(self, *, hud=False, go=False):
+    def step(self, *, hud=False, go=False, scene=None):
         current = self.pipeline[self.current]
         selected = None
         for name in current.get("next", []):
@@ -73,6 +73,9 @@ class TheatreGraphRunner:
             if recognition["type"] == "TemplateMatch":
                 template = recognition["param"]["template"]
                 matched = go if template == "TheatreAFK/go.png" else hud
+            if recognition["type"] == "Custom":
+                param = recognition.get("param", {}).get("custom_recognition_param", {})
+                matched = scene is not None and int(param.get("scene", 0)) == int(scene)
             if matched:
                 selected = name
                 break
@@ -88,7 +91,7 @@ class TheatreGraphRunner:
     def enter_first_dungeon(self):
         for _ in range(10):
             self.step(hud=True)
-            if self.current == "TheatreAFKInsideMonitor":
+            if self.current in {"TheatreAFKInsideMonitor", "TheatreAFKSceneMonitor2"}:
                 return
         raise AssertionError("Initial opening did not reach settlement wait")
 
@@ -176,7 +179,10 @@ class TheatreAfkContractTest(unittest.TestCase):
         seen = set()
         for profile, excluded in (("CoinDefault", "TheatreAFKWaitGo"), ("YiweiNoE", "TheatreAFKPressE")):
             current = reachable_nodes(selected_pipeline(self.pipeline, self.task, profile))
-            self.assertEqual(current, set(self.pipeline) - {excluded})
+            expected = set(self.pipeline) - {excluded}
+            if profile == "CoinDefault":
+                expected -= {name for name in self.pipeline if "Scene" in name}
+            self.assertEqual(current, expected)
             seen.update(current)
         self.assertEqual(seen, set(self.pipeline))
         forbidden = ("Map", "Lobby", "Continue", "Confirm", "StopTask", "Counter", "Again")
@@ -192,11 +198,11 @@ class TheatreAfkContractTest(unittest.TestCase):
             if node["action"]["type"] == "Custom":
                 params = node["action"]["param"]
                 self.assertIn(params["custom_action"], {
-                    "focus_guard_start", "focus_guard_action", "focus_guard_finalize",
+                    "focus_guard_start", "focus_guard_action", "focus_guard_finalize", "theatre_scene_mouse_hold",
                 })
                 self.assertNotIn("progress_event", params.get("custom_action_param", {}))
 
-    def test_profiles_and_background_option_merge_in_either_order(self):
+    def test_profiles_ignore_removed_background_selection(self):
         cases = self.task["option"]["TheatreAFKCharacterProfile"]["cases"]
         self.assertEqual([(case["name"], case["label"]) for case in cases],
                          [("CoinDefault", "伊薇"), ("YiweiNoE", "伊薇（不持续 E）")])
@@ -209,7 +215,7 @@ class TheatreAfkContractTest(unittest.TestCase):
                     for name in ("TheatreAFKCombatSequence", "TheatreAFKPressE"):
                         params = current[name]["action"]["param"]
                         self.assertEqual(params["custom_action_param"], self.pipeline[name]["action"]["param"]["custom_action_param"])
-                        self.assertEqual(params["custom_action"], "theatre_background_keyboard_sequence" if background == "Yes" else "focus_guard_action")
+                        self.assertEqual(params["custom_action"], "focus_guard_action")
                     for name in ("TheatreAFKGo", "TheatreAFKGoClick2", "TheatreAFKGoClick3"):
                         self.assertEqual(current[name], self.pipeline[name])
                     self.assertEqual(current["TheatreAFKGoClick3Finalize"]["action"], self.pipeline["TheatreAFKGoClick3Finalize"]["action"])
@@ -238,7 +244,7 @@ class TheatreAfkContractTest(unittest.TestCase):
                 for index in range(400):
                     runner.step(hud=index % 7 < 3)
                 self.assertEqual(runner.openings, 1)
-                self.assertEqual(set(runner.actions[offset:]), {"TheatreAFKInsideMonitor", "TheatreAFKWaitGo"})
+                self.assertEqual(set(runner.actions[offset:]), {"TheatreAFKSceneMonitor2", "TheatreAFKSceneWait2"})
                 for name in ("TheatreAFKEntry", "TheatreAFKCombatSequence", "TheatreAFKGoClick3Finalize"):
                     log = current[name]["focus"]["Node.Action.Succeeded"]["content"]
                     self.assertIn("伊薇（不持续 E）", log)
@@ -252,7 +258,7 @@ class TheatreAfkContractTest(unittest.TestCase):
                 runner.enter_first_dungeon()
                 for dungeon in range(1, 4):
                     runner.step()  # Go may appear while the no-input wait is active.
-                    self.assertEqual(runner.current, "TheatreAFKWaitGo")
+                    self.assertIn(runner.current, {"TheatreAFKWaitGo", "TheatreAFKSceneWait2"})
                     runner.step(go=True)
                     for _ in range(4):
                         runner.click_go()
@@ -266,7 +272,7 @@ class TheatreAfkContractTest(unittest.TestCase):
                     self.assertEqual(runner.current, "TheatreAFKRestartMonitor")
                     for _ in range(6):
                         runner.step(hud=True)
-                    self.assertEqual(runner.current, "TheatreAFKInsideMonitor")
+                    self.assertIn(runner.current, {"TheatreAFKInsideMonitor", "TheatreAFKSceneMonitor2"})
                     self.assertEqual(runner.openings, dungeon + 1)
                 self.assertNotIn("TheatreAFKPressE", runner.actions)
                 self.assertEqual(runner.actions.count("TheatreAFKEntry"), 1)
@@ -487,7 +493,7 @@ class TheatreAfkContractTest(unittest.TestCase):
         stop.assert_called_once_with(final_message=None); fmt.assert_not_called()
 
 
-class TheatreBackgroundInputTest(unittest.TestCase):
+class TheatreForegroundInputTest(unittest.TestCase):
     def setUp(self):
         self.pipeline = json.loads(PIPELINE.read_text(encoding="utf-8"))
         self.task = json.loads(TASK.read_text(encoding="utf-8"))
@@ -529,218 +535,68 @@ class TheatreBackgroundInputTest(unittest.TestCase):
         result = action.run(self.context, self.argv(name))
         self.assertTrue(result.success)
 
-    def test_option_only_switches_backend_without_replacing_profile_parameters(self):
-        option = self.task["option"]["TheatreAFKBackgroundInput"]
-        self.assertIn("TheatreAFKBackgroundInput", self.task["task"][0]["option"])
-        self.assertEqual(option["default_case"], "No")
-        cases = {case["name"]: case for case in option["cases"]}
-        self.assertNotIn("pipeline_override", cases["No"])
-        overrides = cases["Yes"]["pipeline_override"]
-        self.assertEqual(set(overrides), {"TheatreAFKCombatSequence", "TheatreAFKPressE"})
-        for name in ("TheatreAFKCombatSequence", "TheatreAFKPressE"):
-            self.assertEqual(overrides[name], {"action": {"param": {"custom_action": "theatre_background_keyboard_sequence"}}})
-        self.assertEqual(option["label"], "全程后台输入（实验）")
-        self.assertIn("窗口由你手动调整", option["description"])
-        self.assertNotIn("enable_background_next_dungeon", self.argv("TheatreAFKGoClick3Finalize").custom_action_param)
-        case = self.task["option"]["TheatreAFKCharacterProfile"]["cases"][0]
-        self.assertEqual(case["label"], "伊薇")
-        for profile in self.task["option"]["TheatreAFKCharacterProfile"]["cases"]:
-            for node in profile["pipeline_override"].values():
-                self.assertNotIn("action", node)  # Profile routing/logs never replace the keyboard backend.
 
-    def assert_no_foreground_input(self):
-        self.activate.assert_not_called()
-        self.remember.assert_not_called()
-        self.restore.assert_not_called()
-        self.foreground.assert_not_called()
-        self.release_clip.assert_not_called()
-        self.restore_cursor.assert_not_called()
-        self.controller.post_key_down.assert_not_called()
-        self.controller.post_key_up.assert_not_called()
-        self.controller.post_click_key.assert_not_called()
+    def test_background_option_removed_for_both_profiles(self):
+        self.assertEqual(self.task["task"][0]["option"], ["TheatreAFKCharacterProfile"])
+        self.assertNotIn("TheatreAFKBackgroundInput", self.task["option"])
+        for profile in ("CoinDefault", "YiweiNoE"):
+            current = selected_pipeline(self.pipeline, self.task, profile, "Yes")
+            for name in ("TheatreAFKCombatSequence", "TheatreAFKPressE"):
+                self.assertEqual(current[name]["action"]["param"]["custom_action"], "focus_guard_action")
 
-    def test_first_and_later_dungeons_use_identical_background_chains(self):
-        expected = [
-            ("sleep", 3.0), ("bg", 87, True), ("sleep", 1.0), ("bg", 87, False),
-            ("bg", 68, True), ("sleep", 1.0), ("bg", 68, False),
-        ]
-        for key, pause in ((70, 0.2), (70, 0.2), (70, 0), (81, 1.0)):
-            expected += [("bg", key, True), ("sleep", 0.03), ("bg", key, False)]
-            if pause:
-                expected.append(("sleep", pause))
-        for dungeon in range(3):
-            with self.subTest(dungeon=dungeon), mock.patch.object(focus_restore, "_safe_user_log") as log:
-                self.events.clear()
-                self.execute("TheatreAFKCombatSequence")
-                self.assertEqual(self.events, expected)
-                group = focus_restore._skill_input_groups[903]
-                self.assertTrue(group.background_key_input)
-                self.assertEqual((group.restore_hwnd, group.restore_cursor_position), (0, None))
-                for _ in range(25):  # Includes E #1, #2, #3 and all later presses.
-                    self.events.clear()
-                    self.execute("TheatreAFKPressE")
-                    self.assertEqual(self.events, [("bg", 69, True), ("sleep", 0.03), ("bg", 69, False)])
-                    self.assertIs(focus_restore._skill_input_groups[903], group)
-                log.assert_not_called()  # No transition message or per-E spam.
-                self.assert_no_foreground_input()
-                self.assertFalse(focus_restore._is_hybrid_skill_ready(202))
-                for _ in range(4):  # Native Go and residual retries still restore.
-                    self.execute("TheatreAFKGoClick3Finalize")
-                self.assertEqual(self.restore.call_count, 4)
-                self.restore.assert_called_with(101, (300, 400))
-                self.assertFalse(focus_restore._skill_input_groups)
-                self.remember.reset_mock(); self.restore.reset_mock(); self.foreground.reset_mock()
+    def test_normal_and_legacy_entries_always_use_foreground_across_dungeons(self):
+        for legacy in (False, True):
+            for profile in ("CoinDefault", "YiweiNoE"):
+                for dungeon in range(2):
+                    with self.subTest(legacy=legacy, profile=profile, dungeon=dungeon):
+                        self.events.clear()
+                        self.activate.reset_mock()
+                        self.restore.reset_mock()
+                        focus_restore._mark_hybrid_skill_ready(202)
+                        action = (focus_restore.TheatreBackgroundKeyboardSequenceAction()
+                                  if legacy else focus_restore.FocusGuardAction())
+                        self.assertTrue(action.run(self.context, self.argv("TheatreAFKCombatSequence")).success)
+                        expected = [
+                            ("sleep", 3.0), ("down", 87), ("sleep", 1.0), ("up", 87),
+                            ("down", 68), ("sleep", 1.0), ("up", 68),
+                            ("press", 70), ("sleep", 0.2), ("press", 70),
+                            ("sleep", 0.2), ("press", 70), ("press", 81), ("sleep", 1.0),
+                        ]
+                        # Activation can add a setup delay; exact business sequence remains unchanged.
+                        self.assertEqual(self.events[-len(expected):], expected)
+                        group = focus_restore._skill_input_groups[903]
+                        self.assertFalse(group.background_key_input)
+                        if profile == "CoinDefault":
+                            for _ in range(8):
+                                self.assertTrue(action.run(self.context, self.argv("TheatreAFKPressE")).success)
+                                self.assertIs(focus_restore._skill_input_groups[903], group)
+                        self.send.assert_not_called()
+                        self.activate.assert_called_once()
+                        self.restore.assert_not_called()
+                        self.execute("TheatreAFKGoClick3Finalize")
+                        self.assertFalse(focus_restore._skill_input_groups)
+                        self.restore.assert_called_once_with(101, (300, 400))
 
-    def test_background_does_not_depend_on_focus_or_other_modes_readiness(self):
-        for ready in (0, 202):
-            for foreground in (0, 101, 202):
-                with self.subTest(ready=ready, foreground=foreground):
-                    focus_restore._hybrid_skill_ready_hwnd = ready
-                    self.foreground.return_value = foreground
-                    self.execute("TheatreAFKPressE")
-                    self.assertEqual(focus_restore._hybrid_skill_ready_hwnd, ready)
-        self.assertEqual(self.send.call_count, 12)
-        self.assert_no_foreground_input()
-
-    def test_disabled_option_stays_foreground_even_if_other_mode_was_ready(self):
-        focus_restore._mark_hybrid_skill_ready(202)
-        action = focus_restore.FocusGuardAction()
-        self.assertTrue(action.run(self.context, self.argv("TheatreAFKCombatSequence")).success)
-        for _ in range(8):
-            self.assertTrue(action.run(self.context, self.argv("TheatreAFKPressE")).success)
-        self.send.assert_not_called()
-        self.activate.assert_called_once()
-        self.restore.assert_not_called()
-
-    def test_failed_foreground_e_does_not_prime_or_replay_the_opening(self):
-        action = focus_restore.FocusGuardAction()  # Disabled option remains unchanged.
-        self.assertTrue(action.run(self.context, self.argv("TheatreAFKCombatSequence")).success)
-        self.assertTrue(action.run(self.context, self.argv("TheatreAFKPressE")).success)
-        job = SimpleNamespace(succeeded=False)
-        job.wait = lambda: job
-        self.controller.post_click_key.return_value = job
-        self.controller.post_click_key.side_effect = None
-        self.assertFalse(action.run(self.context, self.argv("TheatreAFKPressE")).success)
-        self.assertFalse(focus_restore._is_hybrid_skill_ready(202))
-        self.assertFalse(focus_restore._skill_input_groups)
-        self.send.assert_not_called()
-        self.restore.assert_called_once_with(101, (300, 400))
-
-    def test_first_e_failure_releases_in_background_without_foreground_fallback(self):
+    def test_manual_stop_restores_foreground_group(self):
         self.execute("TheatreAFKCombatSequence")
-        self.send.reset_mock()
-        self.send.side_effect = [True, False, True]
-        with mock.patch.object(focus_restore, "_safe_user_log") as log:
-            self.assertFalse(focus_restore.TheatreBackgroundKeyboardSequenceAction().run(self.context, self.argv("TheatreAFKPressE")).success)
-        self.assertFalse(focus_restore._is_hybrid_skill_ready(202))
-        self.assertFalse(focus_restore._skill_input_groups)
-        self.assert_no_foreground_input()
-        self.assertEqual(self.send.call_args_list, [mock.call(202, 69, True), mock.call(202, 69, False), mock.call(202, 69, False)])
-        self.assertIn("失败", log.call_args.args[0])
-
-    def test_manual_stop_and_new_task_still_start_in_background(self):
-        self.execute("TheatreAFKCombatSequence")
-        for _ in range(3):
-            self.execute("TheatreAFKPressE")
         focus_restore.TheatreInputLifecycle().on_tasker_task(
             Mock(), NotificationType.Failed, SimpleNamespace(entry="TheatreAFKEntry", task_id=903)
         )
         self.assertFalse(focus_restore._skill_input_groups)
-        self.assert_no_foreground_input()
-        # Invoke the actual new-task initialization with all external effects mocked.
-        argv = self.argv("TheatreAFKEntry")
-        argv.task_detail.task_id = 904
-        with (
-            mock.patch.object(focus_restore, "_initialize_restore_target"),
-            mock.patch.object(focus_restore, "_start_foreground_watcher"),
-            mock.patch.object(focus_restore.progress_state, "start_task", return_value=True),
-            mock.patch.object(focus_restore.telegram_bot, "notify_task_started"),
-            mock.patch.object(focus_restore, "_reset_hybrid_fishing_ready"),
-        ):
-            self.assertTrue(focus_restore.FocusGuardStart().run(self.context, argv).success)
-        self.assertFalse(focus_restore._is_hybrid_skill_ready(202))
-        self.foreground.reset_mock()  # Start only reads focus for native page clicks.
-        self.send.reset_mock()
-        for name in ("TheatreAFKCombatSequence", "TheatreAFKPressE"):
-            new_argv = self.argv(name)
-            new_argv.task_detail.task_id = 904
-            self.assertTrue(focus_restore.TheatreBackgroundKeyboardSequenceAction().run(self.context, new_argv).success)
-        self.assertEqual(self.send.call_count, 14)
-        self.assertTrue(focus_restore._skill_input_groups[904].background_key_input)
-        self.assert_no_foreground_input()
+        self.restore.assert_called_once_with(101, (300, 400))
+        self.send.assert_not_called()
 
-    def test_early_go_cleans_group_without_changing_other_modes_readiness(self):
+    def test_failed_foreground_e_does_not_replay_opening(self):
         self.execute("TheatreAFKCombatSequence")
-        self.execute("TheatreAFKPressE")
-        self.execute("TheatreAFKGoClick3Finalize")
-        self.send.reset_mock()
-        for _ in range(3):
-            self.execute("TheatreAFKGoClick3Finalize")
-        self.assertFalse(focus_restore._is_hybrid_skill_ready(202))
-        self.send.assert_not_called()
+        job = SimpleNamespace(succeeded=False)
+        job.wait = lambda: job
+        self.controller.post_click_key.return_value = job
+        self.controller.post_click_key.side_effect = None
+        result = focus_restore.FocusGuardAction().run(self.context, self.argv("TheatreAFKPressE"))
+        self.assertFalse(result.success)
         self.assertFalse(focus_restore._skill_input_groups)
-
-    def test_background_up_failure_releases_key_without_replaying_or_focusing(self):
-        for key, results in ((87, [True, False, True]),
-                             (70, [True, True, True, True, True, False, True])):
-            with self.subTest(key=key):
-                self.send.reset_mock()
-                self.send.side_effect = results
-                with mock.patch("builtins.print"):
-                    result = focus_restore.TheatreBackgroundKeyboardSequenceAction().run(self.context, self.argv("TheatreAFKCombatSequence"))
-                self.assertFalse(result.success)
-                self.assertEqual(self.send.call_args_list[-2:], [mock.call(202, key, False)] * 2)
-                self.assertFalse(focus_restore._skill_input_groups)
-                self.activate.assert_not_called(); self.remember.assert_not_called(); self.restore.assert_not_called()
-                self.controller.post_key_down.assert_not_called(); self.controller.post_click_key.assert_not_called()
-
-    def test_background_rejects_mouse_before_any_input_or_focus_change(self):
-        argv = self.argv("TheatreAFKCombatSequence")
-        argv.custom_action_param["steps"] = [{"mouse_down": "left"}, {"mouse_up": "left"}]
-        for ready in (False, True):
-            if ready:
-                focus_restore._mark_hybrid_skill_ready(202)
-            with self.subTest(ready=ready), mock.patch("builtins.print"):
-                self.assertFalse(focus_restore.TheatreBackgroundKeyboardSequenceAction().run(self.context, argv).success)
-        self.send.assert_not_called(); self.activate.assert_not_called(); self.remember.assert_not_called()
-
-    def test_invalid_sequence_and_other_tasks_are_rejected_before_input(self):
-        action = focus_restore.TheatreBackgroundKeyboardSequenceAction()
-        for changes in (
-            {"kind": "key"}, {"skill_input_group": False}, {"steps": None},
-            {"steps": [{"key_down": 87}]}, {"steps": [{"key_up": 87}]},
-        ):
-            argv = self.argv("TheatreAFKCombatSequence")
-            argv.custom_action_param.update(changes)
-            with self.subTest(changes=changes):
-                self.assertFalse(action.run(self.context, argv).success)
-        argv = self.argv("TheatreAFKPressE")
-        argv.custom_action_param["steps"] = [{"key_press": 81}]
-        self.assertFalse(action.run(self.context, argv).success)
-        argv = self.argv("TheatreAFKCombatSequence")
-        argv.node_name = "MediationAFKCombatSequence"
-        self.assertFalse(action.run(self.context, argv).success)
         self.send.assert_not_called()
-        self.assert_no_foreground_input()
-
-    def test_transition_posts_matching_keyboard_messages_and_never_activates(self):
-        user32 = Mock()
-        user32.IsWindow.return_value = True
-        user32.MapVirtualKeyW.return_value = 0x11
-        user32.PostMessageW.return_value = True
-        # Exercise the real helper beneath the patched action transport.
-        with mock.patch.object(focus_restore, "_user32", user32):
-            real_helper = BACKGROUND_TRANSITION
-            self.assertTrue(real_helper(202, 87, True))
-            self.assertTrue(real_helper(202, 87, False))
-            self.assertEqual(user32.PostMessageW.call_args_list, [
-                mock.call(202, focus_restore._WM_KEYDOWN, 87, 1 | (0x11 << 16)),
-                mock.call(202, focus_restore._WM_KEYUP, 87, 1 | (0x11 << 16) | (1 << 30) | (1 << 31)),
-            ])
-            user32.IsWindow.return_value = False
-            self.assertFalse(real_helper(202, 87, True))
-            self.assertEqual(user32.PostMessageW.call_count, 2)
-        self.activate.assert_not_called()
+        self.restore.assert_called_once_with(101, (300, 400))
 
 
 class TheatreGoImageTest(unittest.TestCase):
