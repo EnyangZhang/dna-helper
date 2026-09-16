@@ -779,9 +779,9 @@ def main() -> None:
             f"CipherEndlessRewardSelect{slot}Click2",
             f"CipherEndlessRewardSelect{slot}Click3",
             [x, 519],
-            ["CipherEndlessAgainDetected", "CipherEndlessRewardConfirm", "CipherEndlessRewardWait"],
+            ["CipherEndlessAgainDetected", "CipherEndlessRewardConfirmAfterSelect", "CipherEndlessRewardWait"],
         )
-        for slot, x in ((1, 456), (2, 640), (3, 823))
+        for slot, x in ((2, 640), (3, 823))
     ) + ((
         "CipherEndlessRewardConfirm", "CipherEndlessRewardConfirmClick2",
         "CipherEndlessRewardConfirmClick3", [620, 607],
@@ -789,6 +789,11 @@ def main() -> None:
          "RewardConfirmContinueChallenge", "RewardConfirmWaitContinue"],
     ),)
     cipher_reward_click_chains += ((
+        "CipherEndlessRewardConfirmAfterSelect", "CipherEndlessRewardConfirmClick2",
+        "CipherEndlessRewardConfirmClick3", [620, 607],
+        ["CipherEndlessAgainDetected", "CipherEndlessRewardPage",
+         "RewardConfirmContinueChallenge", "RewardConfirmWaitContinue"],
+    ), (
         "CipherEndlessRewardDefault", "RewardConfirmFirstPageClick2",
         "RewardConfirmFirstPageClick3", [620, 607],
         ["CipherEndlessAgainDetected", "RewardConfirmContinueChallenge", "RewardConfirmWaitContinue"],
@@ -1957,21 +1962,29 @@ def main() -> None:
             or direct_reward != pipeline_nodes["RewardConfirmByClick"]):
         raise SystemExit("Disabled reward selection must retain the original direct-confirm path")
     expected_reward_recognitions = {reward_page: {"mode": "page"}, reward_ready: {"mode": "ready"}}
-    expected_reward_recognitions.update({f"CipherEndlessRewardSelect{i}": {"mode": "select", "slot": i} for i in (1, 2, 3)})
+    expected_reward_recognitions.update({f"CipherEndlessRewardSelect{i}": {"mode": "select", "slot": i} for i in (2, 3)})
+    if any(name.startswith("CipherEndlessRewardSelect1") for name in pipeline_nodes):
+        raise SystemExit("First-slot red reward must confirm directly, without a selection chain")
     for name, params in expected_reward_recognitions.items():
         if pipeline_nodes.get(name, {}).get("recognition") != {"type": "Custom", "param": {
             "custom_recognition": "cipher_reward", "custom_recognition_param": params,
         }}:
             raise SystemExit(f"{name} must use the scoped, fresh-frame reward recognizer")
     if (pipeline_nodes[reward_page]["next"] != ["CipherEndlessAgainDetected", reward_ready,
-            "CipherEndlessRewardSelect1", "CipherEndlessRewardSelect2", "CipherEndlessRewardSelect3", reward_wait]
+            "CipherEndlessRewardSelect2", "CipherEndlessRewardSelect3", reward_wait]
             or pipeline_nodes[reward_wait]["next"] != ["CipherEndlessAgainDetected", reward_page, "RewardConfirmContinueChallenge", reward_wait]
             or pipeline_nodes[reward_wait]["post_delay"] != 50
             or pipeline_nodes[reward_page]["action"] != {"type": "DoNothing"}
             or pipeline_nodes[reward_wait]["action"] != {"type": "DoNothing"}
             or pipeline_nodes["RewardConfirmWaitContinue"]["next"] != ["CipherEndlessAgainDetected", reward_page, "RewardConfirmContinueChallenge", "RewardConfirmWaitContinue"]):
         raise SystemExit("Cipher reward waits must retain termination, selection retry and page recovery")
-    for name in ("reward_title.png", "reward_header1.png", "reward_header2.png", "reward_header3.png", "reward_red_cube.png", "reward_selected.png"):
+    if [pipeline_nodes[reward_page].get(field) for field in ("rate_limit", "pre_delay", "post_delay")] != [0, 0, 1000]:
+        raise SystemExit("Cipher reward page must wait 1000ms without input before fresh-frame selection or fallback")
+    confirm_after_select = pipeline_nodes.get("CipherEndlessRewardConfirmAfterSelect", {})
+    if (confirm_after_select.get("recognition") != pipeline_nodes[reward_default]["recognition"]
+            or confirm_after_select.get("next") != ["CipherEndlessRewardConfirmClick2"]):
+        raise SystemExit("After reward selection, confirm the button directly without icon/check recognition")
+    for name in ("reward_red_cube.png",):
         template_paths.add(f"RewardConfirm/{name}")
     if 'import cipher_rewards' not in (ROOT / "agent/main.py").read_text(encoding="utf-8"):
         raise SystemExit("Cipher reward recognizer must be registered by the deployed Agent")

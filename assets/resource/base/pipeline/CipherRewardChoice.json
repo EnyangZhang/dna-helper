@@ -31,11 +31,10 @@
         },
         "rate_limit": 0,
         "pre_delay": 0,
-        "post_delay": 0,
+        "post_delay": 1000,
         "next": [
             "CipherEndlessAgainDetected",
             "CipherEndlessRewardConfirm",
-            "CipherEndlessRewardSelect1",
             "CipherEndlessRewardSelect2",
             "CipherEndlessRewardSelect3",
             "CipherEndlessRewardWait"
@@ -84,6 +83,21 @@
         "next": [
             "CipherEndlessRewardConfirmClick2"
         ]
+    },
+    "CipherEndlessRewardConfirmAfterSelect": {
+        "recognition": {
+            "type": "TemplateMatch",
+            "param": {
+                "template": "RewardConfirm/confirm_choice.png",
+                "roi": [500, 520, 300, 130],
+                "threshold": 0.8
+            }
+        },
+        "action": {"type": "Click", "param": {"target": [620, 607]}},
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 50,
+        "next": ["CipherEndlessRewardConfirmClick2"]
     },
     "CipherEndlessRewardConfirmClick2": {
         "recognition": {
@@ -155,95 +169,6 @@
                 ]
             }
         }
-    },
-    "CipherEndlessRewardSelect1": {
-        "recognition": {
-            "type": "Custom",
-            "param": {
-                "custom_recognition": "cipher_reward",
-                "custom_recognition_param": {
-                    "mode": "select",
-                    "slot": 1
-                }
-            }
-        },
-        "action": {
-            "type": "Click",
-            "param": {
-                "target": [
-                    456,
-                    519
-                ]
-            }
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 50,
-        "next": [
-            "CipherEndlessRewardSelect1Click2"
-        ]
-    },
-    "CipherEndlessRewardSelect1Click2": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "Click",
-            "param": {
-                "target": [
-                    456,
-                    519
-                ]
-            }
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 50,
-        "next": [
-            "CipherEndlessRewardSelect1Click3"
-        ]
-    },
-    "CipherEndlessRewardSelect1Click3": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "Click",
-            "param": {
-                "target": [
-                    456,
-                    519
-                ]
-            }
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 0,
-        "next": [
-            "CipherEndlessRewardSelect1Click3Finalize"
-        ]
-    },
-    "CipherEndlessRewardSelect1Click3Finalize": {
-        "recognition": {
-            "type": "DirectHit"
-        },
-        "action": {
-            "type": "Custom",
-            "param": {
-                "custom_action": "focus_guard_finalize",
-                "custom_action_param": {
-                    "restore_delay_ms": 100
-                }
-            }
-        },
-        "rate_limit": 0,
-        "pre_delay": 0,
-        "post_delay": 0,
-        "next": [
-            "CipherEndlessAgainDetected",
-            "CipherEndlessRewardConfirm",
-            "CipherEndlessRewardWait"
-        ]
     },
     "CipherEndlessRewardSelect2": {
         "recognition": {
@@ -330,7 +255,7 @@
         "post_delay": 0,
         "next": [
             "CipherEndlessAgainDetected",
-            "CipherEndlessRewardConfirm",
+            "CipherEndlessRewardConfirmAfterSelect",
             "CipherEndlessRewardWait"
         ]
     },
@@ -419,7 +344,7 @@
         "post_delay": 0,
         "next": [
             "CipherEndlessAgainDetected",
-            "CipherEndlessRewardConfirm",
+            "CipherEndlessRewardConfirmAfterSelect",
             "CipherEndlessRewardWait"
         ]
     }
