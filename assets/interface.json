@@ -1,9 +1,9 @@
 {
     "interface_version": 2,
     "name": "DNA Helper",
-    "title": "DNA Helper v0.2.0 | 二重螺旋助手",
+    "title": "DNA Helper v0.2.1 | 二重螺旋助手",
     "description": "$app.description",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "languages": {
         "zh_cn": "resource/locales/interface/zh_cn.json"
     },
