@@ -22,7 +22,8 @@
             "param": {
                 "custom_recognition": "cipher_reward",
                 "custom_recognition_param": {
-                    "mode": "page"
+                    "mode": "page",
+                    "reward_type": "BioExtract"
                 }
             }
         },
@@ -64,7 +65,8 @@
             "param": {
                 "custom_recognition": "cipher_reward",
                 "custom_recognition_param": {
-                    "mode": "ready"
+                    "mode": "ready",
+                    "reward_type": "BioExtract"
                 }
             }
         },
@@ -177,7 +179,8 @@
                 "custom_recognition": "cipher_reward",
                 "custom_recognition_param": {
                     "mode": "select",
-                    "slot": 2
+                    "slot": 2,
+                    "reward_type": "BioExtract"
                 }
             }
         },
@@ -266,7 +269,8 @@
                 "custom_recognition": "cipher_reward",
                 "custom_recognition_param": {
                     "mode": "select",
-                    "slot": 3
+                    "slot": 3,
+                    "reward_type": "BioExtract"
                 }
             }
         },

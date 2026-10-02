@@ -5,6 +5,9 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "reference-screenshots/cipher-endless-reward-selection-d2fd94bd.png"
+MAGNET_SOURCE = ROOT / "reference-screenshots/cipher-endless-magnet-924c00fb.png"
+# Crop only the stable item graphic; exclude the card frame and quantity below it.
+MAGNET_BOX = (36, 40, 88, 89)
 # The game draws its title bar inside the client: keep it, and do not rescale.
 WINDOW_BOX = (10, 8, 1290, 728)
 CROPS = {
@@ -18,15 +21,19 @@ CROPS = {
 
 
 def main():
-    with Image.open(SOURCE) as source:
+    with Image.open(SOURCE) as source, Image.open(MAGNET_SOURCE) as magnet:
         if source.size != (1294, 730):
             raise SystemExit("Unexpected reference dimensions; recheck the client offset")
+        if magnet.size != (123, 122):
+            raise SystemExit("Unexpected magnet reference dimensions; recheck the icon crop")
         window = source.convert("RGB").crop(WINDOW_BOX)
         output = ROOT / "assets/resource/base/image/RewardConfirm"
         for name, box in CROPS.items():
             window.crop(box).save(output / name)
             print(f"Extracted {name}: {box}")
         window.save(ROOT / "tests/fixtures/cipher_reward_choice.png")
+        magnet.convert("RGB").crop(MAGNET_BOX).save(output / "reward_magnet.png")
+        print(f"Extracted reward_magnet.png: {MAGNET_BOX}")
 
 
 if __name__ == "__main__":

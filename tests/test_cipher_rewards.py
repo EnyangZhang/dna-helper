@@ -73,7 +73,7 @@ class CipherRewardsTest(unittest.TestCase):
 
     def test_supplied_image_requires_middle_selection_before_confirmation(self):
         page = rewards.inspect_reward_page(self.original)
-        self.assertEqual(page["red_slots"], [2])
+        self.assertEqual(page["reward_slots"], [2])
         self.assertNotIn("selected_slots", page)
         self.assertIsNone(rewards.recognize_reward(self.original, "ready")[0])
         box, _ = rewards.recognize_reward(self.original, "select", 2)
@@ -83,7 +83,7 @@ class CipherRewardsTest(unittest.TestCase):
         for slot in (1, 2, 3):
             with self.subTest(slot=slot):
                 image = self.choose(self.red_at(slot), 1 if slot != 1 else 3)
-                self.assertEqual(rewards.inspect_reward_page(image)["red_slots"], [slot])
+                self.assertEqual(rewards.inspect_reward_page(image)["reward_slots"], [slot])
                 self.assertEqual(rewards.recognize_reward(image, "ready")[0] is not None, slot == 1)
                 for candidate in (1, 2, 3):
                     box, _ = rewards.recognize_reward(image, "select", candidate)
@@ -95,7 +95,7 @@ class CipherRewardsTest(unittest.TestCase):
     def test_no_red_preserves_any_currently_selected_default(self):
         for slot in (1, 2, 3):
             image = self.choose(self.without_red(), slot)
-            self.assertEqual(rewards.inspect_reward_page(image)["red_slots"], [])
+            self.assertEqual(rewards.inspect_reward_page(image)["reward_slots"], [])
             self.assertIsNotNone(rewards.recognize_reward(image, "ready")[0])
             self.assertTrue(all(rewards.recognize_reward(image, "select", i)[0] is None for i in (1, 2, 3)))
 
@@ -106,7 +106,7 @@ class CipherRewardsTest(unittest.TestCase):
         image[155:190, 590:695] = 0
         box, detail = rewards.recognize_reward(image, "page")
         self.assertIsNotNone(box)
-        self.assertEqual(detail["red_slots"], [])
+        self.assertEqual(detail["reward_slots"], [])
         self.assertNotIn("card_layout", detail)
         self.assertEqual(rewards.recognize_reward(image, "ready")[0], (610, 602, 20, 10))
         for slot in (1, 2, 3):
@@ -145,7 +145,7 @@ class CipherRewardsTest(unittest.TestCase):
                 with self.subTest(red=red_slots, selected=selected):
                     frame = self.choose(image, selected)
                     box, detail = rewards.recognize_reward(frame, "ready")
-                    self.assertEqual(detail["red_slots"], red_slots)
+                    self.assertEqual(detail["reward_slots"], red_slots)
                     self.assertEqual(detail["target_slot"], target)
                     ready = target in (None, 1)
                     self.assertEqual(box is not None, ready)
@@ -157,7 +157,7 @@ class CipherRewardsTest(unittest.TestCase):
 
     def test_runtime_no_longer_requires_rarity_sensitive_templates(self):
         self.assertEqual(set(rewards.TEMPLATE_NAMES),
-                         {"confirm_choice.png", "reward_red_cube.png"})
+                         {"confirm_choice.png", "reward_red_cube.png", "reward_magnet.png"})
         self.assertNotIn("CipherEndlessRewardSelect1", self.pipeline)
 
     def test_missing_confirm_button_never_falls_back_even_without_red(self):
@@ -180,16 +180,18 @@ class CipherRewardsTest(unittest.TestCase):
         self.assertIn("CipherEndlessRewardConfirm", graph["CipherEndlessRewardPage"]["next"])
         self.assertEqual(graph["CipherEndlessRewardConfirm"]["next"], ["CipherEndlessRewardConfirmClick2"])
 
-    def reward_decision_after_loading(self, frame_at):
+    def reward_decision_after_loading(self, frame_at, pipeline=None):
         """Model Pipeline post_delay then fresh-frame candidate recognition (no input)."""
-        gate = self.pipeline["CipherEndlessRewardPage"]
+        pipeline = pipeline if pipeline is not None else self.pipeline
+        gate = pipeline["CipherEndlessRewardPage"]
         self.assertEqual(gate["action"], {"type": "DoNothing"})
         self.assertEqual(gate["pre_delay"], 0)
-        self.assertIsNotNone(rewards.recognize_reward(frame_at(0), "page")[0])
+        self.assertIsNotNone(rewards.recognize_reward(
+            frame_at(0), **gate["recognition"]["param"]["custom_recognition_param"])[0])
         elapsed = gate["post_delay"]
         self.assertEqual(gate["next"][0], "CipherEndlessAgainDetected")
         for name in gate["next"][1:]:
-            node = self.pipeline[name]
+            node = pipeline[name]
             recognition = node["recognition"]
             if recognition["type"] == "DirectHit":
                 return elapsed, name
@@ -235,7 +237,7 @@ class CipherRewardsTest(unittest.TestCase):
             image = np.full_like(self.original, value)
             for x, y, w, h in ((375, 260, 530, 280), (590, 155, 105, 35), (500, 590, 300, 60)):
                 image[y:y+h, x:x+w] = self.original[y:y+h, x:x+w]
-            self.assertEqual(rewards.inspect_reward_page(image)["red_slots"], [2])
+            self.assertEqual(rewards.inspect_reward_page(image)["reward_slots"], [2])
 
     def test_diagnostics_explain_leftmost_selection_without_title_or_header_gates(self):
         missing_header = self.original.copy()
@@ -245,15 +247,15 @@ class CipherRewardsTest(unittest.TestCase):
         for image, expected in (
             (self.original, "点击第 2 张后直接确认，不检查勾选"),
             (self.choose(self.original, 2), "点击第 2 张后直接确认，不检查勾选"),
-            (self.without_red(), "未发现红色目标，允许确认默认奖励"),
-            (ambiguous, "最左红色在第 1 张，直接确认"),
+            (self.without_red(), "未发现生物萃取物目标，允许确认默认奖励"),
+            (ambiguous, "最左生物萃取物在第 1 张，直接确认"),
             (missing_header, "点击第 2 张后直接确认，不检查勾选"),
         ):
             with self.subTest(expected=expected), patch("builtins.print") as output:
                 box, detail = rewards.recognize_reward(image, "ready")
                 rewards.RewardRecognitionLog().emit(1, "ready", box, detail)
                 line = output.call_args.args[0]
-                for text in (expected, "红色=", "确认按钮=", "阈值0.85"):
+                for text in (expected, "命中=", "确认按钮=", "阈值0.85"):
                     self.assertIn(text, line)
                 self.assertNotIn("标题", line)
                 self.assertNotIn("编号", line)
@@ -266,7 +268,7 @@ class CipherRewardsTest(unittest.TestCase):
         with patch.object(rewards.time, "monotonic", return_value=100.0) as clock, patch("builtins.print") as output:
             logger.emit(1, "ready", box, detail)
             jitter = copy.deepcopy(detail)
-            jitter["red_scores"][0] += 0.001
+            jitter["reward_scores"][0] += 0.001
             clock.return_value = 109.9
             logger.emit(1, "ready", box, jitter)
             self.assertEqual(output.call_count, 1)
@@ -329,10 +331,10 @@ class CipherRewardsTest(unittest.TestCase):
     def test_red_outside_cards_is_ignored_and_first_red_confirms_directly(self):
         image = self.without_red()
         image[100:178, 100:176] = self.original[352:430, 602:678]
-        self.assertEqual(rewards.inspect_reward_page(image)["red_slots"], [])
+        self.assertEqual(rewards.inspect_reward_page(image)["reward_slots"], [])
         image = self.original.copy()
         image[352:430, 418:494] = self.original[352:430, 602:678]
-        self.assertEqual(rewards.inspect_reward_page(image)["red_slots"], [1, 2])
+        self.assertEqual(rewards.inspect_reward_page(image)["reward_slots"], [1, 2])
         self.assertEqual(rewards.recognize_reward(image, "ready")[0], (610, 602, 20, 10))
         for slot in (1, 2, 3):
             self.assertIsNone(rewards.recognize_reward(image, "select", slot)[0])
@@ -416,11 +418,13 @@ class CipherRewardsTest(unittest.TestCase):
             reached = reachable(self.pipeline, entry)
             self.assertFalse(any(name.startswith("CipherEndlessReward") for name in reached), entry)
 
-    def test_reward_switch_defaults_off_and_is_only_exposed_in_endless(self):
+    def test_reward_dropdown_defaults_off_and_is_only_exposed_in_endless(self):
         option = self.task["option"]["CipherEndlessRedReward"]
-        self.assertEqual(option["type"], "switch")
-        self.assertEqual(option["label"], "优先选择红色方块奖励")
+        self.assertEqual(option["type"], "select")
+        self.assertEqual(option["label"], "优先选择奖励")
         self.assertEqual(option["default_case"], "No")
+        self.assertEqual([(case["name"], case["label"]) for case in option["cases"]],
+                         [("No", "关闭"), ("Yes", "生物萃取物"), ("Magnet", "精工磁石")])
         mode = {case["name"]: case for case in self.task["option"]["CipherMode"]["cases"]}
         self.assertEqual(mode["Endless"]["option"], ["CipherEndlessRedReward"])
         self.assertNotIn("CipherEndlessRedReward", mode["Expel"]["option"])
@@ -434,11 +438,11 @@ class CipherRewardsTest(unittest.TestCase):
     def test_switching_both_directions_restores_exclusive_paths_without_changing_counts(self):
         cases = {case["name"]: case for case in self.task["option"]["CipherEndlessRedReward"]["cases"]}
         graph = copy.deepcopy(self.pipeline)
-        for selection in ("No", "Yes", "No", "Yes"):
+        for selection in ("No", "Yes", "Magnet", "Yes", "No", "Magnet", "No"):
             with self.subTest(selection=selection):
                 merge(graph, cases[selection]["pipeline_override"])
                 reached = reachable(graph, "RewardConfirmEntry")
-                enabled = selection == "Yes"
+                enabled = selection != "No"
                 self.assertEqual("CipherEndlessRewardPage" in reached, enabled)
                 self.assertEqual("CipherEndlessRewardSelect2" in reached, enabled)
                 self.assertEqual("CipherEndlessRewardDefault" in reached, not enabled)
@@ -454,6 +458,103 @@ class CipherRewardsTest(unittest.TestCase):
                         graph[name].get("recognition", {}).get("param", {}).get("custom_recognition") == "cipher_reward"
                         for name in reached
                     ))
+                for name in ("CipherEndlessRewardPage", "CipherEndlessRewardConfirm",
+                             "CipherEndlessRewardSelect2", "CipherEndlessRewardSelect3"):
+                    params = graph[name]["recognition"]["param"]["custom_recognition_param"]
+                    self.assertEqual(params["reward_type"], "Magnet" if selection == "Magnet" else "BioExtract")
+
+    def magnet_at(self, slots):
+        # Keep the original source tile, not just the generated recognition template.
+        tile = cv2.imread(str(ROOT / "reference-screenshots/cipher-endless-magnet-924c00fb.png"))[20:93, 30:94]
+        frame = self.without_red()
+        for slot in slots:
+            cx = rewards.SLOT_CENTERS[slot - 1]
+            frame[354:427, cx - 32:cx + 32] = tile
+        return frame
+
+    def magnet_pipeline(self):
+        graph = copy.deepcopy(self.pipeline)
+        case = next(case for case in self.task["option"]["CipherEndlessRedReward"]["cases"] if case["name"] == "Magnet")
+        merge(graph, case["pipeline_override"])
+        return graph
+
+    def test_magnet_all_slot_combinations_use_the_same_leftmost_selection_and_fallback(self):
+        graph = self.magnet_pipeline()
+        for mask in range(8):
+            slots = [slot for slot in (1, 2, 3) if mask & (1 << (slot - 1))]
+            for selected in (None, 1, 2, 3):
+                frame = self.choose(self.magnet_at(slots), selected)
+                for cx in rewards.SLOT_CENTERS:
+                    frame[270:312, cx - 22:cx + 22] = 0
+                page = rewards.inspect_reward_page(frame, reward_type="Magnet")
+                self.assertEqual(page["reward_slots"], slots)
+                self.assertEqual(page["reward_label"], "精工磁石")
+                target = slots[0] if slots else None
+                self.assertEqual(page["target_slot"], target)
+                expected = "CipherEndlessRewardConfirm" if target in (None, 1) else f"CipherEndlessRewardSelect{target}"
+                self.assertEqual(self.reward_decision_after_loading(lambda ms: frame, graph), (1000, expected))
+
+    def test_selected_reward_type_ignores_the_other_item_in_mixed_cards(self):
+        frame = self.magnet_at([3])
+        frame[352:430, 602:678] = self.original[352:430, 602:678]
+        for reward_type, target in (("BioExtract", 2), ("Magnet", 3)):
+            page = rewards.inspect_reward_page(frame, reward_type=reward_type)
+            self.assertEqual(page["reward_slots"], [target])
+            self.assertIsNone(rewards.recognize_reward(frame, "ready", reward_type=reward_type)[0])
+            for slot in (2, 3):
+                self.assertEqual(rewards.recognize_reward(frame, "select", slot, reward_type)[0] is not None, slot == target)
+        self.assertEqual(rewards.inspect_reward_page(self.original, reward_type="Magnet")["reward_slots"], [])
+        self.assertEqual(rewards.inspect_reward_page(self.magnet_at([2]))["reward_slots"], [])
+
+    def test_late_magnet_waits_for_the_same_fresh_frame_loading_grace(self):
+        graph = self.magnet_pipeline()
+        for appears_at in (100, 500, 900):
+            elapsed, decision = self.reward_decision_after_loading(
+                lambda ms: self.original if ms < appears_at else self.magnet_at([2]), graph)
+            self.assertEqual((elapsed, decision), (1000, "CipherEndlessRewardSelect2"))
+        elapsed, decision = self.reward_decision_after_loading(
+            lambda ms: self.original if ms == 0 else np.zeros_like(self.original), graph)
+        self.assertEqual((elapsed, decision), (1000, "CipherEndlessRewardWait"))
+
+    def test_magnet_outside_cards_and_missing_confirmation_cannot_trigger_selection(self):
+        frame = self.without_red()
+        tile = self.magnet_at([2])[354:427, 608:672]
+        frame[100:173, 100:164] = tile
+        self.assertEqual(rewards.inspect_reward_page(frame, reward_type="Magnet")["reward_slots"], [])
+        frame = self.magnet_at([2])
+        frame[520:650, 500:800] = 0
+        for mode in ("page", "ready", "select"):
+            self.assertIsNone(rewards.recognize_reward(frame, mode, 2, "Magnet")[0])
+
+    def test_inactive_template_missing_does_not_block_the_selected_reward(self):
+        templates = rewards._templates()
+        for reward_type, inactive in (("BioExtract", "reward_magnet.png"), ("Magnet", "reward_red_cube.png")):
+            available = {name: image for name, image in templates.items() if name != inactive}
+            with patch.object(rewards, "_templates", return_value=available):
+                self.assertIsNotNone(rewards.inspect_reward_page(self.original, reward_type=reward_type))
+            active = rewards.REWARD_TYPES[reward_type][1]
+            available = {name: image for name, image in templates.items() if name != active}
+            with patch.object(rewards, "_templates", return_value=available):
+                self.assertIsNone(rewards.inspect_reward_page(self.original, reward_type=reward_type))
+        for invalid in ("", "No", "unknown", None, []):
+            self.assertIsNone(rewards.recognize_reward(self.original, "ready", reward_type=invalid)[0])
+
+    def test_callback_and_diagnostics_use_magnet_target_and_name(self):
+        frame = self.magnet_at([2])
+        argv = SimpleNamespace(image=frame,
+                               custom_recognition_param=json.dumps({"mode": "select", "slot": 2, "reward_type": "Magnet"}),
+                               task_detail=SimpleNamespace(task_id=123))
+        result = rewards.CipherRewardRecognition().analyze(None, argv)
+        self.assertEqual(result.box, [635, 514, 10, 10])
+        self.assertEqual(result.detail["reward_type"], "Magnet")
+        logger = rewards.RewardRecognitionLog()
+        with patch("builtins.print") as output:
+            for reward_type in ("BioExtract", "Magnet"):
+                box, detail = rewards.recognize_reward(self.without_red(), "ready", reward_type=reward_type)
+                logger.emit(1, "ready", box, detail)
+            self.assertEqual(output.call_count, 2)  # Changing target resets semantic log deduplication.
+            self.assertIn("奖励=精工磁石", output.call_args.args[0])
+            self.assertIn("未发现精工磁石目标", output.call_args.args[0])
 
     def test_saved_reward_selection_cannot_modify_expel_even_with_reversed_merge_order(self):
         expel = next(case for case in self.task["option"]["CipherMode"]["cases"] if case["name"] == "Expel")

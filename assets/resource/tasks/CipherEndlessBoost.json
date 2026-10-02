@@ -3,7 +3,7 @@
         {
             "name": "CipherEndlessBoost",
             "label": "密函无尽加速",
-            "description": "自动处理密函探险结算流程。无尽模式默认直接确认奖励，可开启优先选择红色方块奖励；检测到“再次进行”时结束并通过进度监控发送 Telegram 完成通知。驱离模式保持原有奖励确认、轮次重开和可选角色 E、Q 技能组合。",
+            "description": "自动处理密函探险结算流程。无尽模式可选择关闭、生物萃取物或精工磁石奖励优先选择；检测到“再次进行”时结束并通过进度监控发送 Telegram 完成通知。驱离模式保持原有奖励确认、轮次重开和可选角色 E、Q 技能组合。",
             "entry": "RewardConfirmEntry",
             "option": [
                 "CipherMode"
@@ -20,7 +20,7 @@
         "CipherMode": {
             "type": "select",
             "label": "模式",
-            "description": "无尽模式默认直接确认当前奖励，可用独立开关优先选择红色方块；检测到“再次进行”时结束。驱离模式保持原有奖励确认、按副本轮次重开及可选技能设置。",
+            "description": "无尽模式默认直接确认当前奖励，可在下拉框指定生物萃取物或精工磁石；检测到“再次进行”时结束。驱离模式保持原有奖励确认、按副本轮次重开及可选技能设置。",
             "default_case": "Endless",
             "cases": [
                 {
@@ -176,32 +176,188 @@
             ]
         },
         "CipherEndlessRedReward": {
-            "type": "switch",
-            "label": "优先选择红色方块奖励",
-            "description": "默认关闭，直接确认当前奖励。开启后从左到右选第一个红色方块：第1张为红色则直接确认；否则选中第2或3张红色奖励再确认；没有红色则确认默认奖励。不识别卡片编号，仅适用于密函无尽，不影响驱离。",
+            "type": "select",
+            "label": "优先选择奖励",
+            "description": "关闭时直接确认当前奖励。选择生物萃取物或精工磁石后，从左到右选第一个对应物品：第1张命中则直接确认；否则选中第2或3张后直接确认；未命中则确认默认奖励。仅适用于密函无尽。",
             "default_case": "No",
             "cases": [
-                {
-                    "name": "Yes",
-                    "label": "开启",
-                    "pipeline_override": {
-                        "CipherEndlessRewardPage": {
-                            "enabled": true
-                        },
-                        "CipherEndlessRewardDefault": {
-                            "enabled": false
-                        }
-                    }
-                },
                 {
                     "name": "No",
                     "label": "关闭",
                     "pipeline_override": {
                         "CipherEndlessRewardPage": {
-                            "enabled": false
+                            "enabled": false,
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "page",
+                                        "reward_type": "BioExtract"
+                                    }
+                                }
+                            }
                         },
                         "CipherEndlessRewardDefault": {
                             "enabled": true
+                        },
+                        "CipherEndlessRewardConfirm": {
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "ready",
+                                        "reward_type": "BioExtract"
+                                    }
+                                }
+                            }
+                        },
+                        "CipherEndlessRewardSelect2": {
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "select",
+                                        "slot": 2,
+                                        "reward_type": "BioExtract"
+                                    }
+                                }
+                            }
+                        },
+                        "CipherEndlessRewardSelect3": {
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "select",
+                                        "slot": 3,
+                                        "reward_type": "BioExtract"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "Yes",
+                    "label": "生物萃取物",
+                    "pipeline_override": {
+                        "CipherEndlessRewardPage": {
+                            "enabled": true,
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "page",
+                                        "reward_type": "BioExtract"
+                                    }
+                                }
+                            }
+                        },
+                        "CipherEndlessRewardDefault": {
+                            "enabled": false
+                        },
+                        "CipherEndlessRewardConfirm": {
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "ready",
+                                        "reward_type": "BioExtract"
+                                    }
+                                }
+                            }
+                        },
+                        "CipherEndlessRewardSelect2": {
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "select",
+                                        "slot": 2,
+                                        "reward_type": "BioExtract"
+                                    }
+                                }
+                            }
+                        },
+                        "CipherEndlessRewardSelect3": {
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "select",
+                                        "slot": 3,
+                                        "reward_type": "BioExtract"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "Magnet",
+                    "label": "精工磁石",
+                    "pipeline_override": {
+                        "CipherEndlessRewardPage": {
+                            "enabled": true,
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "page",
+                                        "reward_type": "Magnet"
+                                    }
+                                }
+                            }
+                        },
+                        "CipherEndlessRewardDefault": {
+                            "enabled": false
+                        },
+                        "CipherEndlessRewardConfirm": {
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "ready",
+                                        "reward_type": "Magnet"
+                                    }
+                                }
+                            }
+                        },
+                        "CipherEndlessRewardSelect2": {
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "select",
+                                        "slot": 2,
+                                        "reward_type": "Magnet"
+                                    }
+                                }
+                            }
+                        },
+                        "CipherEndlessRewardSelect3": {
+                            "recognition": {
+                                "type": "Custom",
+                                "param": {
+                                    "custom_recognition": "cipher_reward",
+                                    "custom_recognition_param": {
+                                        "mode": "select",
+                                        "slot": 3,
+                                        "reward_type": "Magnet"
+                                    }
+                                }
+                            }
                         }
                     }
                 }

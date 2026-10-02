@@ -1940,34 +1940,44 @@ def main() -> None:
     reward_ready = "CipherEndlessRewardConfirm"
     reward_default = "CipherEndlessRewardDefault"
     if pipeline_nodes["RewardConfirmEntry"]["next"] != ["CipherEndlessAgainDetected", reward_page, reward_default, "RewardConfirmIdle"]:
-        raise SystemExit("Cipher endless must select exactly one reward path by switch")
+        raise SystemExit("Cipher endless must select exactly one reward path by dropdown")
     reward_option = all_options.get("CipherEndlessRedReward", {})
-    if (reward_option.get("type") != "switch"
-            or reward_option.get("label") != "优先选择红色方块奖励"
+    if (reward_option.get("type") != "select"
+            or reward_option.get("label") != "优先选择奖励"
             or reward_option.get("default_case") != "No"):
-        raise SystemExit("Cipher red reward selection must be an opt-in Chinese switch")
-    for case_name, enabled in (("Yes", True), ("No", False)):
+        raise SystemExit("Cipher reward selection must be a default-off Chinese dropdown")
+    if [(case.get("name"), case.get("label")) for case in reward_option.get("cases", [])] != [
+        ("No", "关闭"), ("Yes", "生物萃取物"), ("Magnet", "精工磁石")
+    ]:
+        raise SystemExit("Reward dropdown must preserve No/Yes compatibility and expose Magnet")
+    expected_reward_recognitions = {reward_page: {"mode": "page"}, reward_ready: {"mode": "ready"}}
+    expected_reward_recognitions.update({f"CipherEndlessRewardSelect{i}": {"mode": "select", "slot": i} for i in (2, 3)})
+    for case_name, enabled, reward_type in (("No", False, "BioExtract"), ("Yes", True, "BioExtract"), ("Magnet", True, "Magnet")):
         case = option_case(reward_option, case_name)
-        if case.get("pipeline_override") != {
+        expected_override = {
             reward_page: {"enabled": enabled}, reward_default: {"enabled": not enabled}
-        }:
-            raise SystemExit("Reward switch must only toggle isolated endless gates")
+        }
+        for node, params in expected_reward_recognitions.items():
+            expected_override.setdefault(node, {})["recognition"] = {"type": "Custom", "param": {
+                "custom_recognition": "cipher_reward",
+                "custom_recognition_param": {**params, "reward_type": reward_type},
+            }}
+        if case.get("pipeline_override") != expected_override:
+            raise SystemExit("Reward dropdown must reset all scoped recognizer targets and exclusive gates")
     mode = all_options["CipherMode"]
     if (option_case(mode, "Endless").get("option") != ["CipherEndlessRedReward"]
             or "CipherEndlessRedReward" in option_case(mode, "Expel").get("option", [])):
-        raise SystemExit("Reward switch must only be visible in endless mode")
+        raise SystemExit("Reward dropdown must only be visible in endless mode")
     direct_reward = dict(pipeline_nodes[reward_default])
     if (direct_reward.pop("enabled", None) is not True
             or pipeline_nodes[reward_page].get("enabled") is not False
             or direct_reward != pipeline_nodes["RewardConfirmByClick"]):
         raise SystemExit("Disabled reward selection must retain the original direct-confirm path")
-    expected_reward_recognitions = {reward_page: {"mode": "page"}, reward_ready: {"mode": "ready"}}
-    expected_reward_recognitions.update({f"CipherEndlessRewardSelect{i}": {"mode": "select", "slot": i} for i in (2, 3)})
     if any(name.startswith("CipherEndlessRewardSelect1") for name in pipeline_nodes):
         raise SystemExit("First-slot red reward must confirm directly, without a selection chain")
     for name, params in expected_reward_recognitions.items():
         if pipeline_nodes.get(name, {}).get("recognition") != {"type": "Custom", "param": {
-            "custom_recognition": "cipher_reward", "custom_recognition_param": params,
+            "custom_recognition": "cipher_reward", "custom_recognition_param": {**params, "reward_type": "BioExtract"},
         }}:
             raise SystemExit(f"{name} must use the scoped, fresh-frame reward recognizer")
     if (pipeline_nodes[reward_page]["next"] != ["CipherEndlessAgainDetected", reward_ready,
@@ -1984,7 +1994,7 @@ def main() -> None:
     if (confirm_after_select.get("recognition") != pipeline_nodes[reward_default]["recognition"]
             or confirm_after_select.get("next") != ["CipherEndlessRewardConfirmClick2"]):
         raise SystemExit("After reward selection, confirm the button directly without icon/check recognition")
-    for name in ("reward_red_cube.png",):
+    for name in ("reward_red_cube.png", "reward_magnet.png"):
         template_paths.add(f"RewardConfirm/{name}")
     if 'import cipher_rewards' not in (ROOT / "agent/main.py").read_text(encoding="utf-8"):
         raise SystemExit("Cipher reward recognizer must be registered by the deployed Agent")

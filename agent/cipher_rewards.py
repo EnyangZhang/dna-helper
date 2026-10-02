@@ -18,9 +18,11 @@ from maa.custom_recognition import CustomRecognition
 
 ROOT = Path(__file__).resolve().parents[1]
 SLOT_CENTERS = (456, 640, 823)
-TEMPLATE_NAMES = (
-    "reward_red_cube.png", "confirm_choice.png",
-)
+REWARD_TYPES = {
+    "BioExtract": ("生物萃取物", "reward_red_cube.png"),
+    "Magnet": ("精工磁石", "reward_magnet.png"),
+}
+TEMPLATE_NAMES = ("confirm_choice.png", *(spec[1] for spec in REWARD_TYPES.values()))
 
 
 @lru_cache(maxsize=1)
@@ -50,17 +52,22 @@ def _score(image, template, roi, *, gray=False):
     return float(cv2.minMaxLoc(scores)[1])
 
 
-def inspect_reward_page(image, *, diagnostics=None):
+def inspect_reward_page(image, *, reward_type="BioExtract", diagnostics=None):
     """Inspect fixed slots without depending on rarity-sensitive card decorations."""
     if diagnostics is None:
         diagnostics = {}
+    spec = REWARD_TYPES.get(reward_type) if isinstance(reward_type, str) else None
+    if spec is None:
+        diagnostics.update(reason="invalid_reward_type", reward_type=reward_type)
+        return None
+    reward_label, template_name = spec
     if (not isinstance(image, np.ndarray) or image.dtype != np.uint8
             or image.shape != (720, 1280, 3)):
         diagnostics.update(reason="invalid_frame", shape=str(getattr(image, "shape", None)),
                            dtype=str(getattr(image, "dtype", None)))
         return None
     templates = _templates()
-    missing = [name for name in TEMPLATE_NAMES if name not in templates]
+    missing = [name for name in ("confirm_choice.png", template_name) if name not in templates]
     if missing:
         diagnostics.update(reason="missing_templates", missing_templates=missing)
         return None
@@ -70,20 +77,21 @@ def inspect_reward_page(image, *, diagnostics=None):
     if confirm_score < 0.8:
         diagnostics["reason"] = "confirm_not_matched"
         return None
-    red_scores = [
-        _score(image, templates["reward_red_cube.png"], (cx - 38, 352, 76, 78))
+    reward_scores = [
+        _score(image, templates[template_name], (cx - 38, 352, 76, 78))
         for cx in SLOT_CENTERS
     ]
-    red_slots = [i + 1 for i, score in enumerate(red_scores) if score >= 0.85]
+    reward_slots = [i + 1 for i, score in enumerate(reward_scores) if score >= 0.85]
     return {"confirm_score": round(confirm_score, 4),
-            "target_slot": red_slots[0] if red_slots else None,
-            "red_slots": red_slots,
-            "red_scores": [round(score, 4) for score in red_scores]}
+            "reward_type": reward_type, "reward_label": reward_label,
+            "target_slot": reward_slots[0] if reward_slots else None,
+            "reward_slots": reward_slots,
+            "reward_scores": [round(score, 4) for score in reward_scores]}
 
 
-def recognize_reward(image, mode, slot=None):
+def recognize_reward(image, mode, slot=None, reward_type="BioExtract"):
     diagnostics = {}
-    page = inspect_reward_page(image, diagnostics=diagnostics)
+    page = inspect_reward_page(image, reward_type=reward_type, diagnostics=diagnostics)
     if page is None:
         return None, {"page": False, **diagnostics}
     target_slot = page["target_slot"]
@@ -118,25 +126,28 @@ class RewardRecognitionLog:
             reason = detail["reason"]
             if reason == "invalid_frame":
                 message = f"画面尺寸/类型无效：{detail['shape']} / {detail['dtype']}，要求 720×1280×3 / uint8"
+            elif reason == "invalid_reward_type":
+                message = f"奖励类型无效：{detail['reward_type']}，当前不选卡、不确认"
             elif reason == "missing_templates":
                 message = "模板缺失：" + ", ".join(detail["missing_templates"])
             else:
                 message = f"确认按钮未命中：{detail['confirm_score']:.3f} < 0.80；当前不选卡、不确认"
             signature = (False, reason)
         else:
-            red = detail["red_slots"]
+            matched = detail["reward_slots"]
+            label = detail["reward_label"]
             target = detail["target_slot"]
             if target is None:
-                decision = "未发现红色目标，允许确认默认奖励"
+                decision = f"未发现{label}目标，允许确认默认奖励"
             elif target == 1:
-                decision = "最左红色在第 1 张，直接确认"
+                decision = f"最左{label}在第 1 张，直接确认"
             else:
                 decision = f"点击第 {target} 张后直接确认，不检查勾选"
-            signature = (True, tuple(red), target, decision)
+            signature = (True, detail["reward_type"], tuple(matched), target, decision)
             scores = lambda key: "/".join(f"{value:.3f}" for value in detail[key])
             slots = lambda values: "/".join(map(str, values)) or "无"
             message = (
-                f"红色={slots(red)}，分数={scores('red_scores')}（阈值0.85）；"
+                f"奖励={label}；命中={slots(matched)}，分数={scores('reward_scores')}（阈值0.85）；"
                 f"确认按钮={detail['confirm_score']:.3f}/0.80；判断={decision}"
             )
         now = time.monotonic()
@@ -166,7 +177,8 @@ class CipherRewardRecognition(CustomRecognition):
                 params = {}
         if not isinstance(params, dict):
             params = {}
-        box, detail = recognize_reward(argv.image, params.get("mode"), params.get("slot"))
+        box, detail = recognize_reward(argv.image, params.get("mode"), params.get("slot"),
+                                       params.get("reward_type", "BioExtract"))
         task_id = getattr(getattr(argv, "task_detail", None), "task_id", 0)
         _recognition_log.emit(task_id, params.get("mode"), box, detail)
         return CustomRecognition.AnalyzeResult(box=list(box) if box else None, detail=detail)
