@@ -91,7 +91,8 @@
             }
         },
         "action": {
-            "type": "DoNothing"
+            "type": "Custom",
+            "param": {"custom_action": "progress_dungeon_entered"}
         },
         "rate_limit": 0,
         "pre_delay": 0,
@@ -240,19 +241,14 @@
                 "custom_action": "focus_guard_finalize",
                 "custom_action_param": {
                     "restore_delay_ms": 100,
-                    "finish_skill_input_group": true
+                    "finish_skill_input_group": true,
+                    "progress_event": "theatre_round_completed"
                 }
             }
         },
         "rate_limit": 0,
         "pre_delay": 0,
         "post_delay": 0,
-        "focus": {
-            "Node.Action.Succeeded": {
-                "content": "[沉浸式戏剧挂机] E 循环已停止，“前往”已完成 3 次点击，等待下一副本血条；未知中间页面需手动处理或补充截图",
-                "display": ["log"]
-            }
-        },
         "next": ["TheatreAFKRestartMonitor"]
     },
     "TheatreAFKRestartMonitor": {
@@ -311,7 +307,10 @@
                 "threshold": 0.85
             }
         },
-        "action": {"type": "DoNothing"},
+        "action": {
+            "type": "Custom",
+            "param": {"custom_action": "progress_dungeon_entered"}
+        },
         "rate_limit": 0,
         "pre_delay": 0,
         "post_delay": 0,

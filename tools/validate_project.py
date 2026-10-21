@@ -975,7 +975,6 @@ def main() -> None:
             "TheatreAFKProfileEntry": {"next"},
             "TheatreAFKCombatSequence": {"focus", "next"},
             "TheatreAFKInsideMonitor": {"next"},
-            "TheatreAFKGoClick3Finalize": {"focus"},
         }
         if (
             case.get("label") != label
@@ -998,6 +997,18 @@ def main() -> None:
         "custom_action_param"
     ].get("finish_skill_input_group"):
         raise SystemExit("Theatre native clicks must close their persistent input group")
+    for name in ("TheatreAFKCombatHudReady", "TheatreAFKRestartHudReady"):
+        if pipeline_nodes[name]["action"] != {
+            "type": "Custom", "param": {"custom_action": "progress_dungeon_entered"}
+        }:
+            raise SystemExit("Theatre completion must rearm only after confirmed combat HUD")
+    theatre_finalize = pipeline_nodes["TheatreAFKGoClick3Finalize"]
+    if (
+        theatre_finalize["action"]["param"]["custom_action_param"].get("progress_event")
+        != "theatre_round_completed"
+        or "focus" in theatre_finalize
+    ):
+        raise SystemExit("Theatre Go finalizer must record and log one deduplicated completion")
     for name in (
         "TheatreAFKEntry", "TheatreAFKWaitCombatHud", "TheatreAFKCombatHudFrame1",
         "TheatreAFKCombatHudFrame2", "TheatreAFKCombatHudReady",
@@ -2052,6 +2063,28 @@ def main() -> None:
             raise SystemExit(f"{node_name}: must record stage 1 after HUD confirmation")
 
     normal_mode = all_options.get("NormalMode", {})
+    normal_acceleration = all_options.get("NormalEnableAcceleration", {})
+    normal_acceleration_nodes = {
+        "NormalEndlessContinueChallenge",
+        "NormalEndlessConfirmChoice",
+        "NormalHoldPostSkillContinueChallenge",
+        "NormalHoldPostSkillConfirmChoice",
+    }
+    if (normal_acceleration.get("type") != "switch"
+            or normal_acceleration.get("label") != "开启局内加速"
+            or normal_acceleration.get("default_case") != "Yes"):
+        raise SystemExit("Normal acceleration must be a default-on Chinese switch")
+    normal_task = load_json(ASSETS / "resource/tasks/NormalEndlessBoost.json")
+    if normal_task["task"][0].get("option") != ["NormalMode", "NormalEnableAcceleration"]:
+        raise SystemExit("Normal acceleration must be a shared task-level option")
+    if [case.get("name") for case in normal_acceleration.get("cases", [])] != ["Yes", "No"]:
+        raise SystemExit("Normal acceleration must expose explicit on/off cases")
+    for case_name, enabled in (("Yes", True), ("No", False)):
+        expected = {name: {"enabled": enabled} for name in normal_acceleration_nodes}
+        if option_case(normal_acceleration, case_name).get("pipeline_override") != expected:
+            raise SystemExit(
+                "Normal acceleration must only gate all four pre/post-skill inside click entries"
+            )
     hold_mode = option_case(normal_mode, "Endless")
     require_override(
         "NormalMode",

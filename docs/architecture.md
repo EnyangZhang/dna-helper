@@ -46,7 +46,7 @@ DNA Helper 由四层组成：
 | 调停挂机 | 自动循环 | 1–9999，默认 1 | 固定 W/左键/四 F/鼠标/右键/Z 输入 | 无 |
 | 狩月人之阶挂机 | 自动循环 | 1–9999，默认 1 | 三次左键蓄力/Q 起手后持续 E | 无 |
 | 钓鱼挂机 | 大世界钓鱼 | 1–9999，默认 120 | 提示驱动输入 | 无 |
-| 沉浸式戏剧挂机 | 首次手动入场，前往后循环 | 无（不计数） | W/D/F/Q 起手，伊薇或伊薇（不持续 E）角色方案 | 无 |
+| 沉浸式戏剧挂机 | 首次手动入场，前往后循环 | 已完成副本累计数，无目标上限 | W/D/F/Q 起手，伊薇或伊薇（不持续 E）角色方案 | 无 |
 | 进度监控 | 无 | 无 | 无 | 无 |
 
 新建配置提供两个互斥用途的独立预设：
@@ -188,7 +188,7 @@ Agent 启动后由 `parent_watchdog.py` 使用 `OpenProcess(SYNCHRONIZE)` 持有
 
 场景识别实现位于 `agent/theatre_scenes.py`：无每副本 Python 状态，使用缓存模板和有界 ROI；场景 2/3/4 使用文字及数字区分模板，场景 5 直接以原始 BGR 满血模板 `scene5.png` 做 `TM_SQDIFF_NORMED ≤ 0.05` 匹配，包含完整颜色及填充，不再使用红色区域、外框遮罩或残血回退，按最终试炼首次出现时满血的条件检测。所有坐标以包含游戏自绘标题栏的 `1280×720` 画面为基准，场景检测 ROI 为 `(500,220,330,100)`，Boss 检测 ROI 为 `(390,60,520,50)`；模板提取必须按原图和窗口偏移复现，不能重新缩放或扣除标题栏。测试夹具可保留更大的上下文裁剪，但不改变运行时检测 ROI。
 
-每副本一次的起手锁由**状态可达性**表达：InsideMonitor/PressE/WaitGo 只识别 Go、发送 E 或无输入等待，不读取血条来重入起手。Q 动画、HUD 消失恢复不会切换分支或解锁 W/D/F/Q。Go 命中即停止 E 或结束无输入等待，第一节点仍直接执行 Maa 原生 Click；随后 GoClick2/GoClick3 为 DirectHit + Click，间隔 50/50ms。GoClick3Finalize 保留无输入 `focus_guard_finalize`，仅本任务设置 `finish_skill_input_group:true`：有本任务前台输入组时移除它并恢复一次该组记录的窗口/鼠标（100ms 收尾等待），不重新采集恢复目标；没有组的残留按钮重试走普通原生点击焦点收尾，仍然恢复窗口。默认未设置该参数的其他任务完全不改变。没有进度事件，不计轮次。`TheatreInputLifecycle` 只处理 TheatreAFKEntry 的成功/失败结束通知，关闭对应 task_id 输入组，不影响其他任务；常规输入失败已有按键抬起兜底，随后清理组，禁止失败后自动重放起手。
+每副本一次的起手锁由**状态可达性**表达：InsideMonitor/PressE/WaitGo 只识别 Go、发送 E 或无输入等待，不读取血条来重入起手。Q 动画、HUD 消失恢复不会切换分支或解锁 W/D/F/Q。Go 命中即停止 E 或结束无输入等待，第一节点仍直接执行 Maa 原生 Click；随后 GoClick2/GoClick3 为 DirectHit + Click，间隔 50/50ms。GoClick3Finalize 保留无输入 `focus_guard_finalize`，仅本任务设置 `finish_skill_input_group:true`：有本任务前台输入组时移除它并恢复一次该组记录的窗口/鼠标（100ms 收尾等待），不重新采集恢复目标；没有组的残留按钮重试走普通原生点击焦点收尾，仍然恢复窗口。默认未设置该参数的其他任务完全不改变。收尾中的 `theatre_round_completed` 进度事件只累计一次已完成副本，通知与去重契约见进度监控章节。`TheatreInputLifecycle` 只处理 TheatreAFKEntry 的成功/失败结束通知，关闭对应 task_id 输入组，不影响其他任务；常规输入失败已有按键抬起兜底，随后清理组，禁止失败后自动重放起手。
 
 `TheatreAFKBackgroundInput` 已从任务选项及声明中删除，两种 profile 的起手和持续 E 均固定使用 `focus_guard_action`；profile 仍只覆盖日志与路由，不改变输入参数。校验器拒绝重新加入该后台选项或修改起手/E 的前台后端。
 
@@ -247,7 +247,7 @@ RewardConfirmEntry
 
 `inspect_reward_page(..., reward_type=...)` 与 `recognize_reward(..., reward_type=...)` 返回 `reward_type/reward_label/reward_slots/reward_scores/target_slot/confirm_score`，不再把所有目标称为红色。按左到右取第一个命中槽位；`ready` 只在 target=None 或 1 时直接确认默认项，target=2/3 先走对应 `select` 原生三连击，完全不读标题、编号或勾选。第 2/3 张坐标为 `(640,519)/(823,519)`；收尾先检查“再次进行”，再进入 `CipherEndlessRewardConfirmAfterSelect`，只匹配原确认按钮并复用确认二/三击与无输入收尾，鼠标遮挡物品或勾选不会阻断此阶段。
 
-`CipherEndlessRedReward` 保留内部名称，UI 改为 `select`、标题“优先选择奖励”，case 顺序为 `No/关闭、Yes/生物萃取物、Magnet/精工磁石`，默认 No。保留 No/Yes 标识，但旧 switch 保存的是布尔值，MXU 的 `cleanOptionValues` 会因类型改为 select 重置该项为默认关闭；原先开启的用户需重新选择生物萃取物一次，不改写配置文件。新下拉框保存 caseName。`CipherMode=Endless` 单独暴露此选项。No 启用默认确认并禁用奖励页，Yes/Magnet 相反；三个 case 都显式覆盖 page/ready/select2/select3 的完整识别参数与目标，确保换奖励或关闭后没有残留参数。所有覆盖仅作用于无尽专属节点，密函驱离及其他任务不可达它们，不改变共享计数、99 提醒或完成通知。
+`CipherEndlessRedReward` 保留内部名称，UI 改为 `select`、标题“优先选择奖励”，case 顺序为 `No/关闭、Yes/生物萃取物、Magnet/精工磁石`，默认 No。保留 No/Yes 标识，但旧 switch 保存的是布尔值，MXU 的 `cleanOptionValues` 会因类型改为 select 重置该项为默认关闭；原先开启的用户需重新选择生物萃取物一次，不改写配置文件。新下拉框保存 caseName。`CipherMode=Endless` 单独暴露此选项。No 启用默认确认并禁用奖励页，Yes/Magnet 相反；三个 case 都显式覆盖 page/ready/select2/select3 的完整识别参数与目标，确保换奖励或关闭后没有残留参数。所有覆盖仅作用于无尽专属节点，密函驱离及其他任务不可达它们，不改变共享计数、全局第 50 轮提醒或完成通知。
 
 `RewardRecognitionLog` 以 `[密函选卡]` 显示选定奖励名称、命中槽位、三个分数、确认分数和直接确认/选第 N 张后确认/默认回退判断。只输出等待后 ready 的新帧及 page/ready 拒绝原因，不输出加载前结果或重复 select 候选。按 task_id、奖励类型、槽位和决策去重：变化即输出，分数抖动不触发，同一奖励页每 10 秒刷新，相同非奖励页拒绝只打印一次。有限的有锁内存记录只用于日志；日志管道关闭不影响识别和路由。
 
@@ -334,6 +334,14 @@ NormalEndlessAgainDetected
 - `context.override_pipeline(...)` 动态写入当前日志。
 - `context.override_pipeline(...)` 将决策节点的 `next` 改为重开链或结束节点。
 
+### 普通任务的局内加速开关
+
+`NormalEnableAcceleration` 是 `NormalEndlessBoost` 的任务级 switch，与 `NormalMode` 并列，默认 `Yes`，三个模式始终显示。两个 case 只显式设置 `NormalEndlessContinueChallenge`、`NormalEndlessConfirmChoice`、`NormalHoldPostSkillContinueChallenge`、`NormalHoldPostSkillConfirmChoice` 的 `enabled`；`Yes` 全部恢复为 `true`，`No` 全部设为 `false`。它同时覆盖技能前、技能后和血条未知边界的局内点击入口，但不重写任何 `next`、动作、延迟、进度参数或技能节点。
+
+禁用节点由候选匹配跳过，原有空闲兜底继续以 50ms 轮询；技能入口继续进入 E/Q，技能后路径仍保留操作锁。局外“再次进行 / 开始挑战”链及三帧 HUD 确认保持原样。`NormalMode/Infinite` 的独立终止候选仍然启用，关闭加速不妨碍自然完成和 Telegram 通知；`Expel` 本来不接入这些局内按钮，因此行为不变。两种状态都不改三连击内部节点与收尾事件，关闭时它们仅因入口禁用而不可达。
+
+开关不增加新的进度来源：用户手动推进的局内轮次不会被自动补记，也不伪造第 50 轮提醒；局外副本计数不变。覆盖仅挂在普通任务选项，不修改共享基础 Pipeline、密函或皎皎币任务。回归需覆盖三个模式、技能开关、高台分支及加速关闭后重新开启，避免后续模式覆盖重新启用局内按钮或误禁用局外开始链。
+
 ### 扼守
 
 `NormalMode=Endless` 在代码中代表界面上的“扼守”：
@@ -358,7 +366,7 @@ NormalEndlessAgainDetected
 - “再次进行”命中后执行独立 `NormalInfiniteAgainDetected` 的 `StopTask`，不点击、不重开、不额外增加轮次。
 - 不统计局外副本轮次，但持续累计局内逻辑轮次。
 - 不进入 HUD 或技能链。
-- `progress_state.increment_stage()` 仍只在本次任务的局内计数首次到达 99 时返回里程碑信号，由 Agent 发送一次通知；仅达到 99 不结束，直至识别到“再次进行”才自然结束。开启监控时通过 `ProgressMonitorLifecycle` 发送“普通无尽加速 / 无尽”完成通知并停止监听，未开启时不启动任何通讯。
+- `progress_state.increment_stage()` 只在本次任务的局内计数首次到达 50 时返回里程碑信号，由 Agent 发送一次通知；99、100 及以后不再触发。达到轮次里程碑不结束，直至识别到“再次进行”才自然结束。开启监控时通过 `ProgressMonitorLifecycle` 发送“普通无尽加速 / 无尽”完成通知并停止监听，未开启时不启动任何通讯。
 
 `NormalInfiniteAgainDetected` 在基础 Pipeline 中默认禁用，只由 `NormalMode/Infinite` 启用。该模式独占的 `pipeline_override` 在 `NormalEndlessEntry`、`NormalEndlessMonitor`、`NormalEndlessIdle`、`NormalContinueTransition` 和两个 `Click3Finalize` 的候选首位加入此节点。它使用 `RewardConfirm/expel_again.png`、ROI `[800, 560, 300, 130]`、阈值 `0.8`、时序 `0 / 0 / 0`，没有后继、错误跳转、游戏输入或进度事件。三连击内部不插入重复识别；第三击后先完成现有焦点恢复和该按钮本身的逻辑事件，再在收尾出口检查终止信号。基础共享节点的跳转和动作不变，因此普通扼守、普通驱离以及其他任务不会启用或到达该停止节点。
 
@@ -479,7 +487,15 @@ E/Q 仍由 `focus_guard_action` 调用 `FocusGuardEKeyProxy` 和 `FocusGuardQKey
 - `Start Challenge` 成功后只把状态切回运行、清零局内进度并等待 HUD 重新记录第 1 局，不增加局外副本轮次。
 - 密函驱离的 Space 确认只表示已重新进入下一轮，不重复增加已完成数。
 
-`focus_guard_start` 从任务和轮次选项接收 `progress_mode`、`progress_total`、`progress_stage_total`。密函无尽循环会重复进入任务入口，因此使用 Maa `task_id` 去重初始化和启动通知。普通无尽和密函无尽在未识别到“再次进行”前持续运行。`advance_cipher_cycle()` / `increment_stage()` 仅在对应局内计数由 98 增至 99 时返回 `True`，`focus_guard_action` 据此调用 `notify_infinite_99_completed()`；计数继续到 100 及以后时不再触发。普通无尽命中 `NormalInfiniteAgainDetected`、密函无尽命中 `CipherEndlessAgainDetected` 后，以 Maa 任务成功事件结束并发送对应模式的统一完成通知，再停止监听；终止检测本身不改变任何轮次。
+`focus_guard_start` 从任务和轮次选项接收 `progress_mode`、`progress_total`、`progress_stage_total`。密函无尽循环会重复进入任务入口，因此使用 Maa `task_id` 去重初始化和启动通知。普通无尽和密函无尽在未识别到“再次进行”前持续运行。`advance_cipher_cycle()` / `increment_stage()` 只在已有真实计数首次增至 `STAGE_NOTIFICATION_STAGE = 50` 时返回 `True`；后者同时要求本次计数实际增加，避免有限上限恰为 50 时重复提醒。`_apply_progress_event()` 据此调用 `notify_stage_milestone()`，覆盖普通无尽、密函无尽、普通扼守和皎皎币。消息进入现有非阻塞发送队列，不修改状态；99、100、150 等轮次不触发。普通扼守和皎皎币只在原有 `start_next_round()` 清零后允许下一副本再次到达 50；HUD 恢复、相同 `task_id` 入口或按钮残影不重置计数。普通无尽命中 `NormalInfiniteAgainDetected`、密函无尽命中 `CipherEndlessAgainDetected` 后，以 Maa 任务成功事件结束并发送对应模式的统一完成通知，再停止监听；终止检测本身不改变任何轮次。
+
+所有六类有限副本的 RoundLogger 都读取 `RoundCompletion.should_notify`：`complete_round()` 在同一个进度锁内比较当前完成数与先前完成数，仅真正增加时返回 `True`，相同完成数重复调用不再通知。统一 `_notify_round_completion()` 对正常结算调用 `notify_round_completed()`，对提前结算仅调用原有 `notify_early_completion()`，一条消息同时覆盖完成次数和异常，不双发。正常局外通知复用 `_send_final_message_async()` 及配置快照，包含正式任务、模式和局外已完成次数，即使最后一轮紧接着触发任务成功、清空普通队列，也不会吞掉该通知；与随后整项任务完成通知的到达顺序不作保证。未启用或已停止监控时不投递、不补发；网络错误不阻塞游戏。剧场使用同一个通知发送器，但不调用有限配额 RoundLogger，改用独立的入场许可去重；钓鱼使用数量里程碑。
+
+`notify_round_completed()` 的消息标题统一为“DNA Helper 进度更新”，正文保留正式任务、模式和累计完成数，不再称“副本已完成”。此消息不宣称整项任务结束，也不固定附加“继续运行”，因为最后一次副本可能同时产生进度提醒和独立的“DNA Helper 任务已完成”；自然完成文案与生命周期不变。该函数通过 `_ROUND_NOTIFICATION_INTERVALS` 约束普通驱离、密函驱离、调停和狩月人之阶：仅 `current > 0` 且为 50 的倍数时发送，其余模式默认间隔 1（剧场的 50 次间隔见下文）。过滤发生在通知层，不影响每次 `complete_round()` 的真实计数、状态、配额决策、技能与重开。最后一次不是 50 的倍数时不补发普通轮次提醒，但 `ProgressMonitorLifecycle` 的任务成功通知照常发送；最后一次恰为 50 的倍数则两类消息都发送。
+
+钓鱼的 `fishing_caught` 先调用原有 `record_fishing_catch()`；仅在计数被接受时调用 `notify_fishing_milestone()`。该通知读取同一进度快照，要求模式为钓鱼、数量大于 0 且为 `_FISHING_NOTIFICATION_INTERVAL = 50` 的倍数，发送 `当前数量 / 目标数量`；不使用副本计数或局内第 50 轮入口，不建立第二套计数器。完成目标和鱼池为空后 `record_fishing_catch()` 返回 False，残留事件不会再触发提醒。数量提醒复用独立一次性发送器，因此第 50/100 条恰为目标时不会被自然结束清空普通队列；与完成消息的实际到达顺序不作保证。目标达成的最终文案及鱼池为空的“鱼池已空。”保持不变；未启动或已断开监控时不发送、不缓存、不补发。
+
+剧场两个 profile 共用已完成副本累计数，但没有目标上限或最终完成识别。首次及重开路径的第三帧 HUD Ready 使用 `progress_dungeon_entered`，将 `theatre_round_armed` 置为真；Go 三次原生点击后的无输入收尾发送 `theatre_round_completed`，在共享进度锁内仅对已允许计数的 running 副本加 1、关闭许可并切为 waiting_next_round。残留 Go 重试不重复计数、日志或通知；新副本三帧 HUD 才重新允许计数。`total_rounds/stage_total` 保持 0，不触发有限次数完成逻辑。动态收尾日志包含真实累计数，取代静态 profile 的三连击成功日志。每累计完成 50、100、150……次调用同一 `notify_round_completed` 发送器，消息和状态仅显示累计数，不显示 `/0`。场景 2～5 的单调路由只限制本副本内各场景动作一次，不增加副本数。所有任务仍保留每 1800 秒状态和 `/status`，手动停止或失败不发送完成消息。
 
 `telegram_bot.py` 仅在 `ProgressMonitorStart` 被执行且存在有效 `config/telegram.json` 或对应环境变量时启动。打开或重启 UI 本身不会启动监听。接收轮询、消息发送和定时调度使用三个独立守护线程。每次新接收线程先执行一次 `timeout: 0` 的 `getUpdates`，只读取当前积压消息中的最大 `update_id` 并以其加一作为正式轮询起点，不调用 `_handle_update`；因此监听关闭期间积压的 `disconnect`、状态查询和帮助命令都不会跨会话执行。基线请求失败时按原退避策略重试，绝不能在尚未建立基线时处理积压消息。定时线程第一次等待 1800 秒后把 `progress_state.format_status()` 的结果放入现有发送队列，之后每 1800 秒重复。另一个所有权守护线程是 owner 文件的唯一刷新者，每 2 秒刷新 owner 并检查全局通讯停止代次；连续三次 owner 刷新失败才设置共享停止事件。三个工作线程不再各自读写 owner 或停止信号，因此一次瞬时替换或读取竞争不会造成线程静默永久退出。定时线程不直接调用网络接口也不修改进度。网络失败采用退避重试，不得阻塞 Pipeline 输入。只响应 `allowed_chat_id`，Token 与状态文件都位于已被 Git 忽略的 `config/`。
 

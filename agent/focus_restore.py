@@ -506,19 +506,28 @@ def _parse_params(raw: object) -> dict:
 
 def _apply_progress_event(params: dict) -> None:
     progress_event = params.get("progress_event")
-    infinite_99_completed = False
+    stage_milestone_reached = False
     if progress_event == "continue_challenge":
-        infinite_99_completed = progress_state.increment_stage(
+        stage_milestone_reached = progress_state.increment_stage(
             dedupe_window_seconds=5.0
         )
     elif progress_event == "next_round_started":
         progress_state.start_next_round()
     elif progress_event == "cipher_cycle_completed":
-        infinite_99_completed = progress_state.advance_cipher_cycle()
+        stage_milestone_reached = progress_state.advance_cipher_cycle()
     elif progress_event == "fishing_caught":
-        progress_state.record_fishing_catch()
-    if infinite_99_completed:
-        telegram_bot.notify_infinite_99_completed()
+        if progress_state.record_fishing_catch():
+            telegram_bot.notify_fishing_milestone()
+    elif progress_event == "theatre_round_completed":
+        current = progress_state.record_theatre_round_completed()
+        if current is not None:
+            _safe_user_log(
+                f"[沉浸式戏剧挂机] 已完成第 {current} 次副本，"
+                "“前往”已完成 3 次点击，等待下一副本血条"
+            )
+            telegram_bot.notify_round_completed("沉浸式戏剧挂机", current, 0)
+    if stage_milestone_reached:
+        telegram_bot.notify_stage_milestone()
 
 
 def _safe_user_log(message: str) -> None:

@@ -97,11 +97,11 @@ class ProgressStateTest(unittest.TestCase):
         message = progress_state.format_status()
         self.assertIn("局内轮次：1", message)
 
-    def test_normal_infinite_reports_99_only_once(self) -> None:
+    def test_normal_infinite_reports_50_only_once(self) -> None:
         progress_state.start_task("普通无尽", 0, 0, task_id=101)
         milestones = [progress_state.increment_stage() for _ in range(100)]
 
-        self.assertEqual([index + 1 for index, hit in enumerate(milestones) if hit], [98])
+        self.assertEqual([index + 1 for index, hit in enumerate(milestones) if hit], [49])
         self.assertEqual(progress_state.snapshot()["stage_count"], 101)
 
     def test_continue_stage_debounce_ignores_button_afterimage(self) -> None:
@@ -115,17 +115,65 @@ class ProgressStateTest(unittest.TestCase):
 
         self.assertEqual(progress_state.snapshot()["stage_count"], 3)
 
-    def test_cipher_infinite_reports_99_only_once(self) -> None:
+    def test_cipher_infinite_reports_50_only_once(self) -> None:
         progress_state.start_task("密函无尽", 0, 0, task_id=102)
         milestones = [progress_state.advance_cipher_cycle() for _ in range(100)]
 
-        self.assertEqual([index + 1 for index, hit in enumerate(milestones) if hit], [99])
+        self.assertEqual([index + 1 for index, hit in enumerate(milestones) if hit], [50])
         self.assertEqual(progress_state.snapshot()["stage_count"], 100)
 
-    def test_finite_modes_do_not_report_infinite_99_milestone(self) -> None:
-        progress_state.start_task("普通扼守", 1, 99, task_id=103)
+    def test_finite_modes_report_50_once_per_dungeon_and_keep_99_cap(self) -> None:
+        for mode in ("普通扼守", "皎皎币挂机"):
+            progress_state.start_task(mode, 2, 99)
+            for current in (1, 2):
+                self.assertTrue(progress_state.mark_dungeon_entered())
+                milestones = [progress_state.increment_stage() for _ in range(110)]
+                self.assertEqual([i + 1 for i, hit in enumerate(milestones) if hit], [49])
+                self.assertEqual(progress_state.snapshot()["stage_count"], 99)
+                completion = progress_state.complete_round(current, 2, mode)
+                self.assertTrue(completion.should_notify)
+                repeated = progress_state.complete_round(current, 2, mode)
+                self.assertFalse(repeated.should_notify)
+                if current < 2:
+                    progress_state.start_next_round()
+
+    def test_stage_50_afterimage_is_deduplicated_and_hud_does_not_replay_it(self) -> None:
+        progress_state.start_task("普通扼守", 2, 99)
         progress_state.mark_dungeon_entered()
-        self.assertFalse(any(progress_state.increment_stage() for _ in range(100)))
+        for _ in range(48):
+            self.assertFalse(progress_state.increment_stage())
+        clock = progress_state._last_stage_increment_monotonic + 10
+        with patch.object(progress_state.time, "monotonic", side_effect=[clock, clock + 1, clock + 6]):
+            self.assertTrue(progress_state.increment_stage(5.0))
+            self.assertFalse(progress_state.increment_stage(5.0))
+            progress_state.mark_dungeon_entered()
+            self.assertEqual(progress_state.snapshot()["stage_count"], 50)
+            self.assertFalse(progress_state.increment_stage(5.0))
+        self.assertEqual(progress_state.snapshot()["stage_count"], 51)
+
+    def test_50_cap_cannot_repeatedly_emit_same_milestone(self) -> None:
+        progress_state.start_task("普通扼守", 1, 50)
+        milestones = [progress_state.increment_stage() for _ in range(70)]
+        self.assertEqual(sum(milestones), 1)
+
+    def test_each_outer_round_is_notified_once_including_last(self) -> None:
+        for mode in ("普通扼守", "普通驱离", "密函驱离", "皎皎币挂机", "调停挂机", "狩月人之阶挂机"):
+            with self.subTest(mode=mode):
+                progress_state.start_task(mode, 2, 0)
+                for current in (1, 2):
+                    first = progress_state.complete_round(current, 2, mode)
+                    repeated = progress_state.complete_round(current, 2, mode)
+                    self.assertTrue(first.should_notify)
+                    self.assertFalse(repeated.should_notify)
+                self.assertEqual(progress_state.snapshot()["status"], "completed")
+
+    def test_same_task_entry_does_not_reset_50_notice_but_new_task_does(self) -> None:
+        for task_id in (801, 802):
+            self.assertTrue(progress_state.start_task("密函无尽", 0, 0, task_id))
+            milestones = [progress_state.advance_cipher_cycle() for _ in range(50)]
+            self.assertEqual(sum(milestones), 1)
+            self.assertFalse(progress_state.start_task("密函无尽", 0, 0, task_id))
+            self.assertFalse(any(progress_state.advance_cipher_cycle() for _ in range(100)))
 
     def test_complete_round_preserves_real_progress_and_deduplicates_alert(self) -> None:
         progress_state.start_task("皎皎币挂机", 3, 99, task_id=105)

@@ -14,7 +14,8 @@ from typing import Any
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _STATUS_PATH = _PROJECT_ROOT / "config" / "progress_status.json"
-_INFINITE_COMPLETION_STAGE = 99
+STAGE_NOTIFICATION_STAGE = 50
+STAGE_NOTIFICATION_MODES = frozenset({"普通无尽", "密函无尽", "普通扼守", "皎皎币挂机"})
 _lock = threading.RLock()
 _last_stage_increment_monotonic = 0.0
 _state: dict[str, Any] = {
@@ -26,6 +27,7 @@ _state: dict[str, Any] = {
     "stage_count": 0,
     "stage_total": 99,
     "stage_tracking_active": False,
+    "theatre_round_armed": False,
     "completion_reason": None,
     "started_at": None,
     "updated_at": time.time(),
@@ -43,6 +45,7 @@ class RoundCompletion:
     stage_tracking_active: bool
     early: bool
     should_notify_early: bool
+    should_notify: bool
 
 
 def start_task(
@@ -65,6 +68,7 @@ def start_task(
                 "stage_count": initial_stage,
                 "stage_total": max(0, int(stage_total)),
                 "stage_tracking_active": mode == "普通无尽",
+                "theatre_round_armed": False,
                 "completion_reason": None,
                 "started_at": now,
                 "updated_at": now,
@@ -90,6 +94,7 @@ def reset() -> None:
                 "stage_count": 0,
                 "stage_total": 99,
                 "stage_tracking_active": False,
+                "theatre_round_armed": False,
                 "completion_reason": None,
                 "started_at": None,
                 "updated_at": now,
@@ -100,7 +105,7 @@ def reset() -> None:
 
 
 def increment_stage(dedupe_window_seconds: float = 0.0) -> bool:
-    """Record one logical cycle and report the infinite-mode 99 milestone."""
+    """Record one logical cycle and report stage 50 once per dungeon."""
     global _last_stage_increment_monotonic
     monotonic_now = time.monotonic()
     with _lock:
@@ -119,13 +124,15 @@ def increment_stage(dedupe_window_seconds: float = 0.0) -> bool:
         if stage_total and not bool(_state.get("stage_tracking_active", False)):
             _state["stage_count"] = 1
             _state["stage_tracking_active"] = True
-        next_count = int(_state["stage_count"]) + 1
+        previous_count = int(_state["stage_count"])
+        next_count = previous_count + 1
         _state["stage_count"] = min(next_count, stage_total) if stage_total else next_count
         _state["updated_at"] = time.time()
         _persist_locked()
         return (
-            _state["mode"] == "普通无尽"
-            and int(_state["stage_count"]) == _INFINITE_COMPLETION_STAGE
+            _state["mode"] in STAGE_NOTIFICATION_MODES
+            and int(_state["stage_count"]) > previous_count
+            and int(_state["stage_count"]) == STAGE_NOTIFICATION_STAGE
         )
 
 
@@ -136,6 +143,8 @@ def mark_dungeon_entered() -> bool:
         if _state["status"] not in {"running", "waiting_next_round"}:
             return False
         if not int(_state["stage_total"]):
+            if _state["mode"] == "沉浸式戏剧挂机":
+                _state["theatre_round_armed"] = True
             _state["status"] = "running"
             _state["updated_at"] = time.time()
             _persist_locked()
@@ -148,6 +157,24 @@ def mark_dungeon_entered() -> bool:
         _state["updated_at"] = time.time()
         _persist_locked()
         return True
+
+
+def record_theatre_round_completed() -> int | None:
+    """Count one processed Go page; only a confirmed new dungeon rearms it."""
+    with _lock:
+        if (
+            _state["mode"] != "沉浸式戏剧挂机"
+            or _state["status"] != "running"
+            or not _state.get("theatre_round_armed", False)
+        ):
+            return None
+        current = int(_state["completed_rounds"]) + 1
+        _state["completed_rounds"] = current
+        _state["theatre_round_armed"] = False
+        _state["status"] = "waiting_next_round"
+        _state["updated_at"] = time.time()
+        _persist_locked()
+        return current
 
 
 def record_fishing_catch() -> bool:
@@ -207,16 +234,17 @@ def complete_round(
             stage_tracking_active=tracking_active,
             early=early,
             should_notify_early=early and current > previous_completed,
+            should_notify=current > previous_completed,
         )
 
 
 def advance_cipher_cycle() -> bool:
-    """Advance cipher progress and report its infinite-mode 99 milestone."""
+    """Advance cipher progress and report stage 50 once per infinite task."""
     with _lock:
         if _state["mode"] == "密函无尽" and _state["status"] == "running":
             _state["stage_count"] = int(_state["stage_count"]) + 1
             milestone_reached = (
-                int(_state["stage_count"]) == _INFINITE_COMPLETION_STAGE
+                int(_state["stage_count"]) == STAGE_NOTIFICATION_STAGE
             )
         elif _state["mode"] == "密函驱离" and _state["status"] == "waiting_next_round":
             _state["status"] = "running"
@@ -276,7 +304,7 @@ def format_status(now: float | None = None) -> str:
             f"钓鱼数量：{stage_count} / {total}" if total else f"钓鱼数量：{stage_count}"
         )
     elif mode == "沉浸式戏剧挂机":
-        pass
+        lines.append(f"局外副本轮次（已完成）：{completed}")
     elif mode in {"普通无尽", "密函无尽"}:
         lines.append(f"局内轮次：{stage_count}")
     else:

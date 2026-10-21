@@ -22,7 +22,7 @@ class NormalEndlessRoundLogger(CustomAction):
         current = max(1, context.get_hit_count("NormalEndlessRestartQuota"))
         completion = progress_state.complete_round(current, total, "普通扼守")
         content = _finite_round_content("普通扼守", completion)
-        _notify_early_completion(completion)
+        _notify_round_completion("普通扼守", completion)
 
         succeeded = context.override_pipeline(
             {
@@ -66,7 +66,8 @@ class NormalExpelRoundLogger(CustomAction):
         params = _parse_params(argv.custom_action_param)
         total = max(1, int(params.get("total", 1)))
         current = max(1, context.get_hit_count("NormalExpelRoundQuota"))
-        progress_state.complete_round(current, total, "普通驱离")
+        completion = progress_state.complete_round(current, total, "普通驱离")
+        _notify_round_completion("普通驱离", completion)
         content = f"[普通驱离] 已完成第 {current} / {total} 轮"
 
         succeeded = context.override_pipeline(
@@ -111,7 +112,8 @@ class CipherExpelRoundLogger(CustomAction):
         params = _parse_params(argv.custom_action_param)
         total = max(1, int(params.get("total", 1)))
         current = max(1, context.get_hit_count("CipherExpelRoundQuota"))
-        progress_state.complete_round(current, total, "密函驱离")
+        completion = progress_state.complete_round(current, total, "密函驱离")
+        _notify_round_completion("密函驱离", completion)
         content = f"[密函驱离] 已完成第 {current} / {total} 轮"
 
         succeeded = context.override_pipeline(
@@ -158,7 +160,7 @@ class CoinAFKRoundLogger(CustomAction):
         current = max(1, context.get_hit_count("CoinAFKRoundQuota"))
         completion = progress_state.complete_round(current, total, "皎皎币挂机")
         content = _finite_round_content("皎皎币挂机", completion)
-        _notify_early_completion(completion)
+        _notify_round_completion("皎皎币挂机", completion)
         succeeded = context.override_pipeline(
             {
                 "CoinAFKRoundLog": {
@@ -197,7 +199,8 @@ class MediationAFKRoundLogger(CustomAction):
         params = _parse_params(argv.custom_action_param)
         total = max(1, int(params.get("total", 1)))
         current = max(1, context.get_hit_count("MediationAFKRoundQuota"))
-        progress_state.complete_round(current, total, "调停挂机")
+        completion = progress_state.complete_round(current, total, "调停挂机")
+        _notify_round_completion("调停挂机", completion)
         succeeded = context.override_pipeline(
             {
                 "MediationAFKRoundLog": {
@@ -240,7 +243,8 @@ class MoonHunterAFKRoundLogger(CustomAction):
         params = _parse_params(argv.custom_action_param)
         total = max(1, int(params.get("total", 1)))
         current = max(1, context.get_hit_count("MoonHunterAFKRoundQuota"))
-        progress_state.complete_round(current, total, "狩月人之阶挂机")
+        completion = progress_state.complete_round(current, total, "狩月人之阶挂机")
+        _notify_round_completion("狩月人之阶挂机", completion)
         succeeded = context.override_pipeline(
             {
                 "MoonHunterAFKRoundLog": {
@@ -303,7 +307,9 @@ def _finite_round_content(
     )
 
 
-def _notify_early_completion(completion: progress_state.RoundCompletion) -> None:
+def _notify_round_completion(mode: str, completion: progress_state.RoundCompletion) -> None:
+    if not completion.should_notify:
+        return
     if completion.should_notify_early:
         telegram_bot.notify_early_completion(
             completion.current,
@@ -311,3 +317,5 @@ def _notify_early_completion(completion: progress_state.RoundCompletion) -> None
             completion.stage_count,
             completion.stage_total,
         )
+    else:
+        telegram_bot.notify_round_completed(mode, completion.current, completion.total)

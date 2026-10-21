@@ -199,8 +199,12 @@ class TheatreAfkContractTest(unittest.TestCase):
                 params = node["action"]["param"]
                 self.assertIn(params["custom_action"], {
                     "focus_guard_start", "focus_guard_action", "focus_guard_finalize", "theatre_scene_mouse_hold",
+                    "progress_dungeon_entered",
                 })
-                self.assertNotIn("progress_event", params.get("custom_action_param", {}))
+                event = params.get("custom_action_param", {}).get("progress_event")
+                if event:
+                    self.assertIs(node, self.pipeline["TheatreAFKGoClick3Finalize"])
+                    self.assertEqual(event, "theatre_round_completed")
 
     def test_profiles_ignore_removed_background_selection(self):
         cases = self.task["option"]["TheatreAFKCharacterProfile"]["cases"]
@@ -245,7 +249,7 @@ class TheatreAfkContractTest(unittest.TestCase):
                     runner.step(hud=index % 7 < 3)
                 self.assertEqual(runner.openings, 1)
                 self.assertEqual(set(runner.actions[offset:]), {"TheatreAFKSceneMonitor2", "TheatreAFKSceneWait2"})
-                for name in ("TheatreAFKEntry", "TheatreAFKCombatSequence", "TheatreAFKGoClick3Finalize"):
+                for name in ("TheatreAFKEntry", "TheatreAFKCombatSequence"):
                     log = current[name]["focus"]["Node.Action.Succeeded"]["content"]
                     self.assertIn("伊薇（不持续 E）", log)
                     self.assertNotIn("E 循环", log)
@@ -295,10 +299,13 @@ class TheatreAfkContractTest(unittest.TestCase):
         self.assertEqual(finalize["action"], {
             "type": "Custom", "param": {
                 "custom_action": "focus_guard_finalize",
-                "custom_action_param": {"restore_delay_ms": 100, "finish_skill_input_group": True},
+                "custom_action_param": {
+                    "restore_delay_ms": 100, "finish_skill_input_group": True,
+                    "progress_event": "theatre_round_completed",
+                },
             },
         })
-        self.assertEqual(list(finalize["focus"]), ["Node.Action.Succeeded"])
+        self.assertNotIn("focus", finalize)  # Agent emits one log only for a new completion.
         self.assertEqual(finalize["next"], ["TheatreAFKRestartMonitor"])
 
     def test_hud_loss_or_return_never_unlocks_without_go(self) -> None:

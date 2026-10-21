@@ -35,6 +35,14 @@ _LOCK_TTL_SECONDS = 18
 _OWNERSHIP_WATCHDOG_SECONDS = 2
 _OWNERSHIP_FAILURE_LIMIT = 3
 _AUTO_STATUS_INTERVAL_SECONDS = 30 * 60
+_ROUND_NOTIFICATION_INTERVALS = {
+    "普通驱离": 50,
+    "密函驱离": 50,
+    "调停挂机": 50,
+    "狩月人之阶挂机": 50,
+    "沉浸式戏剧挂机": 50,
+}
+_FISHING_NOTIFICATION_INTERVAL = 50
 _TASK_LABELS = {
     "密函无尽": ("密函无尽加速", "无尽"),
     "密函驱离": ("密函无尽加速", "驱离"),
@@ -157,17 +165,65 @@ def notify_task_started(mode: str) -> bool:
     return True
 
 
-def notify_infinite_99_completed() -> bool:
-    """Queue the one-shot 99-cycle milestone for modes without an end node."""
+def notify_stage_milestone() -> bool:
+    """Queue observed stage 50 without changing business counters."""
 
     if _config is None or _stop_event.is_set():
         return False
-    mode = str(progress_state.snapshot().get("mode", ""))
-    if mode not in {"密函无尽", "普通无尽"}:
+    state = progress_state.snapshot()
+    mode = str(state.get("mode", ""))
+    stage_count = int(state.get("stage_count", 0))
+    if (mode not in progress_state.STAGE_NOTIFICATION_MODES
+            or stage_count != progress_state.STAGE_NOTIFICATION_STAGE):
         return False
     task_name, mode_name = _TASK_LABELS[mode]
     _outbound.put(
-        f"DNA Helper 局内 99 轮已完成\n任务：{task_name}\n模式：{mode_name}"
+        f"DNA Helper 局内轮次通知\n任务：{task_name}\n模式：{mode_name}\n"
+        + (
+            f"局外副本轮次（已完成）：{state['completed_rounds']} / {state['total_rounds']}\n"
+            if int(state.get("stage_total", 0)) else ""
+        )
+        + f"局内轮次：{stage_count}"
+        + (f" / {state['stage_total']}" if int(state.get("stage_total", 0)) else "")
+    )
+    return True
+
+
+def notify_round_completed(mode: str, current: int, total: int) -> bool:
+    """Send dungeon milestones using the mode's configured completion interval."""
+
+    if _config is None or _stop_event.is_set():
+        return False
+    if current <= 0 or current % _ROUND_NOTIFICATION_INTERVALS.get(mode, 1):
+        return False
+    task_name, mode_name = _TASK_LABELS.get(mode, (mode, mode))
+    # Natural completion clears the ordinary outbound queue immediately. Reuse
+    # the existing one-shot sender so the last dungeon notice is not discarded.
+    _send_final_message_async(
+        dict(_config),
+        f"DNA Helper 进度更新\n任务：{task_name}\n模式：{mode_name}\n"
+        "局外副本轮次（已完成）："
+        + (f"{current} / {total}" if total > 0 else str(current)),
+    )
+    return True
+
+
+def notify_fishing_milestone() -> bool:
+    """Send each 50-catch milestone after an accepted fishing count update."""
+
+    if _config is None or _stop_event.is_set():
+        return False
+    state = progress_state.snapshot()
+    count = int(state.get("stage_count", 0))
+    if (state.get("mode") != "钓鱼挂机" or count <= 0
+            or count % _FISHING_NOTIFICATION_INTERVAL):
+        return False
+    # The catch reaching the target may immediately stop the monitor. Keep its
+    # milestone independent from the ordinary queue, like dungeon completions.
+    _send_final_message_async(
+        dict(_config),
+        "DNA Helper 钓鱼进度通知\n任务：钓鱼挂机\n"
+        f"钓鱼数量：{count} / {int(state.get('total_rounds', 0))}",
     )
     return True
 

@@ -77,6 +77,7 @@ class CoinAFKRoundTest(unittest.TestCase):
             stage_tracking_active=True,
             early=True,
             should_notify_early=True,
+            should_notify=True,
         )
 
         with (
@@ -116,6 +117,7 @@ class CoinAFKRoundTest(unittest.TestCase):
             stage_tracking_active=True,
             early=False,
             should_notify_early=False,
+            should_notify=True,
         )
         with patch.object(
             round_logger.progress_state, "complete_round", return_value=completion
@@ -143,6 +145,7 @@ class CoinAFKRoundTest(unittest.TestCase):
             stage_tracking_active=True,
             early=True,
             should_notify_early=True,
+            should_notify=True,
         )
 
         with (

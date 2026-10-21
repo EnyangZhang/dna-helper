@@ -3,10 +3,11 @@
         {
             "name": "NormalEndlessBoost",
             "label": "普通无尽加速",
-            "description": "自动处理普通副本循环。扼守和驱离按设定副本轮次运行；无尽模式快速点击局内的“继续挑战”和“确认选择”并记录局内轮次，检测到“再次进行”后结束任务，已开启监控时发送完成通知并停止监听；扼守与驱离均可通过“是否开启技能”启用角色 E、Q 技能组合。",
+            "description": "自动处理普通副本循环。三个模式共用“开启局内加速”开关，默认开启；关闭后不点击局内“继续挑战 / 确认选择”，不影响技能和局外流程。扼守和驱离按设定副本轮次运行；无尽检测到“再次进行”后结束任务，已开启监控时发送完成通知并停止监听；扼守与驱离可通过“是否开启技能”启用角色 E、Q 技能组合。",
             "entry": "NormalEndlessEntry",
             "option": [
-                "NormalMode"
+                "NormalMode",
+                "NormalEnableAcceleration"
             ],
             "group": [
                 "DailyAFK"
@@ -17,6 +18,50 @@
         }
     ],
     "option": {
+        "NormalEnableAcceleration": {
+            "type": "switch",
+            "label": "开启局内加速",
+            "description": "适用于扼守、无尽、驱离，默认开启并保持原有行为。关闭后不自动点击局内“继续挑战 / 确认选择”，技能释放、血条检测、局外轮次和开始副本不受影响；无尽仍在识别“再次进行”时结束。驱离本来就没有局内确认按钮。关闭期间不会按未执行的点击推算局内轮次。",
+            "default_case": "Yes",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "label": "开启",
+                    "pipeline_override": {
+                        "NormalEndlessContinueChallenge": {
+                            "enabled": true
+                        },
+                        "NormalEndlessConfirmChoice": {
+                            "enabled": true
+                        },
+                        "NormalHoldPostSkillContinueChallenge": {
+                            "enabled": true
+                        },
+                        "NormalHoldPostSkillConfirmChoice": {
+                            "enabled": true
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "label": "关闭",
+                    "pipeline_override": {
+                        "NormalEndlessContinueChallenge": {
+                            "enabled": false
+                        },
+                        "NormalEndlessConfirmChoice": {
+                            "enabled": false
+                        },
+                        "NormalHoldPostSkillContinueChallenge": {
+                            "enabled": false
+                        },
+                        "NormalHoldPostSkillConfirmChoice": {
+                            "enabled": false
+                        }
+                    }
+                }
+            ]
+        },
         "NormalMode": {
             "type": "select",
             "label": "模式",

@@ -140,23 +140,23 @@ class TelegramBotTest(unittest.TestCase):
         put.assert_not_called()
 
     @patch.object(telegram_bot._outbound, "put")
-    @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "密函无尽"})
-    def test_infinite_99_completion_is_queued(self, snapshot, put) -> None:
+    @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "密函无尽", "stage_count": 50})
+    def test_stage_50_notification_is_queued(self, snapshot, put) -> None:
         telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
 
-        self.assertTrue(telegram_bot.notify_infinite_99_completed())
+        self.assertTrue(telegram_bot.notify_stage_milestone())
 
         snapshot.assert_called_once_with()
         put.assert_called_once_with(
-            "DNA Helper 局内 99 轮已完成\n任务：密函无尽加速\n模式：无尽"
+            "DNA Helper 局内轮次通知\n任务：密函无尽加速\n模式：无尽\n局内轮次：50"
         )
 
     @patch.object(telegram_bot._outbound, "put")
-    @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "普通扼守"})
-    def test_finite_mode_does_not_send_infinite_milestone(self, snapshot, put) -> None:
+    @patch("telegram_bot.progress_state.snapshot", return_value={"mode": "普通扼守", "stage_count": 99})
+    def test_stage_99_does_not_send_old_milestone(self, snapshot, put) -> None:
         telegram_bot._config = {"bot_token": "token", "allowed_chat_id": 123}
 
-        self.assertFalse(telegram_bot.notify_infinite_99_completed())
+        self.assertFalse(telegram_bot.notify_stage_milestone())
 
         snapshot.assert_called_once_with()
         put.assert_not_called()
