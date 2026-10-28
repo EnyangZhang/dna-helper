@@ -243,6 +243,8 @@ RewardConfirmEntry
 
 每个按钮执行三次 Maa 原生输入，间隔 50ms。第三页点击完成后重新进入第一页监听；任一等待阶段出现“再次进行”则自然结束并复用 Telegram 完成通知，也支持用户手动停止。
 
+`RewardConfirmThirdPageByClick` 仍是无尽第三页和驱离局外共用入口，统一使用 `RewardConfirm/space_confirm_choice.png`。既有 `134×33` 图按 Pillow 框 `(5,6,127,25)` 无损裁为 `122×19`，完整保留 Space 键帽与“确认选择”，去掉右侧倒计时及下缘进度条可能干扰的区域；不新增模板分支、选项覆盖或动作节点。ROI `(760,380,360,150)`、阈值 `0.8`、目标 `(920,480)`、原生 `50/50/0ms` 三连击和无输入收尾保持不变。`reference-screenshots/cipher-space-confirm-template-original.png` 保存非运行原图，`tools/extract_cipher_space_template.py` 固定裁剪关系；测试覆盖原图、合成倒计时/底条、负样本和两模式共享链，不将合成验证当作真实密函倒计时页面的实测。第一页、奖励选择和再次进行模板不修改。
+
 奖励选卡独立定义在 `CipherRewardChoice.json`，识别器 `agent/cipher_rewards.py` 只返回图像证据，不发送输入、不改计数、不保存选卡状态。`REWARD_TYPES` 映射 `BioExtract → 生物萃取物/reward_red_cube.png` 与 `Magnet → 精工磁石/reward_magnet.png`；不同奖励只切换物品模板，同一算法、槽位、阈值和点击链保持一致。`page` 只以原第一页确认按钮（原色、原 ROI、阈值 0.80）作为入口；三个固定槽位的物品原色归一化相关阈值均为 0.85，客户区严格为 1280×720。当前奖励的必需模板仅为确认按钮和自己的物品图，不依赖另一种奖励图。非法目标、当前模板缺失或非法尺寸安全拒绝识别，不沿用旧结果。
 
 `inspect_reward_page(..., reward_type=...)` 与 `recognize_reward(..., reward_type=...)` 返回 `reward_type/reward_label/reward_slots/reward_scores/target_slot/confirm_score`，不再把所有目标称为红色。按左到右取第一个命中槽位；`ready` 只在 target=None 或 1 时直接确认默认项，target=2/3 先走对应 `select` 原生三连击，完全不读标题、编号或勾选。第 2/3 张坐标为 `(640,519)/(823,519)`；收尾先检查“再次进行”，再进入 `CipherEndlessRewardConfirmAfterSelect`，只匹配原确认按钮并复用确认二/三击与无输入收尾，鼠标遮挡物品或勾选不会阻断此阶段。
@@ -378,6 +380,8 @@ NormalEndlessAgainDetected
 - 技能开启：连续三帧血条进入本副本唯一一次技能链；技能结束后转入 post-skill 状态，血条恢复不会重新释放。
 - 局外识别“再次进行”后按完成轮次语义计数。
 - 未达到配额时复用普通重开链，等待并点击“开始挑战”。
+
+普通扼守和普通驱离继续复用 `NormalEndlessStartChallengeByClick` 与同一个 `NormalEndlessBoost/start_challenge.png`，不增加节点、选项覆盖或模式专用模板。仅将旧 `135×33` 模板按 `(4,7,125,26)` 无损裁为 `121×19`，保留 Space 键帽与“开始挑战”，避开新增右侧倒计时和下缘进度条；原图保存在非运行的 reference-screenshots 中用于重现。皎皎币和调停等其他独立模板不修改；密函同类裁剪见密函状态机一节。ROI、0.8 阈值、固定点击坐标、三连击时序、收尾与重开状态机不变。提取脚本与回归测试固定原图裁剪关系，并以用户倒计时截图和条带变化验证匹配；该截图不参与生成模板。
 
 ## 技能状态机
 
